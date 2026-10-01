@@ -430,6 +430,64 @@ fn review_regressions() {
     );
 }
 
+/// Runs `cmd` to completion, killing it and failing the test if it outlives `limit` (a looping
+/// launcher). The deadline is kept here rather than with `timeout(1)`, which on Windows can
+/// resolve to `TIMEOUT.EXE` from System32, a different program.
+fn run_within(cmd: &mut Command, limit: std::time::Duration) -> std::process::Output {
+    use std::io::Read as _;
+    let deadline = std::time::Instant::now() + limit;
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("sh is on PATH");
+    let mut stdout = child.stdout.take().expect("stdout is piped");
+    let mut stderr = child.stderr.take().expect("stderr is piped");
+    let (tx_out, rx) = std::sync::mpsc::sync_channel::<(bool, Vec<u8>)>(2);
+    let tx_err = tx_out.clone();
+    std::thread::scope(|s| {
+        std::thread::Builder::new()
+            .name("launcher-stdout".into())
+            .spawn_scoped(s, move || {
+                let mut buf = Vec::new();
+                stdout.read_to_end(&mut buf).expect("stdout is readable");
+                tx_out
+                    .send((true, buf))
+                    .expect("the test thread is listening");
+            })
+            .expect("the stdout reader starts");
+        std::thread::Builder::new()
+            .name("launcher-stderr".into())
+            .spawn_scoped(s, move || {
+                let mut buf = Vec::new();
+                stderr.read_to_end(&mut buf).expect("stderr is readable");
+                tx_err
+                    .send((false, buf))
+                    .expect("the test thread is listening");
+            })
+            .expect("the stderr reader starts");
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        for _ in 0..2 {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            match rx.recv_timeout(left) {
+                Ok((true, buf)) => out = buf,
+                Ok((false, buf)) => err = buf,
+                Err(_) => {
+                    child.kill().expect("the looping launcher can be killed");
+                    child.wait().expect("the killed launcher is reaped");
+                    panic!("the launcher did not finish within {limit:?}");
+                }
+            }
+        }
+        let status = child.wait().expect("the launcher exits");
+        std::process::Output {
+            status,
+            stdout: out,
+            stderr: err,
+        }
+    })
+}
+
 #[test]
 fn launcher_does_not_loop_when_no_binary_exists() {
     let tmp = tempfile::tempdir().unwrap();
@@ -441,19 +499,17 @@ fn launcher_does_not_loop_when_no_binary_exists() {
         &launcher,
     )
     .unwrap();
-    let path = format!(
-        "{}:{}",
-        bin_dir.display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
-    let start = std::time::Instant::now();
-    let out = Command::new("timeout")
-        .args(["5", "sh"])
-        .arg(&launcher)
-        .arg("open")
-        .env("PATH", &path)
-        .output()
+    let parent = std::env::var_os("PATH").unwrap_or_default();
+    let path = std::env::join_paths(std::iter::once(bin_dir).chain(std::env::split_paths(&parent)))
         .unwrap();
+    let start = std::time::Instant::now();
+    let out = run_within(
+        Command::new("sh")
+            .arg(&launcher)
+            .arg("open")
+            .env("PATH", &path),
+        std::time::Duration::from_secs(5),
+    );
     assert_eq!(
         out.status.code(),
         Some(127),
@@ -461,13 +517,13 @@ fn launcher_does_not_loop_when_no_binary_exists() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(start.elapsed().as_secs() < 4);
-    let hook = Command::new("timeout")
-        .args(["5", "sh"])
-        .arg(&launcher)
-        .arg("hook")
-        .env("PATH", &path)
-        .output()
-        .unwrap();
+    let hook = run_within(
+        Command::new("sh")
+            .arg(&launcher)
+            .arg("hook")
+            .env("PATH", &path),
+        std::time::Duration::from_secs(5),
+    );
     assert_eq!(
         hook.status.code(),
         Some(0),
