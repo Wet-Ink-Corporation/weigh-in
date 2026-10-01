@@ -277,9 +277,21 @@ impl Env {
         let path = Path::new(p);
         let root = self.root();
         let rel = if path.is_absolute() {
-            path.strip_prefix(&root)
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|_| path.to_path_buf())
+            // Compare resolved paths first: the surface may spell the path differently from git's
+            // toplevel (8.3 short names, symlinked temp dirs, `..`). A path that no longer exists
+            // cannot be resolved and is compared as given.
+            let resolved = std::fs::canonicalize(path)
+                .ok()
+                .zip(std::fs::canonicalize(&root).ok())
+                .and_then(|(resolved_path, resolved_root)| {
+                    resolved_path
+                        .strip_prefix(&resolved_root)
+                        .ok()
+                        .map(Path::to_path_buf)
+                });
+            resolved
+                .or_else(|| path.strip_prefix(&root).ok().map(Path::to_path_buf))
+                .unwrap_or_else(|| path.to_path_buf())
         } else {
             path.to_path_buf()
         };
@@ -327,5 +339,38 @@ pub fn age(ts: &str) -> String {
         Some(s) if s < 172_800 => format!("{}h", s / 3600),
         Some(s) => format!("{}d", s / 86_400),
         None => "?".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_path_spelled_differently_from_the_toplevel_is_still_in_the_repo() {
+        // Hooks pass paths as the surface spells them: an 8.3 short name on Windows, a symlinked
+        // temp dir on macOS, or `..` components. Git reports the toplevel resolved.
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(repo.join("docs")).expect("docs dir");
+        std::fs::write(repo.join("docs/plan.md"), "# Plan\n").expect("plan written");
+        git::run(&repo, &["init", "-q"]).expect("git init");
+        let env = Env::discover(&repo, None);
+        let roundabout = repo.join("..").join("repo").join("docs").join("plan.md");
+        assert_eq!(env.relative(&roundabout.to_string_lossy()), "docs/plan.md");
+
+        // A sibling reached through `..` stays outside, and a file not written yet still comes
+        // out repo-relative through the lexical comparison.
+        std::fs::create_dir_all(tmp.path().join("other")).expect("other dir");
+        std::fs::write(tmp.path().join("other/x.md"), "x\n").expect("x written");
+        let sibling = env.relative(&repo.join("..").join("other").join("x.md").to_string_lossy());
+        assert!(
+            sibling.starts_with("../") || Path::new(&sibling).is_absolute(),
+            "{sibling}"
+        );
+        assert_eq!(
+            env.relative(&env.root().join("new.md").to_string_lossy()),
+            "new.md"
+        );
     }
 }
