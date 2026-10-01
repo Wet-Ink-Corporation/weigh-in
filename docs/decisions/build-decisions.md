@@ -1,0 +1,134 @@
+# Decisions taken while building and shipping, 2026-09-27 to 2026-10-01
+
+These came up in chat rather than on the board. `D-` entries are Ryan's calls; `B-` entries are
+build calls Claude made, either forced by a platform constraint or as two-way choices, and are
+open to challenge like any other default.
+
+## D-0002
+
+**Cowork runs the ledger through the computer's shell.** 2026-09-28 · amends the Cowork half of
+[wi-b4c1d8](wi-b4c1d8.md) · provenance: Ryan passed on a Cowork session's findings and asked for
+them to be addressed; built as proposed.
+
+Context. In Cowork, skills and hooks run in a cloud workspace whose project folder is scratch and
+is deleted with the session; the user's files sit behind the computer's shell. wi-b4c1d8 had
+Cowork use the board store with no binary, because no binary was thought reachable there. The
+shell on the computer can run the Linux binary against a connected folder.
+
+Decision. When the skill can reach a `weighin` binary from the computer's shell, Cowork runs it
+there against the folder the conversation worked in, so a Cowork folder keeps the same ledger,
+guards and `.kb` atoms as a repo in Claude Code. Without a binary the skill settles in chat and
+hands over Y-statements; the board remains the fallback. The sitting scans the files the
+conversation changed, because `PostToolUse` never sees edits made through the computer's shell.
+Decisions also go into the folder's own ruling or decision log when it keeps one.
+
+## D-0003
+
+**Cowork gets the binary by downloading it from a GitHub release.** 2026-09-28 · provenance: Ryan
+chose option 1 of 3.
+
+Options weighed: (1) download from a GitHub release into the shell's per-chat scratch space,
+checked against a SHA-256 stamped into the skill; (2) copy the binary into each work folder,
+which puts a 4.5 MB executable into synced client folders; (3) one dedicated Weigh-In folder on
+the computer, requested through the folder-access prompt each chat.
+
+Decision. Option 1. `scripts/package-plugin.sh` stamps the version and the Linux binary's
+SHA-256 into the zipped skill; the release workflow builds, stamps and publishes from one build.
+If the download fails or does not match, the skill uses a copy in a connected folder.
+
+Status. Built and tested against a local copy of a release; dormant. The repository is internal
+([D-0007](#d-0007)) and the computer's shell has no GitHub login, so zips are packaged with
+`--no-download` and Cowork uses the copy in a connected `weigh-in` folder.
+
+## D-0004
+
+**The command is `/weigh-in`: plugin `weigh`, skill `weigh-in`.** 2026-09-28 · provenance: Ryan.
+
+History. `/weigh-in:weigh-in` was unwieldy in Claude Code. `/weigh:in` (plugin `weigh`, skill
+`in`) read well in Claude Code but showed as a bare `/in` in Cowork, which lists plugin skills by
+the skill's own name.
+
+Decision. Name the skill so it stands alone, as other plugins do (`inbox-zero` with `iz-rules`,
+`create-cowork-plugin`, `pdf`). Cowork shows `/weigh-in`; Claude Code lists `/weigh:weigh-in` and
+also resolves the bare `/weigh-in` (checked with `claude -p`). The install id stays
+`weigh@weigh-in`.
+
+## D-0005
+
+**One skill with arguments; no split yet.** 2026-09-28 · provenance: Ryan.
+
+The occasional routes (`init`, `digest`, `board`, `sweep`, `stats`) stay arguments of
+`/weigh-in` rather than separate `/weigh-in-digest`-style skills. A split would make them visible
+in both menus and cheaper to run, since they would not load the full sitting instructions; it is
+not wanted now.
+
+## D-0006
+
+**Distribute through the local marketplace for now.** 2026-09-28 · provenance: Ryan.
+
+Claude Code installs from the marketplace in this repository (`/plugin install weigh@weigh-in`).
+Cowork, which only takes plugins from the account, gets zips uploaded under Customize > Plugins.
+
+## D-0007
+
+**Weigh-In lives in `Wet-Ink-Corporation/weigh-in`, internal.** 2026-10-01 · provenance: Ryan
+created the repository and a local clone.
+
+Consequence. Release assets are not public, so the Cowork download ([D-0003](#d-0003)) stays off
+until the repository or its releases are public; see [B-06](#b-06).
+
+## B-01
+
+**The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.
+
+Cowork's connected folders refuse deletes, and both happenstance's WAL and SQLite's default
+DELETE journal delete files beside the database: creating a ledger there failed with
+`SQLITE_IOERR_DELETE` (2570). `Store::open` therefore opens its own connection under
+`journal_mode=TRUNCATE` (`synchronous=FULL`) and copies happenstance's schema from a template
+built on the local temporary disk, inside one `BEGIN IMMEDIATE`. A WAL ledger from 0.1.x converts
+on first open; a stale `-wal` is renamed aside rather than deleted. Reproduced with a shim that
+refuses `unlink`, and confirmed with strace on the computer's mount. Consequence: happenstance is
+held at 0.3.2, and a happenstance schema change will need a migration path ([roadmap](../roadmap.md)).
+
+## B-02
+
+**The ledger location is settable.** 2026-09-28 · Claude's call, two-way.
+
+First match wins: `--store`, `$WEIGHIN_STORE`, `store` in `.kb/_ledger/config.json`
+(`init --ledger`), the git common dir, then `<folder>/.weighin/` outside git. The in-folder default
+is safe on one computer; a synced folder used from several computers should point `store`
+outside the synced tree.
+
+## B-03
+
+**Plugin binaries live in `libexec/`, not `bin/`.** 2026-09-28 · forced: claude.ai rejects hosted
+plugins with a top-level `bin/`, because Claude Code adds it to PATH outside the admin approval
+surface. Hooks and the skill call the launcher by path; `package-plugin.sh` refuses a `plugin/bin`.
+
+## B-04
+
+**Hooks write nothing in Cowork.** 2026-09-28 · Claude's call, two-way.
+
+Under `CLAUDE_CODE_ENTRYPOINT=remote_cowork` the project folder is scratch, so `SessionStart`
+prints the marker convention, `Stop` nudges on one-way markers, and nothing is written; the
+sitting's sweep is the capture.
+
+## B-05
+
+**One binary version at a time.** 2026-09-28 · Claude's call, two-way.
+
+The launcher prefers the first target listed unless a later one is a newer build, so a stale
+native Windows build cannot shadow a fresh cross-build. The stale 0.1.1 msvc build was removed
+from the local marketplace, since versions differ in journal mode.
+
+## B-06
+
+**The repository was seeded as one commit on top of GitHub's initial commit.** 2026-10-01 ·
+Claude's call, two-way.
+
+The pre-GitHub history stays only in the local branch `archive/pre-github`: it named a client's
+Azure DevOps organisation in a test fixture and carried a stray telemetry file. GitHub's single
+MIT `LICENSE` is replaced by `LICENSE-MIT` and `LICENSE-APACHE`, matching
+`license = "MIT OR Apache-2.0"`. The release workflow packages with `--no-download` unless the
+repository is public, so a release from this internal repository never points Cowork at a
+download it cannot reach.

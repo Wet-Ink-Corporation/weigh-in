@@ -1,0 +1,5 @@
+# Pinned to redkiln-rs's channel so weighin-core stays adoptable there as-is.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

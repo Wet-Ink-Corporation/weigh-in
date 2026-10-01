@@ -1,0 +1,37 @@
+[workspace]
+resolver = "3"
+members = ["crates/weighin-core", "crates/weighin"]
+
+[workspace.package]
+version = "0.2.1"
+edition = "2024"
+# Same pin as redkiln-rs (rust-toolchain.toml there), so weighin-core can be adopted as a crate.
+rust-version = "1.98.1"
+license = "MIT OR Apache-2.0"
+authors = ["Ryan Britton <ryan.britton@wet-ink.net>"]
+repository = "https://github.com/Wet-Ink-Corporation/weigh-in"
+
+[workspace.dependencies]
+weighin-core = { path = "crates/weighin-core" }
+happenstance-core = { version = "0.3.2", features = ["serde"] }
+happenstance-sqlite = "0.3.2"
+tokio = { version = "1", default-features = false, features = ["rt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,15 @@
+{
+  "name": "weigh-in",
+  "description": "Weigh-In: a decision ledger for agent sessions. Install weigh@weigh-in; the command is /weigh-in.",
+  "owner": {
+    "name": "Ryan Britton",
+    "email": "ryan.britton@wet-ink.net"
+  },
+  "plugins": [
+    {
+      "name": "weigh",
+      "source": "./plugin",
+      "description": "Decision ledger for agent sessions: capture, filter, and settle the questions agents leave behind."
+    }
+  ]
+}
