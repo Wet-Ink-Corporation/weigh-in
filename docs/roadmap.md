@@ -27,10 +27,6 @@ the Cowork route through the computer's shell, and the local marketplace.
   change needs a migration step in `Store::open`.
 - **`weighin.cmd` prefers the msvc build** whatever its age; the `sh` launcher prefers the newer
   build. Rebuild msvc with `scripts/build-plugin-bins.ps1` whenever the Rust code changes.
-- **Paths are matched to the repository by resolving them**, so an existing file under an 8.3
-  short name or a symlinked temp dir counts as in the repo. A file that does not exist yet, and
-  an absolute `--at path:line` anchor (`ops.rs` passes the whole anchor), still compare as
-  spelled. Closing it: resolve the nearest existing ancestor, and split the anchor first.
 - **The default owner is `ryan`** (`human:ryan` in records) unless `init --owner` sets it.
 - **Sitting cost is above the estimate:** $0.42–0.57 measured on Sonnet against $0.28, mostly the
   batch JSON and card output.

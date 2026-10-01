@@ -144,3 +144,16 @@ rustdoc under `-D warnings` was failing unnoticed. `.github/workflows/ci.yml` ru
 Windows, and the release workflow calls it instead of keeping its own copy. Dependabot opens
 weekly update PRs for actions and Cargo minor and patch versions; Cargo majors (H-16) and
 happenstance ([B-01](#b-01)) are held back.
+
+## B-08
+
+**A path is in the repository when its resolved form is under the resolved toplevel.**
+2026-10-01 · Claude's call, two-way.
+
+Hooks and agents spell paths as their surface does: 8.3 short names on Windows, symlinked temp
+dirs on macOS, `..` components, and files not written yet. `Env::relative` resolves the nearest
+existing directory, folds the rest (`..`, `.`) itself, and compares that with git's toplevel;
+anchors keep their `:line:col`. When both sides resolve, that answer stands, so a file under an
+in-repo directory symlink that points out of the repository is outside, as git treats it: it is
+not scanned and nothing is annotated through the link. The file name itself is never resolved,
+so an in-repo file symlink keeps its own name.
