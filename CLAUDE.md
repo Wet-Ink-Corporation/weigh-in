@@ -18,10 +18,16 @@ what it does, `docs/decisions/` before changing behaviour, and `docs/roadmap.md`
 cargo test --workspace
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 ./scripts/build-plugin-bins.sh               # binaries into plugin/libexec/<target>/
 ./scripts/package-plugin.sh --no-download    # dist/weigh-in-plugin-<version>.zip
 claude plugin validate .                     # marketplace and plugin manifests
 ```
+
+These four are what `.github/workflows/ci.yml` runs on every push to `main` and every pull
+request, on Linux and Windows; the release workflow runs the same checks before it builds.
+Dependabot (`.github/dependabot.yml`) opens weekly update PRs, holding back Cargo majors and
+happenstance (B-01).
 
 Toolchain is pinned to redkiln-rs's (Rust 1.98.1, edition 2024), because redkiln-rs is where
 Weigh-In ends up (wi-b4c1d8). Line endings are LF everywhere (`.gitattributes`).

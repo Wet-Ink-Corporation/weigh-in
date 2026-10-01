@@ -1,0 +1,20 @@
+# Weekly update PRs for the release workflow's actions and for Cargo dependencies. Cargo majors
+# and happenstance are held back: majors are a human call, and happenstance is pinned at 0.3.2
+# until Store::open can migrate its schema (B-01, docs/roadmap.md).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "happenstance-*"
+    groups:
+      cargo-minor:
+        update-types: [minor, patch]

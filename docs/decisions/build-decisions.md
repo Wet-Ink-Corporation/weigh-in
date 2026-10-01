@@ -132,3 +132,15 @@ MIT `LICENSE` is replaced by `LICENSE-MIT` and `LICENSE-APACHE`, matching
 `license = "MIT OR Apache-2.0"`. The release workflow packages with `--no-download` unless the
 repository is public, so a release from this internal repository never points Cowork at a
 download it cannot reach.
+
+## B-07
+
+**Every push to `main` and every pull request runs the gate in CI.** 2026-10-01 · Claude's call,
+two-way.
+
+Until now only a release tag ran tests and clippy, so a broken `main` surfaced at release time;
+rustdoc under `-D warnings` was failing unnoticed. `.github/workflows/ci.yml` runs `cargo fmt
+--check`, clippy with `-D warnings`, the tests and rustdoc with `-D warnings`, on Linux and
+Windows, and the release workflow calls it instead of keeping its own copy. Dependabot opens
+weekly update PRs for actions and Cargo minor and patch versions; Cargo majors (H-16) and
+happenstance ([B-01](#b-01)) are held back.

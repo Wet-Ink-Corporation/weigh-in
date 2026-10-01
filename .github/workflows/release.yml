@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  test:
+  versions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,11 +21,12 @@ jobs:
           v="${GITHUB_REF_NAME#v}"
           grep -q "\"version\": \"$v\"" plugin/.claude-plugin/plugin.json
           grep -q "^version = \"$v\"" Cargo.toml
-      - run: cargo test --workspace
-      - run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    uses: ./.github/workflows/ci.yml
 
   build:
-    needs: test
+    needs: [versions, test]
     strategy:
       matrix:
         include:

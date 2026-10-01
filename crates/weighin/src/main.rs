@@ -138,7 +138,7 @@ enum Cmd {
         #[arg(long)]
         reason: Option<String>,
     },
-    /// Dismiss: not-useful, recoverable, moot, already-decided:<ref>, duplicate-of:<id>, not-my-call:<who>.
+    /// Dismiss: `not-useful`, `recoverable`, `moot`, `already-decided:<ref>`, `duplicate-of:<id>`, `not-my-call:<who>`.
     Dismiss {
         id: String,
         why: String,

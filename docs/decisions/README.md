@@ -68,3 +68,4 @@ Details in [`build-decisions.md`](build-decisions.md).
 | [B-04](build-decisions.md#b-04) | Hooks write nothing in Cowork | 2026-09-28 | Claude, two-way |
 | [B-05](build-decisions.md#b-05) | One binary version at a time | 2026-09-28 | Claude, two-way |
 | [B-06](build-decisions.md#b-06) | Seeded as one commit on GitHub's initial commit; dual licence files; no download stamp unless public | 2026-10-01 | Claude, two-way |
+| [B-07](build-decisions.md#b-07) | CI runs the gate on every push to `main` and every pull request; Dependabot for actions and Cargo | 2026-10-01 | Claude, two-way |
