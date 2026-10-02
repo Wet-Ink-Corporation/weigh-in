@@ -238,3 +238,24 @@ misunderstand it. A happenstance schema change becomes one more step, which is t
 0.3.2. Tests build a 0.1.x WAL ledger and a 0.2.2 TRUNCATE ledger in the test, the latter from
 event payloads copied out of a ledger the 0.2.2 release wrote; older builds ignore the pragma,
 so a 0.2.2 binary still opens a stamped ledger.
+
+## B-11
+
+**SessionStart tells the user when capture is off.** 2026-10-02 · Claude's call, two-way.
+
+The message goes in `systemMessage`, which Claude Code shows to the user; plain SessionStart
+stdout reaches only Claude's context, so the prime moves to `hookSpecificOutput.additionalContext`
+whenever there is something to say, and stays plain stdout otherwise. Two cases:
+
+- No binary. The `sh` launcher cannot parse the hook's JSON, so `hooks.json` passes the event
+  name (`hook SessionStart`); the launcher drops it before running a binary, since the binary
+  reads the event from stdin and an older one would refuse the extra argument. With no binary it
+  prints a fixed JSON line (only `uname` output is interpolated, so nothing needs escaping).
+- Hook errors. SessionStart counts `hook-errors.log` lines past the offset kept in
+  `hook-errors.seen` beside it, reports the count and the last line, and moves the offset, so each
+  line is reported once. A SessionStart that fails itself is logged first and reported in the same
+  message, and Claude still gets the convention. The offset file is overwritten, never deleted
+  ([B-01](#b-01)), and nothing is written when there is no log.
+
+Under `CLAUDE_CODE_ENTRYPOINT=remote_cowork` neither is said ([B-04](#b-04)): Cowork captures
+through the sitting's sweep, not hooks, so "capture is off" would be wrong there.

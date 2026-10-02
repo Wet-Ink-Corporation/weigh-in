@@ -300,6 +300,77 @@ fn hooks_never_fail_a_session() {
 }
 
 #[test]
+fn session_start_reports_hook_errors_since_the_last_session() {
+    let (_tmp, repo) = setup();
+    let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
+    let state = repo.join(".git/weighin");
+    std::fs::create_dir_all(&state).unwrap();
+    let log = state.join("hook-errors.log");
+    std::fs::write(
+        &log,
+        "2026-10-02T09:00:00Z Stop: opening ledger: disk full\n2026-10-02T09:01:00Z PostToolUse: \"quoted\" failure\n",
+    )
+    .unwrap();
+
+    // Two new lines: one message for the user, the prime still in Claude's context.
+    let out: Value = serde_json::from_str(&hook(&repo, &start)).unwrap();
+    let message = out["systemMessage"].as_str().unwrap();
+    assert!(
+        message.contains("2 hook error(s)")
+            && message.contains("\"quoted\" failure")
+            && message.contains("hook-errors.log"),
+        "{message}"
+    );
+    assert!(!message.contains('\n'), "one line: {message}");
+    assert_eq!(out["hookSpecificOutput"]["hookEventName"], "SessionStart");
+    assert!(
+        out["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap()
+            .contains("```weigh-in")
+    );
+
+    // Reported once: the next session is the plain prime.
+    let again = hook(&repo, &start);
+    assert!(
+        again.starts_with("Weigh-In (startup)") && !again.contains("systemMessage"),
+        "{again}"
+    );
+
+    // A line added later is the only one counted.
+    let mut f = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+    writeln!(f, "2026-10-02T10:00:00Z Stop: locked").unwrap();
+    let out: Value = serde_json::from_str(&hook(&repo, &start)).unwrap();
+    let message = out["systemMessage"].as_str().unwrap();
+    assert!(
+        message.contains("1 hook error(s)") && message.contains("Stop: locked"),
+        "{message}"
+    );
+
+    // A ledger SessionStart cannot read is reported in the same session, and Claude still gets
+    // the convention.
+    let folder = repo.parent().unwrap().join("broken");
+    std::fs::create_dir_all(folder.join(".weighin")).unwrap();
+    std::fs::write(folder.join(".weighin/ledger.sqlite3"), b"not a database").unwrap();
+    let out: Value = serde_json::from_str(&hook(
+        &folder,
+        &json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": folder}),
+    ))
+    .unwrap();
+    let message = out["systemMessage"].as_str().unwrap();
+    assert!(
+        message.contains("1 hook error(s)") && message.contains("SessionStart"),
+        "{message}"
+    );
+    assert!(
+        out["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap()
+            .contains("```weigh-in")
+    );
+}
+
+#[test]
 fn batch_refs_reach_items_raised_in_the_same_call() {
     let (_tmp, repo) = setup();
     let batch = json!([
@@ -531,6 +602,90 @@ fn launcher_does_not_loop_when_no_binary_exists() {
         hook.status.code(),
         Some(0),
         "a missing binary never fails a hook"
+    );
+    assert!(hook.stdout.is_empty(), "only SessionStart speaks");
+
+    // SessionStart says capture is off, in a message shown to the user, and still exits 0.
+    let start = run_within(
+        Command::new("sh")
+            .arg(&launcher)
+            .args(["hook", "SessionStart"])
+            .env("PATH", &path)
+            .env_remove("CLAUDE_CODE_ENTRYPOINT"),
+        limit,
+    );
+    assert_eq!(start.status.code(), Some(0));
+    let out: Value = serde_json::from_slice(&start.stdout).unwrap();
+    assert!(
+        out["systemMessage"]
+            .as_str()
+            .unwrap()
+            .contains("capture is off"),
+        "{out}"
+    );
+
+    // Cowork captures through the sitting, not hooks: nothing is said there (B-04).
+    let cowork = run_within(
+        Command::new("sh")
+            .arg(&launcher)
+            .args(["hook", "SessionStart"])
+            .env("PATH", &path)
+            .env("CLAUDE_CODE_ENTRYPOINT", "remote_cowork"),
+        limit,
+    );
+    assert_eq!(cowork.status.code(), Some(0));
+    assert!(cowork.stdout.is_empty());
+}
+
+/// The target directory the `sh` launcher looks in first on this platform.
+fn launcher_target() -> Option<(&'static str, &'static str)> {
+    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Some(("x86_64-unknown-linux-musl", ""))
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some(("aarch64-apple-darwin", ""))
+    } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Some(("x86_64-pc-windows-msvc", ".exe"))
+    } else {
+        None
+    }
+}
+
+#[test]
+fn launcher_passes_session_start_to_the_binary_without_the_event_name() {
+    let Some((target, ext)) = launcher_target() else {
+        return;
+    };
+    let (_tmp, repo) = setup();
+    let plugin = repo.parent().unwrap().join("plugin");
+    std::fs::create_dir_all(plugin.join(target)).unwrap();
+    let launcher = plugin.join("weighin");
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugin/libexec/weighin"),
+        &launcher,
+    )
+    .unwrap();
+    std::fs::copy(bin(), plugin.join(target).join(format!("weighin{ext}"))).unwrap();
+    let payload = repo.parent().unwrap().join("start.json");
+    std::fs::write(
+        &payload,
+        json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"})
+            .to_string(),
+    )
+    .unwrap();
+    let out = run_within(
+        Command::new("sh")
+            .arg(&launcher)
+            .args(["hook", "SessionStart"])
+            .env_remove("CLAUDE_CODE_ENTRYPOINT")
+            .stdin(std::fs::File::open(&payload).unwrap()),
+        std::time::Duration::from_secs(30),
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.starts_with("Weigh-In (startup): session s1"),
+        "{text}{}",
+        String::from_utf8_lossy(&out.stderr)
     );
 }
 
