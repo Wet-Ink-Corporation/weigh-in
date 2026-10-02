@@ -238,6 +238,7 @@ misunderstand it. A happenstance schema change becomes one more step, which is t
 0.3.2. Tests build a 0.1.x WAL ledger and a 0.2.2 TRUNCATE ledger in the test, the latter from
 event payloads copied out of a ledger the 0.2.2 release wrote; older builds ignore the pragma,
 so a 0.2.2 binary still opens a stamped ledger.
+
 ## B-11
 
 **SessionStart tells the user when capture is off.** 2026-10-02 · Claude's call, two-way.
