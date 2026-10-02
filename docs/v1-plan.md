@@ -73,18 +73,17 @@ by hand.
 
 ## Decisions
 
-Ryan answered P-1, P-2, P-4 and P-5 on 2026-10-02; they are recorded as D-0008 to D-0011 in
-[`build-decisions.md`](decisions/build-decisions.md). P-3 and P-6 are still open, each with a
-recommendation.
+Ryan answered all six on 2026-10-02; they are recorded as D-0008 to D-0013 in
+[`build-decisions.md`](decisions/build-decisions.md).
 
 | # | Question | Answer | Effect on the plan |
 |---|---|---|---|
 | P-1 | What does "v1 live" mean? | **Daily use by Ryan** (D-0008) | Exit criteria are Ryan's own machines and Cowork; no install path for other people, and the `ryan` owner default stops blocking |
 | P-2 | Where do installable binaries come from outside the zip? | **A built marketplace in this internal repository** (D-0009) | The release workflow publishes the built plugin to a `marketplace` branch here |
-| P-3 | Should release assets be public? | Open. Recommended: **(c) stay internal for v1** | See below |
+| P-3 | Should release assets be public? | **Stay internal for v1** (D-0012) | One repository; Cowork through a connected checkout |
 | P-4 | Does this repository use Weigh-In on itself? | **Yes** (D-0010) | Phase 1, step 1 |
 | P-5 | Where does open work live? | **GitHub Issues** (D-0011) | Phase 0, step 3 |
-| P-6 | Is any slice 2 work in v1? | Open. Recommended: **none, unless the Phase 3 metrics miss** | See below |
+| P-6 | Is any slice 2 work in v1? | **None, unless not-useful exceeds 10%** (D-0013) | Per-category suppression is conditional in Phase 3 |
 
 **P-3: public assets, and whether cleaning up the research avoids a second repository.** The
 second repository was only ever a way to make release assets public. Nothing else needed it. So
@@ -120,7 +119,7 @@ lower-bound estimates:
 | Door classifier for unattended runs | An independent model judges one-way or two-way before an unattended run defaults anything ([wi-4d8b6a](decisions/wi-4d8b6a.md)) | not estimated |
 | Slice 3: Redkiln-native | `decision` item type in redkiln-rs, kb-ingest of intake keys, AFK gating, a "Needs you" column, an SDK pause loop ([wi-e15c77](decisions/wi-e15c77.md)) | 15 h |
 
-Recommended: none of it is in v1, with one conditional exception. If Phase 3's not-useful rate
+Decided (D-0013): none of it is in v1, with one conditional exception. If Phase 3's not-useful rate
 misses its 10% bar, per-category suppression comes into v1, because it is the design's fix for
 exactly that miss. Everything else serves client repos, unattended runs or Redkiln, and v1 needs
 none of those for Ryan's daily use.
@@ -190,7 +189,7 @@ issue in the `v1.0` milestone, and CI covers macOS and the plugin package.
    launcher already sets it (`chmod +x`) when it is missing.
 3. **Cowork binary**: keep a local checkout of the `marketplace` branch and connect it once to
    Cowork, so the skill's connected-folder fallback finds the Linux binary. Upload the release
-   zip under Customize > Plugins. Releases stay `--no-download` (P-3).
+   zip under Customize > Plugins. Releases stay `--no-download` (D-0012).
 4. **Developer route unchanged**: `main`'s `marketplace.json` and `scripts/build-plugin-bins.*`
    stay for `--plugin-dir` and local builds.
 5. **Install guide**, separate from the developer build steps in `README.md`: install, update,
@@ -247,5 +246,5 @@ Slice 2 as in `roadmap.md`: the Sonnet grounder and stability check, `weighin se
 client repos, per-category suppression, just-in-time surfacing, reliance drills (wi-2b90f3), the
 door classifier for unattended runs (wi-4d8b6a, which also settles the open model-key question),
 the board from Cowork, the owner default taken from git config (needed once anyone but Ryan
-uses it), going public (P-3), and the move into redkiln-rs with kb-ingest of the intake keys
+uses it), going public (D-0012), and the move into redkiln-rs with kb-ingest of the intake keys
 (wi-e15c77, wi-b4c1d8).

@@ -66,6 +66,8 @@ Details in [`build-decisions.md`](build-decisions.md).
 | [D-0009](build-decisions.md#d-0009) | Claude Code installs from a built `marketplace` branch in this internal repository (amends D-0006) | 2026-10-02 | Ryan |
 | [D-0010](build-decisions.md#d-0010) | This repository uses Weigh-In on itself | 2026-10-02 | Ryan |
 | [D-0011](build-decisions.md#d-0011) | Open work lives in GitHub Issues | 2026-10-02 | Ryan |
+| [D-0012](build-decisions.md#d-0012) | Release assets stay internal for v1; one repository | 2026-10-02 | Ryan |
+| [D-0013](build-decisions.md#d-0013) | No slice 2 work in v1, unless not-useful exceeds 10% | 2026-10-02 | Ryan |
 | [B-01](build-decisions.md#b-01) | The ledger runs under a TRUNCATE journal | 2026-09-28 | Forced by Cowork's refused deletes |
 | [B-02](build-decisions.md#b-02) | The ledger location is settable | 2026-09-28 | Claude, two-way |
 | [B-03](build-decisions.md#b-03) | Plugin binaries live in `libexec/`, not `bin/` | 2026-09-28 | Forced by claude.ai's plugin validation |
@@ -74,3 +76,4 @@ Details in [`build-decisions.md`](build-decisions.md).
 | [B-06](build-decisions.md#b-06) | Seeded as one commit on GitHub's initial commit; dual licence files; no download stamp unless public | 2026-10-01 | Claude, two-way |
 | [B-07](build-decisions.md#b-07) | CI runs the gate on every push to `main` and every pull request; Dependabot for actions and Cargo | 2026-10-01 | Claude, two-way |
 | [B-08](build-decisions.md#b-08) | A path is in the repository when its resolved form is under the resolved toplevel | 2026-10-01 | Claude, two-way |
+| [B-09](build-decisions.md#b-09) | Phase 0 repository setup: changelog-driven releases, macOS, plugin and cargo-deny CI | 2026-10-02 | Claude, two-way |

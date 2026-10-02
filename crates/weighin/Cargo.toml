@@ -7,6 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+# Internal (D-0007): never published to crates.io.
+publish = false
 
 [[bin]]
 name = "weighin"
