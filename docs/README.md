@@ -7,6 +7,7 @@
 | [`research/reports/Shipping native binaries in plugins.md`](<research/reports/Shipping native binaries in plugins.md>) | (2026-10-01) How to ship a Rust binary in a Claude Code plugin: Node availability per surface, with a Cowork check, prior art across ecosystems, and a recommendation for temper; notes in [`research/research_notes/`](research/research_notes/) |
 | [`decisions/`](decisions/README.md) | Every decision so far: settled questions, the board sitting, defaults, and the calls made while building |
 | [`roadmap.md`](roadmap.md) | What is not yet verified, known gaps, and slice 2 |
+| [`v1-plan.md`](v1-plan.md) | (2026-10-02) Evaluation of the repository at 0.2.2 and the plan to v1 in active use, starting with source control |
 
 Research notes:
 
