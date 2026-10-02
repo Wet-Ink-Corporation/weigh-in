@@ -10,6 +10,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   plugin package and the changelog, and runs `cargo deny`; release notes come from this file and
   a release tag must be on `main`; pull request template, CODEOWNERS, a pre-push guard for
   `archive/*` branches, and a SessionStart hook for Claude Code cloud sessions.
+- The ledger carries a schema version (`PRAGMA user_version`, now 1). Ledgers from 0.1.x (WAL)
+  and 0.2.x (TRUNCATE) are stamped on first open and read as before; a ledger stamped by a newer
+  build is refused, untouched, with a message to upgrade `weighin` (B-10).
 
 ## 0.2.2 — 2026-10-01
 

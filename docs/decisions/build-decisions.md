@@ -222,3 +222,19 @@ Unicode-3.0, Unlicense). Both crates are `publish = false`, which cargo-deny nee
 workspace path dependency, and which matches D-0007. An `archive/*` pre-push guard lives in
 `.githooks/`, opted into per clone. Claude Code cloud sessions run a synchronous SessionStart
 hook that installs the toolchain and pre-builds the tests.
+
+## B-10
+
+**The ledger's schema version is `PRAGMA user_version`; newer ledgers are refused.** 2026-10-02 ·
+Claude's call, two-way · closes the migration gap [B-01](#b-01) left.
+
+happenstance keeps its own migration counter in `store_meta` and never touches `user_version`,
+so the pragma is free for Weigh-In's own version: 1 is happenstance 0.3.2's schema under
+TRUNCATE. A new ledger is stamped in the transaction that copies its schema. A 0.1.x or 0.2.x
+ledger reads 0 and is migrated step by step in one `BEGIN IMMEDIATE` (0 → 1 changes nothing);
+a ledger already current is not written to. A ledger stamped higher than the build knows is
+refused with "upgrade weighin" and left untouched, rather than read by a build that may
+misunderstand it. A happenstance schema change becomes one more step, which is the way past
+0.3.2. Tests build a 0.1.x WAL ledger and a 0.2.2 TRUNCATE ledger in the test, the latter from
+event payloads copied out of a ledger the 0.2.2 release wrote; older builds ignore the pragma,
+so a 0.2.2 binary still opens a stamped ledger.
