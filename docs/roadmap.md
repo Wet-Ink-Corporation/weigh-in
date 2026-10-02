@@ -1,7 +1,8 @@
 # Roadmap and open items
 
 State at 0.2.2 (2026-10-01). Slice 1 is built: capture, the in-chat sitting, decision records,
-the Cowork route through the computer's shell, and the local marketplace.
+the Cowork route through the computer's shell, and the local marketplace. The path from here to
+v1 is in [`v1-plan.md`](v1-plan.md).
 
 ## Not yet verified
 

@@ -1,4 +1,4 @@
-# Decisions taken while building and shipping, 2026-09-27 to 2026-10-01
+# Decisions taken while building and shipping, 2026-09-27 to 2026-10-02
 
 These came up in chat rather than on the board. `D-` entries are Ryan's calls; `B-` entries are
 build calls Claude made, either forced by a platform constraint or as two-way choices, and are
@@ -76,6 +76,40 @@ created the repository and a local clone.
 
 Consequence. Release assets are not public, so the Cowork download ([D-0003](#d-0003)) stays off
 until the repository or its releases are public; see [B-06](#b-06).
+
+## D-0008
+
+**v1 means daily use by Ryan.** 2026-10-02 · provenance: Ryan, answering P-1 of the
+[v1 plan](../v1-plan.md#decisions).
+
+v1 is live when Ryan uses `/weigh-in` daily on his own machines and in Cowork. Installing for
+other people, a public plugin, and an owner default other than `ryan` are not v1 work.
+
+## D-0009
+
+**Claude Code installs from a built marketplace in this internal repository.** 2026-10-02 ·
+amends [D-0006](#d-0006) · provenance: Ryan, answering P-2 of the [v1 plan](../v1-plan.md#decisions).
+
+The release workflow publishes the built plugin, binaries included, to a `marketplace` branch
+here, and Claude Code installs from `Wet-Ink-Corporation/weigh-in#marketplace` with the
+machine's git credentials. The local marketplace on `main` stays for development. Cowork still
+gets the uploaded zip.
+
+## D-0010
+
+**This repository uses Weigh-In on itself.** 2026-10-02 · provenance: Ryan, answering P-4 of
+the [v1 plan](../v1-plan.md#decisions).
+
+`init --class own` here, `.kb/` committed, and new decisions go through `/weigh-in`. The
+hand-kept records in this folder stay as the history before that.
+
+## D-0011
+
+**Open work lives in GitHub Issues.** 2026-10-02 · provenance: Ryan, answering P-5 of the
+[v1 plan](../v1-plan.md#decisions).
+
+Verification items, known gaps and plan tasks are issues under a `v1.0` milestone;
+`docs/roadmap.md` summarises and links them.
 
 ## B-01
 
