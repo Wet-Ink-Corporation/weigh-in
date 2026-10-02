@@ -175,6 +175,20 @@ issue in the `v1.0` milestone, and CI covers macOS and the plugin package.
 4. **Launcher parity**: `weighin.cmd` picks the newer of msvc and gnu, as the `sh` launcher does (B-05).
 5. Bump to 0.3.0 and release.
 
+**Done 2026-10-02** (0.3.0; released when Ryan pushes `v0.3.0`). Each step landed as its own PR:
+[#31](https://github.com/Wet-Ink-Corporation/weigh-in/pull/31) launcher parity (#10),
+[#32](https://github.com/Wet-Ink-Corporation/weigh-in/pull/32) ledger schema version and 0.1.x/0.2.2
+upgrade fixtures (#8, [B-10](decisions/build-decisions.md#b-10)),
+[#33](https://github.com/Wet-Ink-Corporation/weigh-in/pull/33) SessionStart says when capture is off
+(#9, [B-11](decisions/build-decisions.md#b-11)),
+[#34](https://github.com/Wet-Ink-Corporation/weigh-in/pull/34) Weigh-In used here (#7; ledger at the
+default location, [D-0014](decisions/build-decisions.md#d-0014); cloud sessions wired through the
+repository because they do not install plugins, [B-12](decisions/build-decisions.md#b-12)), and
+[#35](https://github.com/Wet-Ink-Corporation/weigh-in/pull/35) the 0.3.0 bump (#11). What differs from
+the steps above: the 0.2.2 fixture is built in the test from event payloads a real 0.2.2 ledger
+holds, rather than a committed database; and SessionStart reports through `systemMessage`, since
+plain SessionStart output reaches only Claude.
+
 ### Phase 2 — Distribution from the internal repository (about 2 days) → 0.4.0
 
 1. **Marketplace branch (D-0009)**: after publishing the release, `release.yml` force-pushes a
