@@ -4,6 +4,14 @@
 # one. Hooks and the skill call this launcher by path.
 # Falls back to a `weighin` on PATH (cargo install --path crates/weighin). Hooks never fail a session.
 dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# hooks.json names the SessionStart event (`hook SessionStart`) so that this script, which cannot
+# parse the hook's JSON, knows when to say capture is off. The binary reads the event from stdin,
+# so the name is dropped before it runs: an older weighin would refuse the extra argument.
+event=""
+if [ "${1:-}" = "hook" ] && [ $# -ge 2 ]; then
+  event=$2
+  set -- hook
+fi
 ext=""
 case "$(uname -s 2>/dev/null)-$(uname -m 2>/dev/null)" in
   Linux-x86_64)            targets="x86_64-unknown-linux-musl x86_64-unknown-linux-gnu" ;;
@@ -34,7 +42,13 @@ if [ -z "${WEIGHIN_LAUNCHER:-}" ]; then
     WEIGHIN_LAUNCHER=1 exec "$found" "$@"
   fi
 fi
-if [ "$1" = "hook" ]; then
+if [ "${1:-}" = "hook" ]; then
+  # Hooks never fail a session. SessionStart says why capture is off, as a message shown to the
+  # user; Cowork captures through the sitting's sweep, not hooks, so it says nothing there (B-04).
+  if [ "$event" = "SessionStart" ] && [ "${CLAUDE_CODE_ENTRYPOINT:-}" != "remote_cowork" ]; then
+    printf '{"systemMessage":"Weigh-In: capture is off. This plugin has no weighin binary for %s; build one with scripts/build-plugin-bins.sh or install a release that ships it."}\n' \
+      "$(uname -s 2>/dev/null)-$(uname -m 2>/dev/null)"
+  fi
   exit 0
 fi
 echo "weighin: no binary for $(uname -s)-$(uname -m) under $dir; build one with scripts/build-plugin-bins.sh or cargo install --path crates/weighin" >&2

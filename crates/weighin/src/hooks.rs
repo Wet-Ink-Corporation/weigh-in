@@ -6,7 +6,9 @@
 //! * `PostToolUse` (Write, Edit, MultiEdit) scans only the text the tool wrote.
 //!
 //! These are command hooks: they cost no model tokens. They never fail a session: any error is
-//! appended to `<state dir>/hook-errors.log` and the hook exits 0 with no output.
+//! appended to `<state dir>/hook-errors.log` and the hook exits 0 with no output. The next
+//! `SessionStart` counts the lines added since the last one and tells the user, so capture is
+//! never off without a word. (The launcher says so itself when it finds no binary.)
 //!
 //! In Cowork (`CLAUDE_CODE_ENTRYPOINT=remote_cowork`) hooks run in the cloud workspace, whose
 //! project directory is a scratch folder deleted with the session, while the user's files and
@@ -50,13 +52,13 @@ pub fn run(stdin: &str) -> String {
         };
     }
     let result = match event {
-        "SessionStart" => prime(
-            &env,
-            payload
+        "SessionStart" => {
+            let source = payload
                 .get("source")
                 .and_then(Value::as_str)
-                .unwrap_or("startup"),
-        ),
+                .unwrap_or("startup");
+            return session_start(&env, source);
+        }
         "Stop" | "SubagentStop" => capture(&env, &payload),
         "PostToolUse" => scan(&env, &payload),
         _ => Ok(String::new()),
@@ -81,6 +83,62 @@ fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
     {
         let _ = writeln!(f, "{} {event}: {e:#}", env::now());
     }
+}
+
+/// `SessionStart`: the prime for Claude's context and, when hooks have failed since the last
+/// session, a one-line message for the user. A prime that fails is logged and reported with the
+/// rest, and Claude still gets the convention.
+fn session_start(env: &Env, source: &str) -> String {
+    let context = prime(env, source).unwrap_or_else(|e| {
+        log_error(env, "SessionStart", &e);
+        CONVENTION.to_owned()
+    });
+    match new_errors(env) {
+        // Plain stdout reaches only Claude; `systemMessage` is shown to the user.
+        Some(message) => serde_json::json!({
+            "systemMessage": message,
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": context,
+            },
+        })
+        .to_string(),
+        None => context,
+    }
+}
+
+/// How far `hook-errors.log` had been reported, as a byte offset, beside the log.
+const ERRORS_SEEN: &str = "hook-errors.seen";
+
+/// The lines added to `hook-errors.log` since the last `SessionStart` reported it, as a message;
+/// records the log's length so each line is reported once. Writes nothing when there is no log,
+/// and overwrites rather than deletes (B-01).
+fn new_errors(env: &Env) -> Option<String> {
+    let dir = env.state_dir();
+    let log_path = dir.join("hook-errors.log");
+    let log = std::fs::read(&log_path).ok()?;
+    let seen = std::fs::read_to_string(dir.join(ERRORS_SEEN))
+        .ok()
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .filter(|&n| n <= log.len())
+        .unwrap_or(0);
+    if seen == log.len() {
+        return None;
+    }
+    let _ = std::fs::write(dir.join(ERRORS_SEEN), log.len().to_string());
+    let added = String::from_utf8_lossy(&log[seen..]);
+    let lines: Vec<&str> = added.lines().filter(|l| !l.trim().is_empty()).collect();
+    let last = lines.last()?;
+    let last: String = if last.chars().count() > 200 {
+        last.chars().take(199).chain(['…']).collect()
+    } else {
+        (*last).to_owned()
+    };
+    Some(format!(
+        "Weigh-In: {} hook error(s) since the last session, so capture may be off. Last: {last} (full log: {})",
+        lines.len(),
+        log_path.display()
+    ))
 }
 
 /// The convention, the session key and the counts, in at most ~150 tokens.

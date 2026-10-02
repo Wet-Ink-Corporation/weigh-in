@@ -222,3 +222,24 @@ Unicode-3.0, Unlicense). Both crates are `publish = false`, which cargo-deny nee
 workspace path dependency, and which matches D-0007. An `archive/*` pre-push guard lives in
 `.githooks/`, opted into per clone. Claude Code cloud sessions run a synchronous SessionStart
 hook that installs the toolchain and pre-builds the tests.
+
+## B-11
+
+**SessionStart tells the user when capture is off.** 2026-10-02 · Claude's call, two-way.
+
+The message goes in `systemMessage`, which Claude Code shows to the user; plain SessionStart
+stdout reaches only Claude's context, so the prime moves to `hookSpecificOutput.additionalContext`
+whenever there is something to say, and stays plain stdout otherwise. Two cases:
+
+- No binary. The `sh` launcher cannot parse the hook's JSON, so `hooks.json` passes the event
+  name (`hook SessionStart`); the launcher drops it before running a binary, since the binary
+  reads the event from stdin and an older one would refuse the extra argument. With no binary it
+  prints a fixed JSON line (only `uname` output is interpolated, so nothing needs escaping).
+- Hook errors. SessionStart counts `hook-errors.log` lines past the offset kept in
+  `hook-errors.seen` beside it, reports the count and the last line, and moves the offset, so each
+  line is reported once. A SessionStart that fails itself is logged first and reported in the same
+  message, and Claude still gets the convention. The offset file is overwritten, never deleted
+  ([B-01](#b-01)), and nothing is written when there is no log.
+
+Under `CLAUDE_CODE_ENTRYPOINT=remote_cowork` neither is said ([B-04](#b-04)): Cowork captures
+through the sitting's sweep, not hooks, so "capture is off" would be wrong there.
