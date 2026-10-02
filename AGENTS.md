@@ -7,7 +7,7 @@ A decision ledger for agent sessions: the `weighin` CLI over happenstance's SQLi
 | Crate | Layer | Purpose | Depends on |
 |---|---|---|---|
 | `crates/weighin-core` | domain | The ledger vocabulary with no I/O: events, `wi-` ids, `weigh-in` markers, scanning, cards, the projection fold, `.kb` atoms and the board exchange format. Linkable into redkiln-rs unchanged. | serde, serde_json, sha2, thiserror |
-| `crates/weighin` | binary | The CLI and single writer of the ledger: the store (happenstance SQLite at `<git-common-dir>/weighin/`), git through the command line, context packs, the hook entry point, and the batch write path (`ops::Session`). | weighin-core, happenstance-core, happenstance-sqlite, tokio (rt), clap, anyhow, time, tempfile, serde, serde_json, sha2 |
+| `crates/weighin` | binary | The CLI and single writer of the ledger: the store (happenstance SQLite at `<git-common-dir>/weighin/`), git through the command line, context packs, the hook entry point, and the batch write path (`ops::Session`). | weighin-core, happenstance-core, happenstance-sqlite, tokio (rt), clap, anyhow, time, tempfile, serde, serde_json |
 
 Dependencies point inward: the binary depends on the domain, never the reverse (ARC-02). Each crate's `AGENTS.md` is its charter (ARC-08). The `plugin/` directory (skill, hooks, launcher) and `scripts/` are not crates.
 
@@ -16,9 +16,9 @@ Dependencies point inward: the binary depends on the domain, never the reverse (
 | Purpose | Command |
 |---|---|
 | Format | `cargo fmt --all` |
-| Lint | `cargo clippy --workspace --all-targets -- -D warnings` (with the baseline: `node .claude/temper/temper.mjs baseline --check`) |
+| Lint | `node .claude/temper/temper.mjs baseline --check`: clippy, rustdoc and temper's scan against `.claude/temper-baseline.json`. Plain `cargo clippy -- -D warnings` fails on the recorded legacy findings. |
 | Test | `cargo test --workspace` |
-| Docs | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` |
+| Docs | `cargo doc --workspace --no-deps` (rustdoc lints are part of `baseline --check`) |
 | Supply chain | `cargo deny check` (`deny.toml`) |
 | Plugin | `./scripts/build-plugin-bins.sh`, `./scripts/package-plugin.sh --no-download`, `claude plugin validate .` |
 | Full gate (Claude Code) | `/temper:gate`, or `node "$TEMPER_CLI" gate` |

@@ -12,7 +12,7 @@ binary. The composition root holds the store, git, context packs, environment di
   - `happenstance-core` and `happenstance-sqlite`, the event store;
   - `tokio` with `rt` only, which happenstance's API needs (inferred, confirm);
   - `clap` (CLI), `anyhow` (binary errors), `time` (timestamps), `tempfile` (temporary indexes and files on the temp disk);
-  - `serde`, `serde_json` and `sha2`.
+  - `serde` and `serde_json`.
 - Never: a second writer of the ledger, or a git library. Git goes through the command line (`git.rs`).
 
 ## Public surface
