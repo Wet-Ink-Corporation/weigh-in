@@ -4,8 +4,8 @@
 
 ## Gate
 
-- [ ] `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --workspace`,
-      `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`
+- [ ] `cargo fmt --check`, `node .claude/temper/temper.mjs baseline --check`, `cargo test --workspace`,
+      `cargo doc --workspace --no-deps` (or `node .claude/temper/temper.mjs gate`, which runs them all)
 - [ ] Plugin changed: `claude plugin validate .`, and `SKILL.md` still holds one `V=dev; S=none;`
 
 ## Decisions
