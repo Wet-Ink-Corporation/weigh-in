@@ -4,7 +4,7 @@
 |---|---|
 | [`research/report.md`](research/report.md) | *Settle agent questions while the context is warm* (2026-09-26): the research and the design, with dated amendments for what changed while building |
 | [`research/notes/`](research/notes/) | The five research sweeps behind the report, and the 12 September brief that started it |
-| [`research/reports/Shipping native binaries in plugins.md`](<research/reports/Shipping native binaries in plugins.md>) | (2026-10-01) How to ship a Rust binary in a Claude Code plugin: Node availability per surface, with a Cowork check, prior art across ecosystems, and a recommendation for temper; notes in [`research/research_notes/`](research/research_notes/) |
+| [`research/shipping-native-binaries.md`](research/shipping-native-binaries.md) | (2026-10-01) What the research on shipping a Rust binary in a Claude Code plugin found for Weigh-In; the full report and notes moved to [temper](https://github.com/Wet-Ink-Corporation/temper/blob/main/docs/research/shipping-native-binaries/README.md) |
 | [`decisions/`](decisions/README.md) | Every decision so far: settled questions, the board sitting, defaults, and the calls made while building |
 | [`roadmap.md`](roadmap.md) | What is not yet verified, known gaps, and slice 2 |
 | [`v1-plan.md`](v1-plan.md) | (2026-10-02) Evaluation of the repository at 0.2.2 and the plan to v1 in active use, starting with source control |
