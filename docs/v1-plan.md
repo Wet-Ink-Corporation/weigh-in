@@ -150,7 +150,8 @@ The aim is that every later change arrives by PR, is gated, and is tracked.
    `plugin/bin`, zip produced); `cargo deny check` (advisories, licences) as its own job.
 6. **Release notes from the changelog**: `release.yml` takes the `## <version>` section of
    `CHANGELOG.md` as the release body and fails when it is missing.
-7. **Housekeeping**: move the temper research (`docs/research/reports/Shipping native binaries in
+7. **Housekeeping** (done 2026-10-02: the research is in temper, with
+   [a summary here](research/shipping-native-binaries.md)): move the temper research (`docs/research/reports/Shipping native binaries in
    plugins.md` and its notes) to temper's repository, keeping a one-paragraph summary of the
    Weigh-In findings here and linking it from `docs/README.md`. Write a pre-push hook, or a note
    in `CLAUDE.md`, that stops `archive/pre-github` from ever being pushed.
