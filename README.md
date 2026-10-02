@@ -123,7 +123,8 @@ weighin hook                             hook entry point (reads the hook JSON o
 
 ## Measured in this build
 
-- 48 tests (31 core, 9 store and git, 8 end to end), clippy clean. Atoms pass Redkiln's
+- 57 tests on Linux, 55 on Windows (31 core; 18 store, git and paths, two of them Unix-only
+  symlink cases; 8 end to end), clippy and rustdoc clean, run by CI on both. Atoms pass Redkiln's
   `validate --kb` (with a rejected negative control). An independent review found eleven
   defects (a hook panic on non-ASCII text, stale board answers, batch parsing, id collisions,
   re-raised settled questions, out-of-repo scans, CRLF rewrites, stray stores, a launcher loop,
