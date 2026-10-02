@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use weighin_core::Item;
 
-use crate::env::Env;
+use crate::env::{self, Env};
 use crate::git;
 
 #[derive(Debug, Default, Serialize)]
@@ -30,18 +30,14 @@ pub struct Pack {
     pub notes: Vec<String>,
 }
 
-fn parse_anchor(at: &str) -> (String, Option<usize>) {
+fn parse_anchor(at: &str) -> (&str, Option<usize>) {
     // path:line or path:line:col; Windows drive letters keep their colon.
-    let mut parts: Vec<&str> = at.rsplitn(3, ':').collect();
-    parts.reverse();
-    match parts.as_slice() {
-        [p, l, c] if l.parse::<usize>().is_ok() && c.parse::<usize>().is_ok() => {
-            ((*p).to_owned(), l.parse().ok())
-        }
-        [p, l, c] if c.parse::<usize>().is_ok() => (format!("{p}:{l}"), c.parse().ok()),
-        [p, l] if l.parse::<usize>().is_ok() => ((*p).to_owned(), l.parse().ok()),
-        _ => (at.to_owned(), None),
-    }
+    let (path, position) = env::split_anchor(at);
+    let line = position
+        .strip_prefix(':')
+        .and_then(|p| p.split(':').next())
+        .and_then(|l| l.parse().ok());
+    (path, line)
 }
 
 const DEF_WORDS: &[&str] = &[
@@ -227,7 +223,7 @@ pub fn build(env: &Env, item: &Item) -> Pack {
         return p;
     };
     let (path, line) = parse_anchor(&at);
-    let rel = env.relative(&path);
+    let rel = env.relative(path);
     p.anchor = Some(format!("{rel}:{}", line.unwrap_or(1)));
     let abs = root.join(&rel);
     let text = std::fs::read_to_string(&abs).ok();
@@ -371,10 +367,10 @@ mod tests {
 
     #[test]
     fn anchors_parse() {
-        assert_eq!(parse_anchor("src/a.rs:88"), ("src/a.rs".into(), Some(88)));
-        assert_eq!(parse_anchor("src/a.rs:88:4"), ("src/a.rs".into(), Some(88)));
-        assert_eq!(parse_anchor("C:/r/a.cs:12"), ("C:/r/a.cs".into(), Some(12)));
-        assert_eq!(parse_anchor("docs/plan.md"), ("docs/plan.md".into(), None));
+        assert_eq!(parse_anchor("src/a.rs:88"), ("src/a.rs", Some(88)));
+        assert_eq!(parse_anchor("src/a.rs:88:4"), ("src/a.rs", Some(88)));
+        assert_eq!(parse_anchor("C:/r/a.cs:12"), ("C:/r/a.cs", Some(12)));
+        assert_eq!(parse_anchor("docs/plan.md"), ("docs/plan.md", None));
     }
 
     #[test]

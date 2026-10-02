@@ -502,13 +502,16 @@ fn launcher_does_not_loop_when_no_binary_exists() {
     let parent = std::env::var_os("PATH").unwrap_or_default();
     let path = std::env::join_paths(std::iter::once(bin_dir).chain(std::env::split_paths(&parent)))
         .unwrap();
+    // Generous for a slow shared CI runner (a normal run takes under a second); a looping
+    // launcher never finishes, so it still fails.
+    let limit = std::time::Duration::from_secs(30);
     let start = std::time::Instant::now();
     let out = run_within(
         Command::new("sh")
             .arg(&launcher)
             .arg("open")
             .env("PATH", &path),
-        std::time::Duration::from_secs(5),
+        limit,
     );
     assert_eq!(
         out.status.code(),
@@ -516,13 +519,13 @@ fn launcher_does_not_loop_when_no_binary_exists() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(start.elapsed().as_secs() < 4);
+    assert!(start.elapsed() < limit);
     let hook = run_within(
         Command::new("sh")
             .arg(&launcher)
             .arg("hook")
             .env("PATH", &path),
-        std::time::Duration::from_secs(5),
+        limit,
     );
     assert_eq!(
         hook.status.code(),

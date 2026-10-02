@@ -329,7 +329,7 @@ impl<'a> Session<'a> {
                 question: q.to_owned(),
                 did: input.did.clone(),
                 flip: input.flip.clone(),
-                at: input.at.as_deref().map(|a| self.env.relative(a)),
+                at: input.at.as_deref().map(|a| self.env.relative_anchor(a)),
                 sym: input.sym.clone(),
                 blocks: input.blocks.clone(),
                 door_hint: door,

@@ -1,6 +1,6 @@
 # Roadmap and open items
 
-State at 0.2.1 (2026-10-01). Slice 1 is built: capture, the in-chat sitting, decision records,
+State at 0.2.2 (2026-10-01). Slice 1 is built: capture, the in-chat sitting, decision records,
 the Cowork route through the computer's shell, and the local marketplace.
 
 ## Not yet verified

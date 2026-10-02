@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use weighin_core::event::{EventEnvelope, LedgerEvent};
 
 use crate::git;
@@ -143,6 +143,58 @@ pub fn cowork() -> bool {
     std::env::var("CLAUDE_CODE_ENTRYPOINT").is_ok_and(|v| v == "remote_cowork")
 }
 
+/// `path` with its directory resolved: the nearest existing ancestor of its parent is
+/// canonicalized and the rest folded on (`..` pops, `.` is skipped), so a file not written yet
+/// resolves too. The file name is never resolved, so an in-repo symlink keeps its own name.
+/// `None` when no ancestor resolves.
+fn resolve(path: &Path) -> Option<PathBuf> {
+    let (dir, name) = match (path.parent(), path.file_name()) {
+        (Some(dir), Some(name)) => (dir, Some(name)),
+        _ => (path, None),
+    };
+    let resolved_dir = dir.ancestors().find_map(|ancestor| {
+        let tail = dir.strip_prefix(ancestor).ok()?;
+        std::fs::canonicalize(ancestor)
+            .ok()
+            .map(|resolved| fold(resolved, tail))
+    })?;
+    Some(match name {
+        Some(n) => resolved_dir.join(n),
+        None => resolved_dir,
+    })
+}
+
+/// `tail` applied to `base` component by component: `..` drops the last component and `.` is
+/// skipped. The tail never reached the filesystem, so its `..` cannot be left for the OS to fold.
+fn fold(base: PathBuf, tail: &Path) -> PathBuf {
+    tail.components().fold(base, |mut out, c| {
+        match c {
+            // At the filesystem root `..` stays at the root, as the OS treats it.
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other),
+        }
+        out
+    })
+}
+
+/// An anchor's path and its position suffix (`:line` or `:line:col`, or empty). Only trailing
+/// numbers count as a position, so a Windows drive letter keeps its colon.
+pub(crate) fn split_anchor(at: &str) -> (&str, &str) {
+    let is_num = |s: &str| s.parse::<usize>().is_ok();
+    let path = match at.rsplit_once(':') {
+        Some((head, last)) if is_num(last) => match head.rsplit_once(':') {
+            Some((p, mid)) if is_num(mid) => p,
+            _ => head,
+        },
+        _ => at,
+    };
+    at.strip_prefix(path)
+        .map_or((at, ""), |position| (path, position))
+}
+
 /// `~/x` expanded with `HOME` (or `USERPROFILE` on Windows).
 fn expand_home(p: &str) -> PathBuf {
     let rest = p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\"));
@@ -277,13 +329,30 @@ impl Env {
         let path = Path::new(p);
         let root = self.root();
         let rel = if path.is_absolute() {
-            path.strip_prefix(&root)
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|_| path.to_path_buf())
+            // Compare resolved paths: the surface may spell the path differently from git's
+            // toplevel (8.3 short names, symlinked temp dirs, `..`). Once both resolve, that answer
+            // stands, and a path outside comes back absolute. Only when nothing resolves is the
+            // path compared as given.
+            match resolve(path).zip(std::fs::canonicalize(&root).ok()) {
+                Some((resolved_path, resolved_root)) => resolved_path
+                    .strip_prefix(&resolved_root)
+                    .map_or_else(|_| path.to_path_buf(), Path::to_path_buf),
+                None => path
+                    .strip_prefix(&root)
+                    .map_or_else(|_| path.to_path_buf(), Path::to_path_buf),
+            }
         } else {
             path.to_path_buf()
         };
         rel.to_string_lossy().replace('\\', "/")
+    }
+
+    /// [`Env::relative`] for a `path`, `path:line` or `path:line:col` anchor, keeping the
+    /// position as given.
+    #[must_use]
+    pub fn relative_anchor(&self, at: &str) -> String {
+        let (path, position) = split_anchor(at);
+        format!("{}{position}", self.relative(path))
     }
 
     /// # Errors
@@ -327,5 +396,154 @@ pub fn age(ts: &str) -> String {
         Some(s) if s < 172_800 => format!("{}h", s / 3600),
         Some(s) => format!("{}d", s / 86_400),
         None => "?".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A git repository at `<tmp>/repo` holding `docs/plan.md`. Hooks pass paths as the surface
+    /// spells them (an 8.3 short name on Windows, a symlinked temp dir on macOS, `..`
+    /// components); git reports the toplevel resolved. The tests spell paths through `..`.
+    fn fixture() -> (tempfile::TempDir, PathBuf, Env) {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(repo.join("docs")).expect("docs dir");
+        std::fs::write(repo.join("docs/plan.md"), "# Plan\n").expect("plan written");
+        git::run(&repo, &["init", "-q"]).expect("git init");
+        let env = Env::discover(&repo, None);
+        (tmp, repo, env)
+    }
+
+    fn roundabout(repo: &Path, rest: &str) -> String {
+        repo.join("..")
+            .join("repo")
+            .join(rest)
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn an_existing_file_spelled_differently_is_in_the_repo() {
+        let (_tmp, repo, env) = fixture();
+        assert_eq!(
+            env.relative(&roundabout(&repo, "docs/plan.md")),
+            "docs/plan.md"
+        );
+    }
+
+    #[test]
+    fn a_file_not_written_yet_spelled_differently_is_in_the_repo() {
+        let (_tmp, repo, env) = fixture();
+        assert_eq!(
+            env.relative(&roundabout(&repo, "docs/new.md")),
+            "docs/new.md"
+        );
+        assert_eq!(
+            env.relative(&roundabout(&repo, "drafts/new.md")),
+            "drafts/new.md"
+        );
+        assert_eq!(
+            env.relative(&env.root().join("new.md").to_string_lossy()),
+            "new.md"
+        );
+    }
+
+    #[test]
+    fn an_unresolved_tail_is_folded_onto_its_base() {
+        assert_eq!(
+            fold(
+                PathBuf::from("/a/repo"),
+                Path::new("missing/../../other/./x.md")
+            ),
+            PathBuf::from("/a/other/x.md")
+        );
+        assert_eq!(
+            fold(PathBuf::from("/a/repo"), Path::new("docs/new.md")),
+            PathBuf::from("/a/repo/docs/new.md")
+        );
+    }
+
+    #[test]
+    fn dotdot_after_a_missing_directory_stays_outside() {
+        // On Unix, canonicalize does not fold `..` after a directory that does not exist.
+        let (_tmp, repo, env) = fixture();
+        let p = repo
+            .join("missing")
+            .join("..")
+            .join("..")
+            .join("other")
+            .join("x.md");
+        let rel = env.relative(&p.to_string_lossy());
+        assert!(
+            rel.starts_with("../") || Path::new(&rel).is_absolute(),
+            "{rel}"
+        );
+    }
+
+    #[test]
+    fn a_sibling_reached_through_dotdot_stays_outside() {
+        let (tmp, repo, env) = fixture();
+        std::fs::create_dir_all(tmp.path().join("other")).expect("other dir");
+        std::fs::write(tmp.path().join("other/x.md"), "x\n").expect("x written");
+        for rest in ["x.md", "y.md"] {
+            let p = repo.join("..").join("other").join(rest);
+            let rel = env.relative(&p.to_string_lossy());
+            assert!(
+                rel.starts_with("../") || Path::new(&rel).is_absolute(),
+                "{rel}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_in_repo_symlink_keeps_its_own_name() {
+        let (_tmp, repo, env) = fixture();
+        std::os::unix::fs::symlink("plan.md", repo.join("docs/current.md")).expect("symlink");
+        assert_eq!(
+            env.relative(&roundabout(&repo, "docs/current.md")),
+            "docs/current.md"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_beyond_a_directory_symlink_out_of_the_repo_is_outside() {
+        // Git treats such a file as beyond a symbolic link, not in the repository; it is not
+        // scanned, and nothing is annotated through the link.
+        let (tmp, repo, env) = fixture();
+        std::fs::create_dir_all(tmp.path().join("elsewhere")).expect("elsewhere dir");
+        std::fs::write(tmp.path().join("elsewhere/f.md"), "f\n").expect("f written");
+        std::os::unix::fs::symlink(tmp.path().join("elsewhere"), repo.join("link"))
+            .expect("symlink");
+        let rel = env.relative(&repo.join("link").join("f.md").to_string_lossy());
+        assert!(Path::new(&rel).is_absolute(), "{rel}");
+    }
+
+    #[test]
+    fn an_absolute_anchor_keeps_its_line_and_column() {
+        let (_tmp, repo, env) = fixture();
+        assert_eq!(
+            env.relative_anchor(&roundabout(&repo, "docs/plan.md:12:4")),
+            "docs/plan.md:12:4"
+        );
+        assert_eq!(
+            env.relative_anchor(&roundabout(&repo, "docs/new.md:3")),
+            "docs/new.md:3"
+        );
+        assert_eq!(env.relative_anchor("src/a.rs:7"), "src/a.rs:7");
+        assert_eq!(env.relative_anchor("docs/plan.md"), "docs/plan.md");
+    }
+
+    #[test]
+    fn anchors_split_into_path_and_position() {
+        assert_eq!(split_anchor("src/a.rs:88"), ("src/a.rs", ":88"));
+        assert_eq!(split_anchor("src/a.rs:88:4"), ("src/a.rs", ":88:4"));
+        assert_eq!(split_anchor("C:/r/a.cs:12"), ("C:/r/a.cs", ":12"));
+        assert_eq!(split_anchor("C:/r/a.cs"), ("C:/r/a.cs", ""));
+        assert_eq!(split_anchor("docs/plan.md"), ("docs/plan.md", ""));
+        assert_eq!(split_anchor("a:b:12"), ("a:b", ":12"));
     }
 }
