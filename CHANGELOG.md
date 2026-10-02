@@ -10,6 +10,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   plugin package and the changelog, and runs `cargo deny`; release notes come from this file and
   a release tag must be on `main`; pull request template, CODEOWNERS, a pre-push guard for
   `archive/*` branches, and a SessionStart hook for Claude Code cloud sessions.
+- `weighin.cmd` runs the newer of the msvc and gnu builds, as the `sh` launcher does, so a stale
+  native Windows build no longer shadows a fresh cross-build (B-05).
 - Capture is never off without a word. When the plugin has no binary for the platform,
   SessionStart shows a one-line message saying capture is off and how to fix it; when hooks have
   logged errors to `hook-errors.log` since the last session, SessionStart shows how many and the

@@ -689,6 +689,74 @@ fn launcher_passes_session_start_to_the_binary_without_the_event_name() {
     );
 }
 
+/// `weighin.cmd` runs the msvc build unless the gnu build is newer, as the `sh` launcher does
+/// (B-05), and passes the exit code back. One target holds the real binary and the other a copy
+/// of `cmd.exe`; given `/d /c exit 7`, `weighin` refuses the arguments (exit 2, its usage on
+/// stderr) and `cmd.exe` exits 7, so the result says which one ran.
+#[cfg(windows)]
+#[test]
+fn cmd_launcher_runs_the_newer_build() {
+    use std::time::{Duration, SystemTime};
+    let tmp = tempfile::tempdir().unwrap();
+    let launcher = tmp.path().join("weighin.cmd");
+    std::fs::copy(
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugin/libexec/weighin.cmd"
+        ),
+        &launcher,
+    )
+    .unwrap();
+    let msvc = tmp.path().join("x86_64-pc-windows-msvc/weighin.exe");
+    let gnu = tmp.path().join("x86_64-pc-windows-gnu/weighin.exe");
+    let stand_in =
+        std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32/cmd.exe");
+    let set_age = |path: &Path, hours_ago: u64| {
+        let t = SystemTime::now() - Duration::from_secs(hours_ago * 3600);
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
+    };
+    let ran = || {
+        let out = run_within(
+            Command::new(&launcher).args(["/d", "/c", "exit", "7"]),
+            std::time::Duration::from_secs(30),
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        match out.status.code() {
+            Some(2) if stderr.contains("weighin") => "msvc",
+            Some(7) => "gnu",
+            code => panic!("neither build ran: {code:?} {stderr}"),
+        }
+    };
+    for (path, from) in [(&msvc, Path::new(bin())), (&gnu, stand_in.as_path())] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::copy(from, path).unwrap();
+    }
+
+    // One build only: it runs.
+    std::fs::rename(&gnu, tmp.path().join("gnu-aside.exe")).unwrap();
+    assert_eq!(ran(), "msvc", "msvc alone runs");
+    std::fs::rename(tmp.path().join("gnu-aside.exe"), &gnu).unwrap();
+    std::fs::rename(&msvc, tmp.path().join("msvc-aside.exe")).unwrap();
+    assert_eq!(ran(), "gnu", "gnu alone runs");
+    std::fs::rename(tmp.path().join("msvc-aside.exe"), &msvc).unwrap();
+
+    // Both: the newer one runs.
+    set_age(&gnu, 2);
+    set_age(&msvc, 1);
+    assert_eq!(ran(), "msvc", "the newer msvc build runs");
+    set_age(&msvc, 3);
+    assert_eq!(
+        ran(),
+        "gnu",
+        "a stale msvc build does not shadow a newer gnu build"
+    );
+}
+
 #[test]
 fn cowork_hooks_write_nothing_and_still_nudge() {
     let (_tmp, repo) = setup();
