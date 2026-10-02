@@ -81,7 +81,7 @@ Adopt the proposal's architecture (Rust workspace, five targets, per-platform np
 | Cowork / claude.ai | Defer until the probes run. If wanted, ship a zip with all targets under `libexec/` (never `bin/`), built in the same CI run | Unknown auto-install, arch and egress in cloud Cowork |
 | Repository visibility | Decide before building: public npm, or accept no auto-install | Same tension as Weigh-In D-0007 |
 
-Six questions still need an empirical check. **(1)** In cloud Cowork after 2026-10-06: the architecture, `node` and `npm` presence, and registry and GitHub egress. **(2)** Whether hook processes see the same PATH as the Bash tool. **(3)** Whether Claude Code's npm auto-install runs for claude.ai-synced plugins in Cowork, producing `node_modules`. **(4)** Whether `${CLAUDE_PLUGIN_DATA}` persists across Cowork sessions. **(5)** Whether executable bits survive the zip upload and the marketplace cache copy; no source covers either, and Claude Desktop is known to drop them for MCPB ([mcpb#294](https://github.com/modelcontextprotocol/mcpb/issues/294)). **(6)** The size limit for an uploaded plugin, on which no doc was found. Paste this into a Cowork chat and ask Claude to run it with Bash. It answers (1):
+Six questions still need an empirical check. **(1)** In cloud Cowork after 2026-10-06: the architecture, `node` and `npm` presence, and registry and GitHub egress. **(2)** Whether hook processes see the same PATH as the Bash tool. **(3)** Whether Claude Code's npm auto-install runs for claude.ai-synced plugins in Cowork, producing `node_modules`. **(4)** Whether `${CLAUDE_PLUGIN_DATA}` persists across Cowork sessions. **(5)** Whether executable bits survive the zip upload and the marketplace cache copy; no source covers either, and Claude Desktop is known to drop them for MCPB ([mcpb#294](https://github.com/modelcontextprotocol/mcpb/issues/294)). **(6)** The size limit for an uploaded plugin (since answered from Cowork's docs: 200 MB uncompressed, 5,000 files). Paste this into a Cowork chat and ask Claude to run it with Bash. It answers (1):
 
 ```sh
 uname -m; . /etc/os-release && echo "$PRETTY_NAME"; echo "entry=$CLAUDE_CODE_ENTRYPOINT env=$CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE"; for c in node npm sh cargo curl; do printf '%s: ' $c; command -v $c || echo missing; done; node -v 2>&1; npm -v 2>&1; ldd --version 2>&1 | head -1; for h in registry.npmjs.org github.com release-assets.githubusercontent.com objects.githubusercontent.com; do printf '%s ' $h; curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 "https://$h/" || echo unreachable; done
@@ -123,8 +123,38 @@ Consequences:
 
 Questions (2) to (5) are still open; the throwaway plugin above answers them. (3), whether Claude Code's npm auto-install runs for claude.ai-synced plugins in Cowork, decides whether temper's npm packages reach Cowork at all.
 
+## Probe plugin in Cowork, 2026-10-01
+
+Ryan uploaded `binprobe` 0.0.1 under Customize > Plugins and ran it in a Cowork chat. It depends on `esbuild` 0.28.2, whose lockfile (written by npm 11.16) lists all 26 `@esbuild/<platform>` packages, and runs two SessionStart hooks: shell-form `sh probe.sh` and exec-form `node` with `args`. A local run of `npm ci --ignore-scripts` on Windows installed only `@esbuild/win32-x64`, and that binary ran.
+
+| Check | Cowork result | Evidence |
+|---|---|---|
+| Where hooks run | x86_64 Linux, `CLAUDE_CODE_ENTRYPOINT=remote_cowork`, `CLAUDE_CODE_REMOTE=true` | both hook logs |
+| `node` on the hook's PATH | Yes: `/opt/node22/bin/node` v22.22.0 | both hook logs |
+| Exec-form `node` hook with `${CLAUDE_PLUGIN_ROOT}` in `args` | Ran; the variable is substituted in `args` | `node-hook.log` exists, `plugin_root_env=set` |
+| Claude Code's npm auto-install | **Did not run**: no `node_modules`, no `@esbuild` package | `node_modules=no esbuild_pkgs=none` |
+| Platform binary from npm runs | Not testable: nothing was installed | `esbuild_bin=none` |
+| Executable bit kept through upload and sync | Yes | `probe_sh_x=yes` |
+| `${CLAUDE_PLUGIN_DATA}` | `/root/.claude/plugins/data/binprobe-synced`; persistence needs a second session | `previous_session=none` on the first run |
+| Hook PATH equals Bash tool PATH | Yes | diff identical |
+
+Consequences:
+
+- **Per-platform npm packages do not reach Cowork.** The auto-install does not run for a claude.ai-synced plugin there, although npm is on PATH. In Cowork the binary must come from the plugin zip itself (Weigh-In's `libexec/<target>/` route) or from a hook that downloads it. The npm route remains a Claude Code CLI route for marketplace installs.
+- **Bundling holds up**: executable bits survive the upload and the sync, so a binary under `libexec/<target>/` runs without a `chmod`.
+- **Exec-form `node` hooks work in Cowork**, so temper's existing hook form is safe there.
+
+What Anthropic's documentation says about each result, checked 2026-10-01:
+
+- **The missing install is the documented behaviour for synced plugins.** The dependency install runs only "when Claude Code copies a plugin into the cache": at install, at update, or at session start for an uncached plugin. A plugin turned on in claude.ai loads as `<name>@synced` "with no marketplace and no install record" from the plugins root's `synced/` directory, and in Cowork "Claude Code downloads them into the session's own environment when the session starts" ([Plugin loading](https://code.claude.com/docs/en/plugins/loading)). No page says synced plugins get the install. The same path applies to synced plugins in a terminal session, so the gap is probably not Cowork-only; that is an inference until a terminal session with the synced probe shows `node_modules=no`.
+- **Persistence of `${CLAUDE_PLUGIN_DATA}` in Cowork is undocumented.** The Claude Code docs say the data directory is "kept across updates" and deleted on uninstall ([Plugin loading](https://code.claude.com/docs/en/plugins/loading)). Cowork's docs say only that "Claude's work runs on Anthropic's servers, in an isolated environment, and your sessions and files are saved to your Claude account" ([Get started with Cowork](https://support.claude.com/en/articles/13345190-get-started-with-claude-cowork)). Neither confirms nor rules out persistence; a second `/binprobe` session is the only evidence. A download-to-cache fallback would download every session only if it does not persist.
+- **Executable bits** are not covered by any page; the result above is observation only.
+- **Size is documented**, closing question (6): "Plugin package size (uncompressed): 200 MB" and "Files per plugin package: 5,000" ([Install plugins in Cowork](https://claude.com/docs/cowork/guide/plugins); [Platform support](https://claude.com/docs/plugins/platform-support)). Five bundled targets of about 5 MB each fit easily.
+- **Local MCP servers** load in Cowork only "when the Cowork session runs on your computer" ([Platform support](https://claude.com/docs/plugins/platform-support)). With new tasks cloud-only from 2026-10-06, a binary served as a local MCP server does not run in new Cowork tasks; hooks and skills do.
+- **Variable substitution in synced skills has been unreliable**: the Cowork changelog fixed "plugin skills that reference `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_SKILL_DIR}` sometimes running their commands with those paths blank" ([Cowork changelog](https://claude.com/docs/cowork/changelog)). Hooks received the variables in this probe; skills should not depend on them alone.
+
 ## Conclusion
 
-The real decision is not npm versus cargo-dist. It is where the binary comes from at the moment a hook fires, and the evidence says it must already be on disk. Claude Code's own `--ignore-scripts` npm install unexpectedly gives plugins esbuild's mature delivery model for free, while making dist's npm installer useless, since its postinstall never runs and its first-run download lands inside a hook. Temper and Weigh-In should therefore differ on purpose. Weigh-In is a fail-soft ledger shipped as an uploaded zip, so bundling is right for it; the empirical check found its x86_64 musl build already covers both places Cowork runs code. Temper is a fail-loud enforcer shipped through a marketplace to Rust developers who already have Node and cargo, so the npm route fits it, provided the hooks only resolve the binary and never fetch or build it.
+The real decision is not npm versus cargo-dist. It is where the binary comes from at the moment a hook fires, and the evidence says it must already be on disk. Claude Code's own `--ignore-scripts` npm install unexpectedly gives plugins esbuild's mature delivery model for free, while making dist's npm installer useless, since its postinstall never runs and its first-run download lands inside a hook. Temper and Weigh-In should therefore differ on purpose. Weigh-In is a fail-soft ledger shipped as an uploaded zip, so bundling is right for it; the empirical check found its x86_64 musl build already covers both places Cowork runs code. Temper is a fail-loud enforcer shipped through a marketplace to Rust developers who already have Node and cargo, so the npm route fits it, provided the hooks only resolve the binary and never fetch or build it. The Cowork probe adds one condition: the auto-install does not run for claude.ai-synced plugins there, so if temper is to work in Cowork, its uploaded zip must also carry the binaries under `libexec/<target>/`, as Weigh-In's does.
 
 The one uncertainty that could reverse this is cloud Cowork. If the probe shows no `node` or no npm auto-install there, the bundled-zip-plus-`sh` path that Weigh-In already runs becomes the Cowork channel for both plugins. Anthropic's own plugins already assume that combination is present, a POSIX shell and nothing else.
