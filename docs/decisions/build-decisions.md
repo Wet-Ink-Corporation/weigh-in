@@ -129,6 +129,18 @@ answering P-6 of the [v1 plan](../v1-plan.md#decisions).
 v1 is slice 1 made dependable. If two weeks of daily use show more than 10% of items dismissed
 `not-useful`, per-category suppression comes into v1, since it is the design's fix for that miss.
 
+## D-0014
+
+**This repository's ledger stays at the default location.** 2026-10-02 · provenance: Ryan,
+choosing between keeping the default, a home-directory ledger, committing the ledger, and
+deferring [D-0010](#d-0010) to Phase 2.
+
+`.kb/_ledger/config.json` sets no `store`, so the ledger is `<git common dir>/weighin/` ([B-02](#b-02)).
+On Ryan's clones it lasts; in Claude Code cloud sessions it goes with the container. Decisions
+survive either way as committed `.kb` atoms; what a container takes with it is the event history
+and anything left open, deferred or defaulted, so cloud sessions settle everything before they
+end. Accepted until Phase 2's installs, and noted as a known gap.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.
@@ -238,3 +250,41 @@ misunderstand it. A happenstance schema change becomes one more step, which is t
 0.3.2. Tests build a 0.1.x WAL ledger and a 0.2.2 TRUNCATE ledger in the test, the latter from
 event payloads copied out of a ledger the 0.2.2 release wrote; older builds ignore the pragma,
 so a 0.2.2 binary still opens a stamped ledger.
+
+## B-11
+
+**SessionStart tells the user when capture is off.** 2026-10-02 · Claude's call, two-way.
+
+The message goes in `systemMessage`, which Claude Code shows to the user; plain SessionStart
+stdout reaches only Claude's context, so the prime moves to `hookSpecificOutput.additionalContext`
+whenever there is something to say, and stays plain stdout otherwise. Two cases:
+
+- No binary. The `sh` launcher cannot parse the hook's JSON, so `hooks.json` passes the event
+  name (`hook SessionStart`); the launcher drops it before running a binary, since the binary
+  reads the event from stdin and an older one would refuse the extra argument. With no binary it
+  prints a fixed JSON line (only `uname` output is interpolated, so nothing needs escaping).
+- Hook errors. SessionStart counts `hook-errors.log` lines past the offset kept in
+  `hook-errors.seen` beside it, reports the count and the last line, and moves the offset, so each
+  line is reported once. A SessionStart that fails itself is logged first and reported in the same
+  message, and Claude still gets the convention. The offset file is overwritten, never deleted
+  ([B-01](#b-01)), and nothing is written when there is no log.
+
+Under `CLAUDE_CODE_ENTRYPOINT=remote_cowork` neither is said ([B-04](#b-04)): Cowork captures
+through the sitting's sweep, not hooks, so "capture is off" would be wrong there.
+
+## B-12
+
+**Cloud sessions on this repository get Weigh-In through the repository, not the plugin.**
+2026-10-02 · Claude's call, two-way · implements [D-0010](#d-0010) for cloud sessions, as Ryan
+chose; replaces enabling the plugin in `.claude/settings.json`, which cloud sessions ignore.
+
+Claude Code's cloud sessions do not install plugins a repository enables (`enabledPlugins`,
+`extraKnownMarketplaces`), but they do run its `.claude/settings.json` hooks and load its
+`.claude/skills/`. So, in cloud sessions only (`CLAUDE_CODE_REMOTE=true`):
+`.claude/hooks/session-start.sh` builds `weighin` into `plugin/libexec/<arch>-unknown-linux-gnu/`,
+copies the plugin's skill into `.claude/skills/weigh-in/` (ignored by git) with
+`${CLAUDE_PLUGIN_ROOT}` rewritten to the checkout's `plugin/`, and runs Weigh-In's SessionStart
+itself, after the build, asking Claude Code to re-scan skills. A separate SessionStart hook would
+run alongside the build and find no binary. Stop, SubagentStop and PostToolUse go through
+`.claude/hooks/weigh-in.sh`, which runs the plugin's launcher. Both do nothing outside cloud
+sessions, where the installed plugin captures, so nothing is captured twice.
