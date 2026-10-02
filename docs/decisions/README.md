@@ -50,7 +50,7 @@ Two-way, judgment-bound items the board decided without asking, listed so they c
 | wi-5f0a19 | Which runtime for the CLI? | Node 20 or later, one dependency-free file | | Reopened by Ryan; superseded by wi-b4c1d8 |
 | wi-81b7aa | How is the ledger stored? | One event file per session, ordered by Lamport clock, timestamp and event id | | Reopened by Ryan; superseded by wi-6e2a47 |
 
-## After the sitting, 2026-09-27 to 2026-10-01
+## After the sitting, 2026-09-27 to 2026-10-02
 
 Details in [`build-decisions.md`](build-decisions.md).
 
@@ -62,6 +62,10 @@ Details in [`build-decisions.md`](build-decisions.md).
 | [D-0005](build-decisions.md#d-0005) | One skill with arguments; no split yet | 2026-09-28 | Ryan |
 | [D-0006](build-decisions.md#d-0006) | Distribute through the local marketplace for now; Cowork gets uploaded zips | 2026-09-28 | Ryan |
 | [D-0007](build-decisions.md#d-0007) | Weigh-In lives in `Wet-Ink-Corporation/weigh-in`, internal | 2026-10-01 | Ryan |
+| [D-0008](build-decisions.md#d-0008) | v1 means daily use by Ryan | 2026-10-02 | Ryan |
+| [D-0009](build-decisions.md#d-0009) | Claude Code installs from a built `marketplace` branch in this internal repository (amends D-0006) | 2026-10-02 | Ryan |
+| [D-0010](build-decisions.md#d-0010) | This repository uses Weigh-In on itself | 2026-10-02 | Ryan |
+| [D-0011](build-decisions.md#d-0011) | Open work lives in GitHub Issues | 2026-10-02 | Ryan |
 | [B-01](build-decisions.md#b-01) | The ledger runs under a TRUNCATE journal | 2026-09-28 | Forced by Cowork's refused deletes |
 | [B-02](build-decisions.md#b-02) | The ledger location is settable | 2026-09-28 | Claude, two-way |
 | [B-03](build-decisions.md#b-03) | Plugin binaries live in `libexec/`, not `bin/` | 2026-09-28 | Forced by claude.ai's plugin validation |

@@ -2,8 +2,8 @@
 
 Evaluation of the repository and its source control on 2026-10-02, and the plan that follows from
 it. It starts with getting the repository organised for ongoing development and ends with v1
-live. It adds no decisions: the calls it needs are listed under [Decisions needed](#decisions-needed)
-and get recorded in `docs/decisions/` when they are taken.
+live. The calls it needs are listed under [Decisions](#decisions); those taken are recorded in
+`docs/decisions/build-decisions.md`.
 
 ## Where Weigh-In stands
 
@@ -71,19 +71,59 @@ by hand.
 8. **Sitting cost** is roughly double the estimate. Not a blocker, but v1 should either set the
    measured figure as the target or trim the batch and card output.
 
-## Decisions needed
+## Decisions
 
-These are Ryan's calls, and the plan's later phases depend on them. Each gets an entry in
-`build-decisions.md` (or a board sitting) when taken. The recommendation is given in "A unless X" form.
+Ryan answered P-1, P-2, P-4 and P-5 on 2026-10-02; they are recorded as D-0008 to D-0011 in
+[`build-decisions.md`](decisions/build-decisions.md). P-3 and P-6 are still open, each with a
+recommendation.
 
-| # | Question | Options | Recommendation | Blocks |
-|---|---|---|---|---|
-| P-1 | What does "v1 live" mean? | (a) Ryan uses it daily on his own machines and in Cowork; (b) also colleagues at Wet Ink; (c) a public plugin anyone can install | (a), with (b) possible without rework: owner from git config, install without a toolchain. (c) is a later release | Phase 4 exit criteria |
-| P-2 | Where do installable binaries come from outside the zip? | (a) the release workflow publishes a built plugin (binaries included) to a `marketplace` branch or a release-only repo, and `marketplace.json` points there; (b) SessionStart downloads the pinned binary into `${CLAUDE_PLUGIN_DATA}`; (c) keep building from source | (a): the binary is on disk before any hook fires, which the native-binaries research found is the design that holds up; (b) only as a fallback. (c) unless no one but Ryan installs it | Phase 2 |
-| P-3 | Should release assets be public? | (a) make this repository public; (b) a public release-only repository; (c) stay internal and keep Cowork on the connected folder | (b): turns on the Cowork download (D-0003) and P-2(a) without publishing the research, which names IQBG and client-repo policy. (a) after a content audit, if Ryan wants the source open | Phase 2, V1 in Cowork |
-| P-4 | Does this repository use Weigh-In on itself? | (a) yes: `init --class own`, `.kb/` committed, new decisions through `/weigh-in`; (b) keep the hand-kept records | (a): it is the cheapest way to get the sustained use v1 needs; the hand-kept records stay as history | Phase 3 |
-| P-5 | Where does open work live? | (a) GitHub issues with a `v1.0` milestone, `roadmap.md` summarising and linking them; (b) `roadmap.md` only | (a): issues can be linked from PRs and closed by commits | Phase 0 |
-| P-6 | Is slice 2 in v1? | Grounder and stability check, `serve --wait`, suppression, JIT surfacing, drills, door classifier, kb-ingest | None of it: v1 is slice 1 made dependable. Slice 2 starts after 1.0 | Scope |
+| # | Question | Answer | Effect on the plan |
+|---|---|---|---|
+| P-1 | What does "v1 live" mean? | **Daily use by Ryan** (D-0008) | Exit criteria are Ryan's own machines and Cowork; no install path for other people, and the `ryan` owner default stops blocking |
+| P-2 | Where do installable binaries come from outside the zip? | **A built marketplace in this internal repository** (D-0009) | The release workflow publishes the built plugin to a `marketplace` branch here |
+| P-3 | Should release assets be public? | Open. Recommended: **(c) stay internal for v1** | See below |
+| P-4 | Does this repository use Weigh-In on itself? | **Yes** (D-0010) | Phase 1, step 1 |
+| P-5 | Where does open work live? | **GitHub Issues** (D-0011) | Phase 0, step 3 |
+| P-6 | Is any slice 2 work in v1? | Open. Recommended: **none, unless the Phase 3 metrics miss** | See below |
+
+**P-3: public assets, and whether cleaning up the research avoids a second repository.** The
+second repository was only ever a way to make release assets public. Nothing else needed it. So
+cleaning up the research doesn't change how many repositories there are: it is what would let
+*this* one go public, and one repository is the end state either way. With v1 for Ryan alone,
+nothing needs to be public:
+
+- Claude Code installs from a private GitHub marketplace with the git credentials already on
+  the machine (`gh auth setup-git` or SSH). Background auto-update uses the same credential
+  helper and fails quietly without one; a bare `GITHUB_TOKEN` is not enough on its own
+  ([docs](https://code.claude.com/docs/en/plugins/install.md#add-a-private-marketplace)).
+- Cowork takes the plugin as an uploaded zip, which Ryan downloads from the internal release.
+  On the computer's shell, the skill finds the Linux binary in a connected folder
+  (`$HOME/mnt/*/libexec/x86_64-unknown-linux-musl/weighin`). A local checkout of the
+  `marketplace` branch, connected once, provides that binary with no build and no download.
+
+Going public later means cleaning up the research (it names IQBG and client-repo policy, in
+`docs/research/` and `wi-7c21e4`), then making this repository public and packaging without
+`--no-download`. The Cowork download then works with no more changes. That is a post-v1 step.
+
+**P-6: what slice 2 is.** The design ([report](research/report.md#first-slice-and-what-follows-lower-bound-estimates))
+had three slices. Slice 1 has been built, plus slice 2's board. What remains, with the design's
+lower-bound estimates:
+
+| Item | What it does | Estimate |
+|---|---|---|
+| Sonnet grounder and stability check | A second model writes or checks each card's grounding, and the recommendation is re-judged three times with the options shuffled; an unstable one is shown options-first | 2.5 h |
+| `weighin serve --wait` | A local review page for client repos, where the Artifact board is off ([wi-7c21e4](decisions/wi-7c21e4.md)) | 2.5 h |
+| Metrics and per-category suppression | Stop raising item kinds that keep being dismissed `not-useful` (`weighin stats` already measures this) | 1.5 h |
+| Just-in-time surfacing | A hook shows a past decision when an edit touches the code it is anchored to | 1 h |
+| Board from Cowork | The Artifact board in Cowork, staging state through the device shell | not estimated |
+| Reliance drills | 1 in 30 two-way cards recommends a weaker option, to check you are not rubber-stamping ([wi-2b90f3](decisions/wi-2b90f3.md)) | not estimated |
+| Door classifier for unattended runs | An independent model judges one-way or two-way before an unattended run defaults anything ([wi-4d8b6a](decisions/wi-4d8b6a.md)) | not estimated |
+| Slice 3: Redkiln-native | `decision` item type in redkiln-rs, kb-ingest of intake keys, AFK gating, a "Needs you" column, an SDK pause loop ([wi-e15c77](decisions/wi-e15c77.md)) | 15 h |
+
+Recommended: none of it is in v1, with one conditional exception. If Phase 3's not-useful rate
+misses its 10% bar, per-category suppression comes into v1, because it is the design's fix for
+exactly that miss. Everything else serves client repos, unattended runs or Redkiln, and v1 needs
+none of those for Ryan's daily use.
 
 ## The plan
 
@@ -129,29 +169,32 @@ issue in the `v1.0` milestone, and CI covers macOS and the plugin package.
 2. **Ledger schema version**: stamp `PRAGMA user_version` in `Store::open`, add a migration step
    (a no-op for the first version), and add fixture tests that open 0.1.x WAL and 0.2.2 TRUNCATE
    ledgers and read them. This gives happenstance a way past 0.3.2 (B-01).
-3. **Owner from the user**: default `owner` to `git config user.email` (or `user.name`), falling
-   back to `$USER`; `init --owner` still overrides. Update the tests that assume `ryan`.
-4. **Make silent failure visible**: when the launcher finds no binary, or `hook-errors.log` has new
+3. **Make silent failure visible**: when the launcher finds no binary, or `hook-errors.log` has new
    lines since the last session, SessionStart prints one line saying capture is off and why.
    Hooks still exit 0.
-5. **Launcher parity**: `weighin.cmd` picks the newer of msvc and gnu, as the `sh` launcher does (B-05).
-6. Bump to 0.3.0 and release.
+4. **Launcher parity**: `weighin.cmd` picks the newer of msvc and gnu, as the `sh` launcher does (B-05).
+5. Bump to 0.3.0 and release.
 
-### Phase 2 — Distribution (about 2–3 days, after P-2 and P-3) → 0.4.0
+### Phase 2 — Distribution from the internal repository (about 2 days) → 0.4.0
 
-1. **Public release assets (P-3)**: create the release-only repository (or make this one public
-   after a content audit), and have `release.yml` publish there.
-2. **Installable marketplace (P-2)**: the release workflow writes the built plugin, binaries
-   included and the skill stamped, to the published marketplace, so `/plugin marketplace add`
-   and `/plugin install weigh@weigh-in` give a working plugin with no toolchain. The repository's
-   own `marketplace.json` stays for development (`--plugin-dir` or local builds).
-3. **Turn on the Cowork download**: package without `--no-download` once assets are public;
-   check on a Cowork chat that the binary downloads, matches the pinned SHA-256 and runs.
-4. **Optional fallback**: SessionStart downloads the pinned binary into `${CLAUDE_PLUGIN_DATA}`
-   when `libexec/` has none. Do this only if P-2 chose (b) as well; its persistence in Cowork is
-   still unverified.
-5. **Install guide for users**, separate from the developer build steps in `README.md`: install,
-   update, uninstall, where the ledger is, how to read `hook-errors.log`.
+1. **Marketplace branch (D-0009)**: after publishing the release, `release.yml` force-pushes a
+   single-commit `marketplace` branch. It holds `.claude-plugin/marketplace.json` and `plugin/`,
+   with the Linux musl, Windows msvc and macOS arm64 binaries in `libexec/<target>/`, committed
+   executable. Replacing the commit each release keeps old binaries out of the history that
+   clones download. The workflow needs `contents: write`, which it already has. Exclude the
+   branch from the `main` ruleset, and allow only the workflow to push it.
+2. **Install from it**: `/plugin marketplace add Wet-Ink-Corporation/weigh-in#marketplace`, then
+   `/plugin install weigh@weigh-in`, on each of Ryan's machines with `gh auth setup-git` done.
+   Check that hooks fire with no toolchain installed, and that background update picks up the
+   next release. The docs don't say whether a plugin keeps its executable bit in the cache; the
+   launcher already sets it (`chmod +x`) when it is missing.
+3. **Cowork binary**: keep a local checkout of the `marketplace` branch and connect it once to
+   Cowork, so the skill's connected-folder fallback finds the Linux binary. Upload the release
+   zip under Customize > Plugins. Releases stay `--no-download` (P-3).
+4. **Developer route unchanged**: `main`'s `marketplace.json` and `scripts/build-plugin-bins.*`
+   stay for `--plugin-dir` and local builds.
+5. **Install guide**, separate from the developer build steps in `README.md`: install, update,
+   uninstall, where the ledger is, how to read `hook-errors.log`.
 6. Bump to 0.4.0 and release.
 
 ### Phase 3 — Verify every surface and run it for real (about 2 weeks elapsed, little effort) → 0.9.x
@@ -162,20 +205,27 @@ issue in the `v1.0` milestone, and CI covers macOS and the plugin package.
    question card; V7 the Windows binary from an installed plugin. Add the Windows-without-Git-Bash
    case, since hooks run under `sh`: either confirm Claude Code on Windows always provides it, or
    ship a `cmd`/PowerShell hook form.
-2. **Sustained use**: at least two weeks of real sittings across this repository and two of
+2. **Eval seed**: label 20 items from five real sessions (the design's slice 1 eval set, not yet
+   built), so marker capture precision can be measured.
+3. **Sustained use**: at least two weeks of real sittings across this repository and two of
    Ryan's own repos, plus one Cowork folder. Each week, record `weighin stats` (action rate,
    not-useful rate, overrides, time to decide) and the sitting cost in this plan's issue.
-3. **Sitting cost**: either trim the batch JSON and card output until a sitting is under about
+4. **Sitting cost**: either trim the batch JSON and card output until a sitting is under about
    $0.35, or record the measured cost as the v1 figure in a decision.
-4. Fix what use finds, releasing 0.9.x release candidates through the same workflow.
+5. Fix what use finds, releasing 0.9.x release candidates through the same workflow.
 
-Exit criteria (proposed for P-1(a)):
+Exit criteria. These are the design's slice 1 exit criteria (two weeks or 30 presented items,
+whichever comes later), the same targets `weighin stats` prints, plus the release checks:
 
+- Action rate at least 60%; not-useful dismissals at most 10%. If not-useful is above 10%,
+  per-category suppression comes into v1 (P-6).
+- Marker capture precision at least 80% on the eval seed.
+- No "pending" item is ever reported as "done", and at least one sitting correctly returns
+  "no decisions need you".
 - Every V-item is closed or has a recorded decision to defer it past 1.0.
-- No ledger corruption and no unexplained `hook-errors.log` lines over the two weeks.
-- A not-useful rate low enough that Ryan keeps running sittings (target: under 30% of cards dismissed `not-useful`).
-- A fresh machine (Linux, Windows, macOS) goes from nothing to a working `/weigh-in` with the
-  install guide alone, without Rust.
+- No ledger corruption, and no unexplained `hook-errors.log` lines.
+- Each of Ryan's machines goes from nothing to a working `/weigh-in` through the marketplace
+  branch, without Rust; Cowork works through the connected checkout.
 - A 0.2.2 ledger opens and reads correctly under the candidate.
 
 ### Phase 4 — v1.0 live (about 1 day) → 1.0.0
@@ -186,8 +236,8 @@ Exit criteria (proposed for P-1(a)):
    summarising what v1 shipped against the design.
 3. Bump both versions to 1.0.0, merge, tag `v1.0.0`; the release workflow publishes the release
    and the marketplace.
-4. Install 1.0.0 from the published marketplace on each of Ryan's machines and upload the zip to
-   claude.ai for Cowork; remove any local-build installs so only one version runs (B-05).
+4. Update each of Ryan's machines from the `marketplace` branch, refresh the connected Cowork
+   checkout and upload the zip to claude.ai; remove any local-build installs so only one version runs (B-05).
 5. Record "v1 live" in `build-decisions.md` with the exit-criteria results, and open the
    `v1.1` / slice 2 milestone.
 
@@ -196,5 +246,6 @@ Exit criteria (proposed for P-1(a)):
 Slice 2 as in `roadmap.md`: the Sonnet grounder and stability check, `weighin serve --wait` for
 client repos, per-category suppression, just-in-time surfacing, reliance drills (wi-2b90f3), the
 door classifier for unattended runs (wi-4d8b6a, which also settles the open model-key question),
-the board from Cowork, and the move into redkiln-rs with kb-ingest of the intake keys
+the board from Cowork, the owner default taken from git config (needed once anyone but Ryan
+uses it), going public (P-3), and the move into redkiln-rs with kb-ingest of the intake keys
 (wi-e15c77, wi-b4c1d8).
