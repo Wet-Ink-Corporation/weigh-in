@@ -15,12 +15,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: versions agree with the tag
+        with:
+          fetch-depth: 0
+      - name: versions agree with the tag, which is on main and has a changelog entry
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           v="${GITHUB_REF_NAME#v}"
           grep -q "\"version\": \"$v\"" plugin/.claude-plugin/plugin.json
           grep -q "^version = \"$v\"" Cargo.toml
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "tag $GITHUB_REF_NAME is not on main; merge first, then tag" >&2; exit 1; }
+          scripts/changelog-section.sh "$v" >/dev/null
 
   test:
     uses: ./.github/workflows/ci.yml
@@ -86,6 +91,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          v="${GITHUB_REF_NAME#v}"
+          {
+            scripts/changelog-section.sh "$v"
+            echo
+            echo "Upload weigh-in-plugin-$v.zip under Customize > Plugins. SHA256SUMS lists every asset."
+          } > notes.md
           gh release create "$GITHUB_REF_NAME" assets/* \
             --title "Weigh-In $GITHUB_REF_NAME" \
-            --notes "Upload weigh-in-plugin-${GITHUB_REF_NAME#v}.zip under Customize > Plugins. In Cowork its skill downloads weighin-x86_64-unknown-linux-musl from this release and checks it against the SHA-256 stamped into the skill; SHA256SUMS lists every asset."
+            --notes-file notes.md

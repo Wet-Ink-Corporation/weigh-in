@@ -1,0 +1,11 @@
+#!/bin/sh
+# Refuses to push archive/* branches: archive/pre-github holds history that names a client and
+# must stay local (B-06). Enable once per clone: git config core.hooksPath .githooks
+while read -r local_ref _ remote_ref _; do
+  case "$local_ref $remote_ref" in
+    *refs/heads/archive/*)
+      echo "pre-push: archive/* branches stay local (B-06); refusing $local_ref -> $remote_ref" >&2
+      exit 1 ;;
+  esac
+done
+exit 0

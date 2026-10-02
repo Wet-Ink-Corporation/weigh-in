@@ -111,6 +111,24 @@ hand-kept records in this folder stay as the history before that.
 Verification items, known gaps and plan tasks are issues under a `v1.0` milestone;
 `docs/roadmap.md` summarises and links them.
 
+## D-0012
+
+**Release assets stay internal for v1.** 2026-10-02 · provenance: Ryan, answering P-3 of the
+[v1 plan](../v1-plan.md#decisions).
+
+No second repository and no public assets. Claude Code installs from the internal `marketplace`
+branch (D-0009); Cowork uses the uploaded zip and a connected checkout of that branch, so the
+Cowork download ([D-0003](#d-0003)) stays dormant. Going public is after v1, by cleaning up the
+research and making this repository public; there is still one repository.
+
+## D-0013
+
+**No slice 2 work in v1, unless the not-useful rate misses.** 2026-10-02 · provenance: Ryan,
+answering P-6 of the [v1 plan](../v1-plan.md#decisions).
+
+v1 is slice 1 made dependable. If two weeks of daily use show more than 10% of items dismissed
+`not-useful`, per-category suppression comes into v1, since it is the design's fix for that miss.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.
@@ -191,3 +209,16 @@ anchors keep their `:line:col`. When both sides resolve, that answer stands, so 
 in-repo directory symlink that points out of the repository is outside, as git treats it: it is
 not scanned and nothing is annotated through the link. The file name itself is never resolved,
 so an in-repo file symlink keeps its own name.
+
+## B-09
+
+**Phase 0 repository setup.** 2026-10-02 · Claude's call, two-way.
+
+Release notes come from `CHANGELOG.md` (`scripts/changelog-section.sh`), and CI fails when the
+current version has no entry, so a bump cannot ship without notes. A release tag must be on
+`main`. CI adds macOS, a `plugin` job (stamp, versions, changelog, a packaged zip,
+`claude plugin validate`) and `cargo deny` with a permissive licence list (MIT, Apache-2.0,
+Unicode-3.0, Unlicense). Both crates are `publish = false`, which cargo-deny needs to accept the
+workspace path dependency, and which matches D-0007. An `archive/*` pre-push guard lives in
+`.githooks/`, opted into per clone. Claude Code cloud sessions run a synchronous SessionStart
+hook that installs the toolchain and pre-builds the tests.

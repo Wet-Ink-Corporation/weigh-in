@@ -19,18 +19,31 @@ cargo test --workspace
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+cargo deny check                             # advisories, licences, sources (deny.toml)
 ./scripts/build-plugin-bins.sh               # binaries into plugin/libexec/<target>/
 ./scripts/package-plugin.sh --no-download    # dist/weigh-in-plugin-<version>.zip
 claude plugin validate .                     # marketplace and plugin manifests
 ```
 
-These four are what `.github/workflows/ci.yml` runs on every push to `main` and every pull
-request, on Linux and Windows; the release workflow runs the same checks before it builds.
+The four cargo checks are what `.github/workflows/ci.yml` runs on every push to `main` and every
+pull request, on Linux, Windows and macOS. CI also checks the plugin package (stamp, versions,
+changelog entry, `claude plugin validate`) and runs `cargo deny check` (`deny.toml`); the release
+workflow runs all of it before it builds. Claude Code cloud sessions run
+`.claude/hooks/session-start.sh`, which installs the toolchain and pre-builds the tests.
 Dependabot (`.github/dependabot.yml`) opens weekly update PRs, holding back Cargo majors and
 happenstance (B-01).
 
 Toolchain is pinned to redkiln-rs's (Rust 1.98.1, edition 2024), because redkiln-rs is where
 Weigh-In ends up (wi-b4c1d8). Line endings are LF everywhere (`.gitattributes`).
+
+## Working in this repository
+
+- Every change reaches `main` through a pull request with green CI; open work is a GitHub issue
+  under the `v1.0` milestone (D-0011), and `docs/roadmap.md` links them.
+- Note user-visible changes under `## Unreleased` in `CHANGELOG.md`. A version bump renames that
+  section to `## <version> — <date>`; the release notes are that section.
+- Run `git config core.hooksPath .githooks` once per clone: its pre-push hook refuses `archive/*`
+  branches, which hold history that must stay local (B-06).
 
 ## Rules learned the hard way
 
@@ -50,6 +63,8 @@ Settled decisions are not reopened without new evidence. Record new ones in
 
 ## Releasing
 
-Bump both versions, commit to `main`, push the tag `v<version>`. The workflow tests, builds Linux,
+Bump both versions and move `## Unreleased` in `CHANGELOG.md` to the new version, merge to
+`main`, then push the tag `v<version>`; the workflow refuses a tag that is not on `main` or has no
+changelog entry. The workflow tests, builds Linux,
 Windows and macOS binaries, packages the plugin and publishes the release. While the repository
 is internal it packages with `--no-download` (D-0007).

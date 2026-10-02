@@ -19,8 +19,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux is what Cowork runs; Windows is where the launcher, paths and CRLF guards matter.
-        os: [ubuntu-latest, windows-latest]
+        # Linux is what Cowork runs; Windows is where the launcher, paths and CRLF guards matter;
+        # macOS is a release target, and its symlinked temp dirs are a B-08 case.
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
@@ -33,3 +34,43 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo doc --workspace --no-deps
+  plugin:
+    # The plugin as shipped: manifests valid, the skill's one stamp intact, versions and changelog
+    # in step, and package-plugin.sh producing a zip whose skill is stamped and launcher runs.
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+      - name: toolchain (pinned by rust-toolchain.toml)
+        run: rustup toolchain install
+      - name: stamp, versions and changelog
+        run: |
+          [ "$(grep -c 'V=dev; S=none;' plugin/skills/weigh-in/SKILL.md)" = 1 ] \
+            || { echo "SKILL.md must hold exactly one 'V=dev; S=none;' in the repository" >&2; exit 1; }
+          v=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' plugin/.claude-plugin/plugin.json)
+          grep -q "^version = \"$v\"" Cargo.toml \
+            || { echo "Cargo.toml and plugin.json disagree on the version ($v)" >&2; exit 1; }
+          scripts/changelog-section.sh "$v" >/dev/null
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - name: package
+        run: |
+          cargo build -p weighin
+          mkdir -p plugin/libexec/x86_64-unknown-linux-gnu
+          cp target/debug/weighin plugin/libexec/x86_64-unknown-linux-gnu/
+          sh plugin/libexec/weighin --version
+          scripts/package-plugin.sh --no-download
+          zip="dist/weigh-in-plugin-$VERSION.zip"
+          unzip -p "$zip" skills/weigh-in/SKILL.md | grep -q "V=$VERSION; S=none;"
+          unzip -l "$zip" | grep -q 'libexec/x86_64-unknown-linux-gnu/weighin$'
+      - name: claude plugin validate (Node from the runner image)
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate .
+
+  deny:
+    # Advisories, licences and sources of every dependency (deny.toml).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
