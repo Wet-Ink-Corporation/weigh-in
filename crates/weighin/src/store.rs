@@ -20,6 +20,14 @@
 //! the schema happenstance builds in a template on a local temporary disk. The copy runs inside
 //! one `BEGIN IMMEDIATE` transaction, so two processes creating the same ledger cannot both
 //! write a schema.
+//!
+//! # Schema version
+//!
+//! The ledger's own schema version is `PRAGMA user_version` ([`LEDGER_SCHEMA`]); happenstance
+//! keeps its migration counter in `store_meta` and never touches the pragma. A new ledger is
+//! stamped in the transaction that copies its schema. Ledgers from 0.1.x and 0.2.x read 0 and are
+//! brought up step by step on first open, in one `BEGIN IMMEDIATE`; a ledger stamped by a newer
+//! build is refused and left as it is. A schema change in a later happenstance is a new step.
 
 use anyhow::{Context, Result, anyhow, bail};
 use happenstance_core::{
@@ -35,6 +43,12 @@ use weighin_core::{ItemId, Ledger};
 
 /// The journal mode every ledger connection runs under, as `PRAGMA journal_mode` reports it.
 pub const JOURNAL_MODE: &str = "truncate";
+
+/// The ledger schema this build reads and writes, kept in `PRAGMA user_version`.
+///
+/// 1. happenstance 0.3.2's event store schema under a TRUNCATE journal. Ledgers written by
+///    0.1.x (WAL) and 0.2.x (TRUNCATE) have this schema unstamped, as 0.
+pub const LEDGER_SCHEMA: i64 = 1;
 
 /// How long a connection waits for a lock, and for a WAL ledger to be released to TRUNCATE.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -96,6 +110,7 @@ impl Store {
             // be replayed by a later WAL opener.
             set_aside_wal(path, false)?;
             ensure_schema(&conn)?;
+            migrate(&conn)?;
             SqliteEventStore::new(conn).map_err(|e| anyhow!("{e}"))
         })();
         let inner = opened.with_context(|| format!("opening ledger {}", path.display()))?;
@@ -294,7 +309,7 @@ fn copy_schema(conn: &Connection) -> Result<()> {
                 [],
             )?;
         }
-        Ok(())
+        set_user_version(conn, LEDGER_SCHEMA)
     })();
     match copied {
         Ok(()) => conn.execute_batch("COMMIT")?,
@@ -303,6 +318,55 @@ fn copy_schema(conn: &Connection) -> Result<()> {
         }
     }
     copied
+}
+
+fn user_version(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?)
+}
+
+fn set_user_version(conn: &Connection, version: i64) -> Result<()> {
+    conn.execute_batch(&format!("PRAGMA user_version = {version}"))?;
+    Ok(())
+}
+
+/// Bring the ledger to [`LEDGER_SCHEMA`]. A ledger already there is not written to; one from a
+/// newer build is refused untouched.
+fn migrate(conn: &Connection) -> Result<()> {
+    let check = |version: i64| {
+        if version > LEDGER_SCHEMA {
+            bail!(
+                "the ledger has schema {version}, newer than this weighin reads ({LEDGER_SCHEMA}); upgrade weighin"
+            );
+        }
+        Ok(version == LEDGER_SCHEMA)
+    };
+    if check(user_version(conn)?)? {
+        return Ok(());
+    }
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    let migrated = (|| {
+        // Another process may have migrated it since the check above.
+        let mut version = user_version(conn)?;
+        if check(version)? {
+            return Ok(());
+        }
+        while version < LEDGER_SCHEMA {
+            match version {
+                // 0.1.x and 0.2.x: happenstance 0.3.2's schema, unstamped. Nothing to change.
+                0 => {}
+                v => bail!("no migration from ledger schema {v}"),
+            }
+            version += 1;
+        }
+        set_user_version(conn, LEDGER_SCHEMA)
+    })();
+    match migrated {
+        Ok(()) => conn.execute_batch("COMMIT")?,
+        Err(_) => {
+            let _ = conn.execute_batch("ROLLBACK");
+        }
+    }
+    migrated.context("migrating the ledger schema")
 }
 
 #[cfg(test)]
@@ -518,5 +582,205 @@ mod tests {
             assert!(matches!(h.join().unwrap(), Appended::At(_)));
         }
         assert_eq!(Store::open(&path).unwrap().ledger().unwrap().head, 6);
+    }
+
+    /// A connection under the ledger's own journal mode, so the test does not delete the journal.
+    fn raw(path: &Path) -> Connection {
+        connect(path).unwrap()
+    }
+
+    fn store_id(conn: &Connection) -> Vec<u8> {
+        conn.query_row("SELECT v FROM store_meta WHERE k = 'store_id'", [], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    }
+
+    /// `user_version` read from the database header (bytes 60..64), without opening a
+    /// connection that would convert the file.
+    fn header_user_version(path: &Path) -> i64 {
+        let header = std::fs::read(path).unwrap();
+        i64::from(i32::from_be_bytes(header[60..64].try_into().unwrap()))
+    }
+
+    /// SQLite's file change counter (header bytes 24..28), bumped by every write transaction.
+    fn change_counter(path: &Path) -> [u8; 4] {
+        std::fs::read(path).unwrap()[24..28].try_into().unwrap()
+    }
+
+    #[test]
+    fn a_new_ledger_is_stamped_and_reopening_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.sqlite3");
+        drop(Store::open(&path).unwrap());
+        assert_eq!(user_version(&raw(&path)).unwrap(), LEDGER_SCHEMA);
+        let before = change_counter(&path);
+        drop(Store::open(&path).unwrap());
+        assert_eq!(
+            change_counter(&path),
+            before,
+            "a current ledger is not written on open"
+        );
+        assert_truncate_layout(&path);
+    }
+
+    #[test]
+    fn a_wal_ledger_from_0_1_is_stamped_and_reads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.sqlite3");
+        let (a, b) = (ItemId::mint("s1", "a?"), ItemId::mint("s1", "b?"));
+        {
+            // What weighin 0.1.x did: happenstance's own open, which leaves the file in WAL.
+            let old = SqliteEventStore::open(&path).unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            let store = Store { inner: old, rt };
+            for id in [&a, &b] {
+                store
+                    .append(&[raise(id)], &Guard::NotYetRaised(id.clone()))
+                    .unwrap();
+            }
+            let dismiss = env(LedgerEvent::ItemDismissed(Dismissed {
+                item_id: a.clone(),
+                why: DismissReason::Moot,
+                note: String::new(),
+                reason: "r".into(),
+            }));
+            store
+                .append(&[dismiss], &Guard::ItemUnchangedSince(a.clone(), 2))
+                .unwrap();
+        }
+        assert_eq!(header_user_version(&path), 0, "0.1.x did not stamp");
+        // A plain connection leaves a WAL file in WAL; raw() would convert it.
+        let identity = store_id(&Connection::open(&path).unwrap());
+        assert_eq!(
+            std::fs::read(&path).unwrap()[18],
+            2,
+            "the fixture is in WAL"
+        );
+
+        let store = Store::open(&path).unwrap();
+        let ledger = store.ledger().unwrap();
+        assert_eq!(ledger.head, 3);
+        assert_eq!(
+            ledger.get(&a).unwrap().status,
+            weighin_core::Status::Dismissed
+        );
+        assert!(ledger.get(&b).unwrap().status.is_open());
+        drop(store);
+        assert_eq!(user_version(&raw(&path)).unwrap(), LEDGER_SCHEMA);
+        assert_eq!(
+            store_id(&raw(&path)),
+            identity,
+            "the store keeps its identity"
+        );
+        assert_truncate_layout(&path);
+    }
+
+    /// Three events exactly as weighin 0.2.2 wrote them (payloads and tags copied from a ledger
+    /// that release made), so a change to the envelope's wire format fails here.
+    /// An event as stored: its type, its payload and its tags.
+    type StoredEvent = (
+        &'static str,
+        &'static str,
+        &'static [(&'static str, &'static str)],
+    );
+
+    const LEDGER_0_2_2: [StoredEvent; 3] = [
+        (
+            "item_raised",
+            r#"{"type":"item_raised","item_id":"wi-bee566","kind":"question","question":"Keep the retry at three attempts?","did":null,"flip":null,"at":null,"sym":null,"blocks":null,"door_hint":"two-way","authority_hint":"judgment","channel":"sweep","quote":"Keep the retry at three attempts?","source_path":null,"source_line":null,"actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2026-10-02T21:40:02Z"}"#,
+            &[
+                ("channel", "sweep"),
+                ("door", "two-way"),
+                ("item", "wi-bee566"),
+                ("kind", "question"),
+                ("session", "s1"),
+            ],
+        ),
+        (
+            "item_raised",
+            r#"{"type":"item_raised","item_id":"wi-930e15","kind":"question","question":"Which region hosts the backup?","did":null,"flip":null,"at":"src/backup.rs:12","sym":null,"blocks":null,"door_hint":"one-way","authority_hint":"authority","channel":"marker","quote":"Which region hosts the backup?","source_path":null,"source_line":null,"actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2026-10-02T21:40:02Z"}"#,
+            &[
+                ("channel", "marker"),
+                ("door", "one-way"),
+                ("item", "wi-930e15"),
+                ("kind", "question"),
+                ("session", "s1"),
+            ],
+        ),
+        (
+            "item_dismissed",
+            r#"{"type":"item_dismissed","item_id":"wi-bee566","why":{"kind":"recoverable"},"note":"","reason":"the config already says three","actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2026-10-02T21:40:02Z"}"#,
+            &[("item", "wi-bee566"), ("session", "s1")],
+        ),
+    ];
+
+    #[test]
+    fn a_truncate_ledger_from_0_2_2_is_stamped_and_reads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.sqlite3");
+        {
+            // What weighin 0.2.2 did: its own TRUNCATE connection and happenstance's schema,
+            // with no schema version.
+            let conn = connect(&path).unwrap();
+            ensure_schema(&conn).unwrap();
+            set_user_version(&conn, 0).unwrap();
+            let inner = SqliteEventStore::new(conn).unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            for (ty, data, tags) in LEDGER_0_2_2 {
+                let ev = Event::new(ty, data.as_bytes().to_vec())
+                    .unwrap()
+                    .with_tags(Tags::from_pairs(tags.iter().copied()).unwrap());
+                rt.block_on(inner.append(&[ev], None)).unwrap();
+            }
+        }
+        assert_eq!(header_user_version(&path), 0);
+        let identity = store_id(&raw(&path));
+
+        let store = Store::open(&path).unwrap();
+        let ledger = store.ledger().unwrap();
+        assert_eq!(ledger.head, 3);
+        let retry = ItemId::parse("wi-bee566").unwrap();
+        let backup = ItemId::parse("wi-930e15").unwrap();
+        assert_eq!(
+            ledger.get(&retry).unwrap().status,
+            weighin_core::Status::Dismissed
+        );
+        let open = ledger.get(&backup).unwrap();
+        assert!(open.status.is_open());
+        assert_eq!(open.door(), Door::OneWay);
+        // The conditions still see the old events: raising the same item again is a no-op.
+        assert_eq!(
+            store
+                .append(&[raise(&backup)], &Guard::NotYetRaised(backup.clone()))
+                .unwrap(),
+            Appended::Conflict
+        );
+        drop(store);
+        assert_eq!(user_version(&raw(&path)).unwrap(), LEDGER_SCHEMA);
+        assert_eq!(store_id(&raw(&path)), identity);
+        assert_truncate_layout(&path);
+    }
+
+    #[test]
+    fn a_ledger_from_a_newer_build_is_refused_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.sqlite3");
+        drop(Store::open(&path).unwrap());
+        set_user_version(&raw(&path), LEDGER_SCHEMA + 1).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let err = Store::open(&path).err().expect("a newer ledger is refused");
+        assert!(format!("{err:#}").contains("upgrade weighin"), "{err:#}");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "the ledger is left as it is"
+        );
+        assert_eq!(user_version(&raw(&path)).unwrap(), LEDGER_SCHEMA + 1);
+        assert_truncate_layout(&path);
     }
 }

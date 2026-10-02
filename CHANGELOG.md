@@ -12,6 +12,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   `archive/*` branches, and a SessionStart hook for Claude Code cloud sessions.
 - `weighin.cmd` runs the newer of the msvc and gnu builds, as the `sh` launcher does, so a stale
   native Windows build no longer shadows a fresh cross-build (B-05).
+- The ledger carries a schema version (`PRAGMA user_version`, now 1). Ledgers from 0.1.x (WAL)
+  and 0.2.x (TRUNCATE) are stamped on first open and read as before; a ledger stamped by a newer
+  build is refused, untouched, with a message to upgrade `weighin` (B-10).
 - Capture is never off without a word. When the plugin has no binary for the platform,
   SessionStart shows a one-line message saying capture is off and how to fix it; when hooks have
   logged errors to `hook-errors.log` since the last session, SessionStart shows how many and the
