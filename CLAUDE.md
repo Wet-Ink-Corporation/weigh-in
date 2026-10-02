@@ -42,6 +42,12 @@ Weigh-In ends up (wi-b4c1d8). Line endings are LF everywhere (`.gitattributes`).
   under the `v1.0` milestone (D-0011), and `docs/roadmap.md` links them.
 - Note user-visible changes under `## Unreleased` in `CHANGELOG.md`. A version bump renames that
   section to `## <version> — <date>`; the release notes are that section.
+- End every working session here with `/weigh-in` (D-0010): settle what the session raised, so
+  new decisions become `.kb` atoms. `docs/decisions/` stays the record of everything before.
+  In cloud sessions the ledger (`.git/weighin/`) lives only as long as the container (D-0014),
+  so settle or defer everything before the session ends. There the plugin is wired through
+  `.claude/settings.json` and `.claude/hooks/session-start.sh`, because cloud sessions do not
+  install plugins (B-12); on your own machine, install `weigh@weigh-in` as usual.
 - Run `git config core.hooksPath .githooks` once per clone: its pre-push hook refuses `archive/*`
   branches, which hold history that must stay local (B-06).
 

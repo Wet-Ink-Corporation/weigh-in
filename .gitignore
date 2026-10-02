@@ -13,3 +13,6 @@
 /.idea/
 /.redkiln/
 /.temper/
+
+# Weigh-In skill, installed per cloud session by .claude/hooks/session-start.sh
+/.claude/skills/weigh-in/

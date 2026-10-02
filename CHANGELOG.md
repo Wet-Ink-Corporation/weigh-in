@@ -12,6 +12,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   `archive/*` branches, and a SessionStart hook for Claude Code cloud sessions.
 - `weighin.cmd` runs the newer of the msvc and gnu builds, as the `sh` launcher does, so a stale
   native Windows build no longer shadows a fresh cross-build (B-05).
+- This repository uses Weigh-In on itself (D-0010): `.kb/` is committed, and Claude Code cloud
+  sessions here build the binary and load the skill and hooks from the checkout (B-12).
 
 ## 0.2.2 — 2026-10-01
 

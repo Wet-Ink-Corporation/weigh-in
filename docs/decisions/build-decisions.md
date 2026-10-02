@@ -129,6 +129,18 @@ answering P-6 of the [v1 plan](../v1-plan.md#decisions).
 v1 is slice 1 made dependable. If two weeks of daily use show more than 10% of items dismissed
 `not-useful`, per-category suppression comes into v1, since it is the design's fix for that miss.
 
+## D-0014
+
+**This repository's ledger stays at the default location.** 2026-10-02 · provenance: Ryan,
+choosing between keeping the default, a home-directory ledger, committing the ledger, and
+deferring [D-0010](#d-0010) to Phase 2.
+
+`.kb/_ledger/config.json` sets no `store`, so the ledger is `<git common dir>/weighin/` ([B-02](#b-02)).
+On Ryan's clones it lasts; in Claude Code cloud sessions it goes with the container. Decisions
+survive either way as committed `.kb` atoms; what a container takes with it is the event history
+and anything left open, deferred or defaulted, so cloud sessions settle everything before they
+end. Accepted until Phase 2's installs, and noted as a known gap.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.
@@ -222,3 +234,20 @@ Unicode-3.0, Unlicense). Both crates are `publish = false`, which cargo-deny nee
 workspace path dependency, and which matches D-0007. An `archive/*` pre-push guard lives in
 `.githooks/`, opted into per clone. Claude Code cloud sessions run a synchronous SessionStart
 hook that installs the toolchain and pre-builds the tests.
+
+## B-12
+
+**Cloud sessions on this repository get Weigh-In through the repository, not the plugin.**
+2026-10-02 · Claude's call, two-way · implements [D-0010](#d-0010) for cloud sessions, as Ryan
+chose; replaces enabling the plugin in `.claude/settings.json`, which cloud sessions ignore.
+
+Claude Code's cloud sessions do not install plugins a repository enables (`enabledPlugins`,
+`extraKnownMarketplaces`), but they do run its `.claude/settings.json` hooks and load its
+`.claude/skills/`. So, in cloud sessions only (`CLAUDE_CODE_REMOTE=true`):
+`.claude/hooks/session-start.sh` builds `weighin` into `plugin/libexec/<arch>-unknown-linux-gnu/`,
+copies the plugin's skill into `.claude/skills/weigh-in/` (ignored by git) with
+`${CLAUDE_PLUGIN_ROOT}` rewritten to the checkout's `plugin/`, and runs Weigh-In's SessionStart
+itself, after the build, asking Claude Code to re-scan skills. A separate SessionStart hook would
+run alongside the build and find no binary. Stop, SubagentStop and PostToolUse go through
+`.claude/hooks/weigh-in.sh`, which runs the plugin's launcher. Both do nothing outside cloud
+sessions, where the installed plugin captures, so nothing is captured twice.

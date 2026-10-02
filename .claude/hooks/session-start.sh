@@ -1,15 +1,52 @@
 #!/bin/bash
 # Claude Code cloud sessions: install the pinned toolchain (rust-toolchain.toml) and build the
-# workspace's tests and lints once, so the gate in CLAUDE.md runs straight away. Local sessions
-# skip it. Idempotent; the container is cached after it completes.
+# workspace's tests and lints once, so the gate in CLAUDE.md runs straight away. Then set up
+# Weigh-In on this repository (D-0010, B-12): a cloud session does not install the plugins a
+# repository enables, so build the binary into plugin/libexec/, install the plugin's skill as a
+# project skill, and run Weigh-In's own SessionStart here, after the build, rather than as a
+# separate hook that would run alongside this one. Local sessions skip it all. Idempotent; the
+# container is cached after it completes.
 set -euo pipefail
 
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
+payload=$(cat)
 cd "$CLAUDE_PROJECT_DIR"
 rustup toolchain install >&2
 cargo fetch --locked >&2
 cargo test --workspace --no-run --locked >&2
 cargo clippy --workspace --all-targets --locked >&2
+
+# The binary, where the launcher looks for it (git ignores plugin/libexec/*/).
+cargo build -p weighin --locked >&2
+target="$(uname -m)-unknown-linux-gnu"
+mkdir -p "plugin/libexec/$target"
+cp target/debug/weighin "plugin/libexec/$target/weighin"
+
+# The skill, as a project skill (git ignores it). ${CLAUDE_PLUGIN_ROOT} is set only for plugins.
+skill=.claude/skills/weigh-in
+rm -rf "$skill"
+mkdir -p .claude/skills
+cp -R plugin/skills/weigh-in "$skill"
+sed -i 's#${CLAUDE_PLUGIN_ROOT}#${CLAUDE_PROJECT_DIR}/plugin#g' "$skill/SKILL.md"
+
+# Weigh-In's SessionStart (the marker convention, or a message that capture is off), with the
+# skill directories re-scanned so /weigh-in is there from the first prompt.
+out=$(printf '%s' "$payload" | sh plugin/libexec/weighin hook SessionStart 2>/dev/null || true)
+OUT="$out" python3 - <<'PY'
+import json, os
+
+out = os.environ.get("OUT", "")
+try:
+    msg = json.loads(out)
+    if not isinstance(msg, dict):
+        raise ValueError
+except ValueError:
+    msg = {"hookSpecificOutput": {"additionalContext": out}} if out.strip() else {}
+hso = msg.setdefault("hookSpecificOutput", {})
+hso["hookEventName"] = "SessionStart"
+hso["reloadSkills"] = True
+print(json.dumps(msg))
+PY
