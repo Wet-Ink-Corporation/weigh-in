@@ -534,6 +534,74 @@ fn launcher_does_not_loop_when_no_binary_exists() {
     );
 }
 
+/// `weighin.cmd` runs the msvc build unless the gnu build is newer, as the `sh` launcher does
+/// (B-05). One target holds the real binary and the other a stand-in that is not `weighin`, so
+/// the output says which one ran.
+#[cfg(windows)]
+#[test]
+fn cmd_launcher_runs_the_newer_build() {
+    use std::time::{Duration, SystemTime};
+    let tmp = tempfile::tempdir().unwrap();
+    let launcher = tmp.path().join("weighin.cmd");
+    std::fs::copy(
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugin/libexec/weighin.cmd"
+        ),
+        &launcher,
+    )
+    .unwrap();
+    let msvc = tmp.path().join("x86_64-pc-windows-msvc/weighin.exe");
+    let gnu = tmp.path().join("x86_64-pc-windows-gnu/weighin.exe");
+    let stand_in = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+        .join("System32/hostname.exe");
+    let set_age = |path: &Path, hours_ago: u64| {
+        let t = SystemTime::now() - Duration::from_secs(hours_ago * 3600);
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
+    };
+    let run = |program: &Path| {
+        let out = run_within(
+            Command::new(program).arg("--version"),
+            std::time::Duration::from_secs(30),
+        );
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+        )
+    };
+    for (path, from) in [(&msvc, Path::new(bin())), (&gnu, stand_in.as_path())] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::copy(from, path).unwrap();
+    }
+
+    // Only the msvc build: it runs.
+    std::fs::rename(&gnu, tmp.path().join("gnu-aside.exe")).unwrap();
+    assert!(run(&launcher).1.starts_with("weighin "), "msvc alone runs");
+    std::fs::rename(tmp.path().join("gnu-aside.exe"), &gnu).unwrap();
+
+    // msvc newer: msvc runs.
+    set_age(&gnu, 2);
+    set_age(&msvc, 1);
+    assert!(
+        run(&launcher).1.starts_with("weighin "),
+        "the newer msvc build runs"
+    );
+
+    // gnu newer: the stale msvc build is not run; the launcher behaves as the stand-in does.
+    set_age(&msvc, 3);
+    let out = run(&launcher);
+    assert!(
+        !out.1.contains("weighin "),
+        "the newer gnu build runs: {out:?}"
+    );
+    assert_eq!(out, run(&gnu), "the newer gnu build runs");
+}
+
 #[test]
 fn cowork_hooks_write_nothing_and_still_nudge() {
     let (_tmp, repo) = setup();
