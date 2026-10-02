@@ -10,6 +10,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   plugin package and the changelog, and runs `cargo deny`; release notes come from this file and
   a release tag must be on `main`; pull request template, CODEOWNERS, a pre-push guard for
   `archive/*` branches, and a SessionStart hook for Claude Code cloud sessions.
+- `weighin.cmd` runs the newer of the msvc and gnu builds, as the `sh` launcher does, so a stale
+  native Windows build no longer shadows a fresh cross-build (B-05).
 
 ## 0.2.2 — 2026-10-01
 
