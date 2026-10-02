@@ -6,6 +6,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 0.3.0 — 2026-10-02
+
 - Repository setup for ongoing development (v1 plan, phase 0): CI also runs on macOS, checks the
   plugin package and the changelog, and runs `cargo deny`; release notes come from this file and
   a release tag must be on `main`; pull request template, CODEOWNERS, a pre-push guard for
