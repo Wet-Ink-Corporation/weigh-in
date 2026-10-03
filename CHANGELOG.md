@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- A rerun release no longer packs the failed attempt's release assets into the plugin and the
+  `marketplace` branch, and `package-plugin.sh` refuses anything in `libexec/` but the launchers
+  and one binary per target (B-15). 0.4.0's zip and branch carry an extra 19 MB
+  `libexec/release-assets/`; the next release replaces them.
+
 ## 0.4.0 — 2026-10-03
 
 - Claude Code cloud sessions on this repository build `weighin` and offer `/weigh-in` again: the

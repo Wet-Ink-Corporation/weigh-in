@@ -321,3 +321,18 @@ its own zip on every pull request and checks the modes, the stamp and `claude pl
 Ryan chose no ruleset for the branch: a ruleset cannot name the workflow's `GITHUB_TOKEN` as a
 bypass actor, so guarding it would need a GitHub App or a deploy key, and the `main` ruleset
 already covers only `main`. People with write access could push it; the next release replaces it.
+
+## B-15
+
+**A plugin package holds only the launchers and one binary per target.** 2026-10-03 · Claude's
+call, two-way · closes [#43](https://github.com/Wet-Ink-Corporation/weigh-in/issues/43).
+
+Rerunning the `release` job of v0.4.0 downloaded every artifact of the run into
+`plugin/libexec/`, including the `release-assets` artifact the failed first attempt had
+uploaded, so the zip and the `marketplace` branch carried a nested copy of the release (32 MB
+instead of about 13). The job now downloads only artifacts named like a target (`*-*-*`), and
+`package-plugin.sh` refuses a `libexec/` holding anything but `weighin`, `weighin.cmd` and
+`<target>/weighin[.exe]`, so a stray file fails the release instead of shipping. CI checks the
+refusal on every pull request. The first attempt failed because a GitHub release for the tag
+already existed; the README now says to push only the tag.
+
