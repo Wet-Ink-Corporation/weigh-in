@@ -10,7 +10,7 @@ binary. The composition root holds the store, git, context packs, environment di
 - Workspace crates: `weighin-core`.
 - Third-party:
   - `happenstance-core` and `happenstance-sqlite`, the event store;
-  - `tokio` with `rt` only, which happenstance's API needs (inferred, confirm);
+  - `tokio` with `rt` only, which happenstance's API needs;
   - `clap` (CLI), `anyhow` (binary errors), `time` (timestamps), `tempfile` (temporary indexes and files on the temp disk);
   - `serde` and `serde_json`.
 - Never: a second writer of the ledger, or a git library. Git goes through the command line (`git.rs`).
@@ -27,7 +27,7 @@ None. This is a binary crate; its modules are private (`context`, `env`, `git`, 
 - **Context packs stay bounded** by `caps.context_chars`, about 600 tokens (`context.rs`).
 
 ## Errors
-`anyhow` throughout, with `Context` on I/O, store and git failures. Domain rejections from `weighin-core` (`CardError`, `AnswerError`) are reported to the caller as they are. The exit-code contract is not stated in code comments (inferred, confirm).
+`anyhow` throughout, with `Context` on I/O, store and git failures. Domain rejections from `weighin-core` (`CardError`, `AnswerError`) are reported to the caller as they are. Exit codes: 0 on success; any error prints `weighin: <error chain>` to stderr and exits 1; `weighin hook` always exits 0, even on a panic (`main.rs`).
 
 ## Test strategy
 Unit tests sit beside the code in `env`, `store`, `context` and `git`. End-to-end tests in `tests/cli.rs` cover:
