@@ -299,6 +299,25 @@ fn hooks_never_fail_a_session() {
     assert!(ok);
 }
 
+/// Exec-form hooks start the binary directly on Windows (`libexec/weighin.exe`), so nothing drops
+/// the event name `hooks.json` passes after `hook` (#21, B-16). The binary takes it and reads the
+/// event from stdin as before.
+#[test]
+fn hook_takes_the_event_name_hooks_json_passes() {
+    let (_tmp, repo) = setup();
+    let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
+
+    let (ok, out) = weighin(
+        &repo,
+        "s1",
+        &["hook", "SessionStart"],
+        Some(&start.to_string()),
+    );
+
+    assert!(ok, "{out}");
+    assert!(out.starts_with("Weigh-In (startup): session s1"), "{out}");
+}
+
 /// When the report cannot be marked as seen, the message says it will repeat rather than
 /// dropping that failure (H-10).
 #[test]

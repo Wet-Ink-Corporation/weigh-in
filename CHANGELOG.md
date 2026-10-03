@@ -11,8 +11,16 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   `weighin --dir <folder> stats` left `.weighin/ledger.sqlite3` and its journal behind, which a
   Cowork connected folder cannot delete. `board export` with no ledger and no `--out` writes
   nothing and says so. A ledger is still created by the first item raised.
-- The install guide says Weigh-In's hooks need Git for Windows: without Git Bash, Claude Code
-  runs hooks under PowerShell, where `sh` is missing and nothing is captured (#21).
+
+## 0.5.0 — 2026-10-03
+
+- Hooks no longer need Git Bash on Windows. `hooks.json` starts the launcher directly, with no
+  shell (Claude Code's exec form); on Windows that path resolves to `libexec/weighin.exe`, which
+  the package now holds beside the per-target builds. Without Git Bash, Claude Code runs
+  shell-form hooks under PowerShell, where `sh` was missing and nothing was captured (#21, B-16).
+  `/weigh-in` itself still runs `weighin` through `sh`, so sittings on Windows still need Git Bash.
+- `weighin hook` takes the event name `hooks.json` passes after it (`hook SessionStart`), which
+  nothing strips when Windows starts the binary directly.
 
 ## 0.4.1 — 2026-10-03
 

@@ -7,6 +7,7 @@
 
 # Plugin build outputs: binaries are built (scripts/build-plugin-bins.*), never committed
 /plugin/libexec/*/
+/plugin/libexec/weighin.exe
 /dist
 
 # Tools

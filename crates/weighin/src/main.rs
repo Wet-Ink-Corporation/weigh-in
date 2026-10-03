@@ -43,7 +43,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Hook entry point: reads the hook JSON on stdin.
-    Hook,
+    Hook {
+        /// The event name `hooks.json` passes (B-16). Unused: the event is read from stdin.
+        #[arg(hide = true)]
+        _event: Option<String>,
+    },
     /// Print the marker convention and open counts.
     Prime,
     /// Create .kb/_ledger/config.json.
@@ -185,7 +189,7 @@ enum BoardCmd {
 
 fn main() {
     let cli = Cli::parse();
-    if matches!(cli.cmd, Cmd::Hook) {
+    if matches!(cli.cmd, Cmd::Hook { .. }) {
         let mut input = String::new();
         let _ = std::io::stdin().read_to_string(&mut input);
         // A hook never fails a session, not even on a bug: a panic prints nothing and exits 0.
@@ -214,7 +218,9 @@ fn run(cli: Cli) -> Result<()> {
     };
     let env = Env::discover(&cwd, cli.session.clone()).with_store(cli.store.clone());
     match cli.cmd {
-        Cmd::Hook => unreachable!(),
+        // `main` answers hooks before this, so a hook never exits non-zero; this arm keeps the
+        // match whole without a panic.
+        Cmd::Hook { .. } => write!(std::io::stdout().lock(), "{}", hooks::run(&stdin()?))?,
         Cmd::Prime => print!("{}", hooks::prime(&env, "manual")?),
         Cmd::Init {
             class,
