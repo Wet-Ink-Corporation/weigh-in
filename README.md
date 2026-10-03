@@ -140,7 +140,10 @@ weighin hook                             hook entry point (reads the hook JSON o
 - Live Claude Code sessions (Sonnet, `--plugin-dir`): the agent emitted a `weigh-in` block
   unprompted from the SessionStart convention; hooks captured markers and document questions;
   a sitting took 3–4 requests and cost $0.42–0.57, against the design's $0.28
-  estimate. Measured cost is above the estimate, mostly from batch and card output.
+  estimate. Re-measured on 0.5.0 (D-0016): the cost is mostly the three requests re-reading the
+  session's context; the cards themselves are about 5,600 output tokens. So a sitting costs about
+  3 × the context at the cache-read price plus that output: about $0.10–0.15 on Sonnet 5.5 after a
+  short session, about $0.47 after a 585k-token one.
 - Cowork's refused deletes, reproduced with a shim that refuses `unlink`: 0.1.1 fails with
   `SQLITE_IOERR_DELETE` (2570) exactly as reported; 0.1.2 creates, raises and decides with no
   delete or rename in the folder (strace), recovers the files 0.1.1 left behind, and converts a
