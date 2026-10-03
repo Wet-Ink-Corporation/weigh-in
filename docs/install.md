@@ -150,3 +150,22 @@ The launcher found no binary for this computer, so no hook records anything. In 
 
 In Cowork this message never appears: hooks there record nothing, and the sitting sweeps the
 conversation instead (B-04).
+
+## Windows: `ENOENT … plugin/libexec/weighin`
+
+> Stop hook error: … ENOENT: no such file or directory, uv_spawn 'D:\repos\weigh-in\plugin/libexec/weighin'
+
+On Windows, Claude Code starts `libexec/weighin` with no shell, and that path resolves to
+`libexec/weighin.exe` (B-16). When that file is missing, every hook fails this way instead of
+saying capture is off. Released packages ship it. A local checkout gets it only from the build
+scripts of 0.5.0 or later, so a checkout built before 0.5.0 has the per-target build but not this
+copy. Check with `dir <checkout>\plugin\libexec`. Rebuild in the checkout (not the repository
+you were working in), then start a new session:
+
+```powershell
+cd <checkout>
+pwsh scripts/build-plugin-bins.ps1
+```
+
+Or install from the `marketplace` branch (above), which ships `weighin.exe`, and remove the local
+install.
