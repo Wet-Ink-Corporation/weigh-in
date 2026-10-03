@@ -211,6 +211,22 @@ plain SessionStart output reaches only Claude.
    uninstall, where the ledger is, how to read `hook-errors.log`.
 6. Bump to 0.4.0 and release.
 
+**Done 2026-10-03** (0.4.0 and 0.4.1, both tagged by Ryan). Each step landed as its own PR:
+[#40](https://github.com/Wet-Ink-Corporation/weigh-in/pull/40) the `marketplace` branch from
+`release.yml` (#12, [B-14](decisions/build-decisions.md#b-14)),
+[#41](https://github.com/Wet-Ink-Corporation/weigh-in/pull/41) the install guide (#14), and
+[#42](https://github.com/Wet-Ink-Corporation/weigh-in/pull/42) the 0.4.0 bump (#15), after
+[#39](https://github.com/Wet-Ink-Corporation/weigh-in/pull/39) fixed the cloud SessionStart that
+temper's lint tables had stopped (#38, [B-13](decisions/build-decisions.md#b-13)). The installs (#13)
+ran on Windows and in Cowork, which are Ryan's machines for v1; macOS and Linux were not run. They
+found two problems, fixed in 0.4.1: a rerun release packed the failed attempt's assets into the
+plugin ([#45](https://github.com/Wet-Ink-Corporation/weigh-in/pull/45), #43,
+[B-15](decisions/build-decisions.md#b-15)), and Claude Code leaves auto-update off for this
+marketplace, so the guide now turns it on
+([#47](https://github.com/Wet-Ink-Corporation/weigh-in/pull/47), #46). With it on, Windows moved to
+0.4.1 by itself. What differs from the steps above: no ruleset guards `marketplace` (Ryan's call in
+B-14), and only the tag is pushed, since the workflow creates the release.
+
 ### Phase 3 — Verify every surface and run it for real (about 2 weeks elapsed, little effort) → 0.9.x
 
 1. **Close V1–V7**, each with a dated note in its issue and in `roadmap.md`:
