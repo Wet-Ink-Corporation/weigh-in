@@ -6,6 +6,12 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Read-only commands (`stats`, `open`, `show`, `context`, `digest`, `trailer`, `board export`,
+  `prime`) no longer create a ledger in a folder that has none: they report it as empty. Before,
+  `weighin --dir <folder> stats` left `.weighin/ledger.sqlite3` and its journal behind, which a
+  Cowork connected folder cannot delete. `board export` with no ledger and no `--out` writes
+  nothing and says so. A ledger is still created by the first item raised.
+
 ## 0.5.0 — 2026-10-03
 
 - Hooks no longer need Git Bash on Windows. `hooks.json` starts the launcher directly, with no

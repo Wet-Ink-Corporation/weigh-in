@@ -25,7 +25,7 @@ use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Env};
-use crate::ops::{RaiseInput, RaiseOutcome, Session, scannable};
+use crate::ops::{RaiseInput, RaiseOutcome, Session, read_ledger, scannable};
 
 /// Run a hook. Returns what to print on stdout (possibly nothing).
 #[must_use]
@@ -150,11 +150,7 @@ fn new_errors(env: &Env) -> Option<String> {
 /// Fails when the ledger cannot be read.
 pub fn prime(env: &Env, source: &str) -> Result<String> {
     // Read-only: a session that raises nothing must not leave a store behind.
-    let ledger = if env.store_path().exists() {
-        Session::open(env, "hook")?.ledger
-    } else {
-        weighin_core::Ledger::default()
-    };
+    let ledger = read_ledger(env)?;
     let open = ledger.open();
     let here = env
         .session
