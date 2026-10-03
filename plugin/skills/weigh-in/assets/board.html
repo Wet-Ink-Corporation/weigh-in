@@ -333,7 +333,9 @@
     }
     group("Needs you", items(), "item", null);
     if (decided().length) group("Decided", decided(), "decided", "Your answers, applied to the ledger.");
-    group("Decided for you", defaults(), "default", "Two-way calls taken with a logged default. Reopen any of them.");
+    var dTotal = st.state && typeof st.state.defaults_total === "number" ? st.state.defaults_total : defaults().length;
+    group("Decided for you", defaults(), "default", "Two-way calls taken with a logged default. Reopen any of them." +
+      (dTotal > defaults().length ? " Showing the newest " + defaults().length + " of " + dTotal + "; /weigh-in digest has the rest." : ""));
     group("Settled", settled(), "settled", "Your earlier decisions. Never re-asked.");
     q.appendChild(h("p",{class:"qhint"},"Keys: ",h("span",{class:"kbd",text:"j"})," ",h("span",{class:"kbd",text:"k"})," move · ",h("span",{class:"kbd",text:"1"}),"–",h("span",{class:"kbd",text:"4"})," pick an option"));
   }

@@ -318,6 +318,71 @@ fn hook_takes_the_event_name_hooks_json_passes() {
     assert!(out.starts_with("Weigh-In (startup): session s1"), "{out}");
 }
 
+/// The board state is one db document, capped at 256 KiB, and every default used to go into it:
+/// about 700 overflowed it (#19). The export now carries the newest unacknowledged defaults up
+/// to the cap, with the total, and the digest covers the rest (wi-c34fb3).
+#[test]
+fn board_export_caps_defaults_at_the_newest_unacknowledged() {
+    let (_tmp, repo) = setup();
+    let (ok, out) = weighin(&repo, "s1", &["init", "--class", "own"], None);
+    assert!(ok, "{out}");
+    let raises: Vec<Value> = (0..205)
+        .map(|i| json!({"op": "raise", "q": format!("Should cache entry {i} expire after its TTL?"), "kind": "call",
+            "door": "two-way", "authority": "judgment", "did": format!("expire entry {i} after the TTL"), "channel": "marker"}))
+        .collect();
+    let (ok, out) = weighin(
+        &repo,
+        "s1",
+        &["batch"],
+        Some(&Value::Array(raises).to_string()),
+    );
+    assert!(ok, "{out}");
+    let ids: Vec<String> = out
+        .lines()
+        .filter_map(|l| l.strip_prefix("✓ raised "))
+        .filter_map(|l| l.split_whitespace().next())
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(ids.len(), 205, "{out}");
+    let ack = json!([{"op": "ack", "id": ids[204]}]).to_string();
+    let (ok, out) = weighin(&repo, "s1", &["batch"], Some(&ack));
+    assert!(ok, "{out}");
+
+    let (ok, out) = weighin(
+        &repo,
+        "s1",
+        &["board", "export", "--out", "board.json"],
+        None,
+    );
+
+    assert!(ok, "{out}");
+    let state: Value =
+        serde_json::from_str(&std::fs::read_to_string(repo.join("board.json")).unwrap()).unwrap();
+    let shown: Vec<&str> = state["defaults"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        (shown.len(), state["defaults_total"].as_u64()),
+        (200, Some(204)),
+        "{out}"
+    );
+    assert!(
+        !shown.contains(&ids[204].as_str()),
+        "an acknowledged default stays off the board"
+    );
+    assert!(
+        shown.contains(&ids[203].as_str()),
+        "the newest unacknowledged default is shown"
+    );
+    assert!(
+        !shown.contains(&ids[0].as_str()),
+        "the oldest beyond the cap is left to the digest"
+    );
+}
+
 /// When the report cannot be marked as seen, the message says it will repeat rather than
 /// dropping that failure (H-10).
 #[test]
