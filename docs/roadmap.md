@@ -29,7 +29,7 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 | V4 | Editor links (`vscode://file/…`) opened from inside an Artifact | [#18](https://github.com/Wet-Ink-Corporation/weigh-in/issues/18) |
 | V5 | Quotas of the board's `db` store | [#19](https://github.com/Wet-Ink-Corporation/weigh-in/issues/19) |
 | V6 | Previews in the desktop Code tab and the Cowork question card | [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20) |
-| V7 | The Windows binary from the installed plugin on Ryan's machine | [#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21) |
+| V7 | The Windows binary from the installed plugin on Ryan's machine. **Verified 2026-10-03** ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)): installed from the `marketplace` branch, hooks fired under Git Bash, a sitting decided an item. Still open: hooks on Windows without Git Bash, which run under PowerShell, where `sh` is missing | [#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21) |
 
 ## Known gaps
 

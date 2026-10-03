@@ -32,8 +32,12 @@ macOS (Apple silicon) and Windows binaries (D-0009). No Rust toolchain is needed
 4. Start a new session. Type `/weigh-in` (Claude Code also lists it as `/weigh:weigh-in`). In a
    client repository, run `/weigh-in init client` first, which keeps the board local.
 
-Hooks run through `sh`; on Windows that needs Git for Windows (Git Bash). Whether Claude Code
-always provides it is still open ([#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)).
+Hooks run through `sh`; on Windows that needs [Git for Windows](https://git-scm.com/downloads/win)
+(Git Bash). Claude Code does not ship it: without Git Bash it runs hooks under PowerShell, where
+`sh` is not found, so nothing is captured and SessionStart cannot say capture is off. Install Git
+for Windows first; if Claude Code does not find it, set `CLAUDE_CODE_GIT_BASH_PATH` (see Claude
+Code's [setup guide](https://code.claude.com/docs/en/setup#set-up-on-windows)). A hook form that
+needs no Git Bash is open in [#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21).
 
 ### Update
 
