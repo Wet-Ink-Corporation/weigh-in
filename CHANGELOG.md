@@ -9,6 +9,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - Claude Code cloud sessions on this repository build `weighin` and offer `/weigh-in` again: the
   SessionStart hook no longer stops when clippy reports the findings temper's baseline records
   (B-13).
+- An install guide for users, [`docs/install.md`](docs/install.md): Claude Code from the
+  `marketplace` branch, Cowork through a connected checkout and the uploaded zip, updating,
+  uninstalling, where the ledger is, reading `hook-errors.log`, and what to do when SessionStart
+  says capture is off.
 - Each release also publishes a `marketplace` branch: one commit holding the packaged plugin
   with its Linux, Windows and macOS binaries, so Claude Code installs without Rust from
   `Wet-Ink-Corporation/weigh-in#marketplace` (D-0009, B-14). CI builds the same branch from
