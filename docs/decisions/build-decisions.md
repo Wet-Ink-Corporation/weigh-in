@@ -152,6 +152,30 @@ found, so capture was silently off. The hooks move to exec form ([B-16](#b-16)) 
 sitting still runs through `sh`, so `/weigh-in` on Windows still needs Git Bash; a shell-neutral
 skill was not chosen.
 
+## D-0016
+
+**v1 records the measured sitting cost instead of trimming the output.** 2026-10-03 · provenance:
+Ryan, choosing between measuring then recording, trimming and recording, and trimming only ·
+closes [#24](https://github.com/Wet-Ink-Corporation/weigh-in/issues/24).
+
+A sitting's cost is set by the session it ends, not by the cards. Measured from the transcript of
+the session that chose this (0.5.0, Opus 5.5, three requests, two cards, four swept items):
+
+| Request | Cache read | Cache write | Output |
+|---|---:|---:|---:|
+| Batch 1 (sweep, triage, two cards) | 583,694 | 4,750 | 4,392 |
+| AskUserQuestion | 588,444 | 4,807 | 972 |
+| Batch 2 (decisions) | 588,444 | 15,516 | 224 |
+
+That is about $0.59 at Opus 5.5's prices ($4 in, $20 out, $0.20 cache read; cache writes taken as
+1.25 × input) and about $0.47 at Sonnet 5.5's ($2, $10, $0.20): about 60–75% of it is the three
+requests re-reading a 585k-token context, which no trim touches. The cards and batch JSON the
+model writes come to about 5,600 output tokens, as estimated in #24; trimming them would save about
+1,400 tokens, a cent or two. So the v1 figure is a formula, not a constant: **about 3 × the
+session's context at the cache-read price, plus about 5,600 output tokens**, which is about $0.10–0.15
+on Sonnet 5.5 after a short session (40k context) and about $0.47 after a long one. The design's
+$0.28 and the $0.35 target are dropped.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.

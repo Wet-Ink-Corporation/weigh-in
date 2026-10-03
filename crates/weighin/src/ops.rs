@@ -2,7 +2,7 @@
 //! [`Session`], which is the single write path: it reads the ledger, validates, appends under a
 //! guard, and performs the side effects (atoms, source annotations) that follow a decision.
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use serde::Deserialize;
 use std::path::Path;
 use weighin_core::atom::{self, RenderContext};
@@ -169,6 +169,34 @@ impl RaiseOutcome {
             Self::New(i) | Self::Existing(i) | Self::Duplicate(i) => i,
         }
     }
+}
+
+/// The ledger as it stands, for commands that only read, or `None` when no store exists yet.
+///
+/// Never creates the store. A ledger is created by the first item raised, and a folder that
+/// refuses deletes (B-01) could not be rid of one a read left behind.
+///
+/// # Errors
+/// Fails when the store's path cannot be checked (so an unreadable ledger is never taken for a
+/// missing one), or when an existing store cannot be opened or read.
+pub(crate) fn stored_ledger(env: &Env) -> Result<Option<Ledger>> {
+    let path = env.store_path();
+    if path
+        .try_exists()
+        .with_context(|| format!("checking {}", path.display()))?
+    {
+        Store::open(&path)?.ledger().map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+/// [`stored_ledger`], with no store read as an empty ledger.
+///
+/// # Errors
+/// See [`stored_ledger`].
+pub(crate) fn read_ledger(env: &Env) -> Result<Ledger> {
+    Ok(stored_ledger(env)?.unwrap_or_default())
 }
 
 pub struct Session<'a> {
