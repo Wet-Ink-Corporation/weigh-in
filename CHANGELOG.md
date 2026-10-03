@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- The board carries at most the newest 200 unacknowledged defaults, with their total, so its
+  state stays under the Artifact store's 256 KiB document limit, which about 700 defaults
+  overflowed (#19). Acknowledged defaults no longer appear on it; `/weigh-in digest` covers the
+  rest, and the board says when the list is capped.
+
 ## 0.5.0 — 2026-10-03
 
 - Hooks no longer need Git Bash on Windows. `hooks.json` starts the launcher directly, with no

@@ -95,8 +95,12 @@ pub struct BoardState {
     pub items: Vec<BoardItem>,
     #[serde(default)]
     pub decided: Vec<BoardItem>,
+    /// The newest unacknowledged defaults, at most [`BOARD_DEFAULTS_CAP`].
     #[serde(default)]
     pub defaults: Vec<BoardDefault>,
+    /// Every unacknowledged default, shown or not; the digest covers those past the cap.
+    #[serde(default)]
+    pub defaults_total: usize,
     #[serde(default)]
     pub settled: Vec<BoardSettled>,
 }
@@ -155,6 +159,12 @@ fn board_item(item: &Item, rank: usize, card: &Card) -> BoardItem {
     }
 }
 
+/// The most defaults one board document carries.
+///
+/// The board state is a single document in the Artifact `db` store, capped at 256 KiB, and a
+/// default takes about 370 bytes, so an uncapped list overflows it at about 700 (#19, wi-c34fb3).
+pub const BOARD_DEFAULTS_CAP: usize = 200;
+
 /// Build the board document from the ledger. Only grounded items make cards; raised-but-ungrounded
 /// items are counted in the scope line but need a sitting before they can be shown.
 #[must_use]
@@ -196,12 +206,14 @@ pub fn export(ledger: &Ledger, scope: Scope, focus_cap: usize, now: &str) -> Boa
             b
         })
         .collect();
-    let defaults = ledger
-        .items
-        .values()
-        .filter(|i| i.status == Status::Defaulted)
-        .map(|i| {
-            let d = i.default.as_ref().expect("defaulted items carry a default");
+    let mut unreviewed = ledger.unacknowledged_defaults();
+    let defaults_total = unreviewed.len();
+    unreviewed.sort_by_key(|i| std::cmp::Reverse(i.last_position));
+    let defaults = unreviewed
+        .into_iter()
+        .take(BOARD_DEFAULTS_CAP)
+        .filter_map(|i| {
+            let d = i.default.as_ref()?;
             let alt = i
                 .card
                 .as_ref()
@@ -219,14 +231,14 @@ pub fn export(ledger: &Ledger, scope: Scope, focus_cap: usize, now: &str) -> Boa
                 .as_ref()
                 .and_then(|c| c.option(&d.option))
                 .map_or_else(|| d.option.clone(), |o| o.title.clone());
-            BoardDefault {
+            Some(BoardDefault {
                 id: i.id.to_string(),
                 question: i.question.clone(),
                 taken,
                 alt,
                 reason: d.reason.clone(),
                 cause: d.cause.as_str().to_owned(),
-            }
+            })
         })
         .collect();
     let mut s = scope;
@@ -237,6 +249,7 @@ pub fn export(ledger: &Ledger, scope: Scope, focus_cap: usize, now: &str) -> Boa
         items,
         decided,
         defaults,
+        defaults_total,
         settled: Vec::new(),
     }
 }
