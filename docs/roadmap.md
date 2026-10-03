@@ -1,10 +1,12 @@
 # Roadmap and open items
 
-State at 0.3.0 (2026-10-02). Slice 1 is built: capture, the in-chat sitting, decision records,
+State at 0.4.0 (2026-10-03). Slice 1 is built: capture, the in-chat sitting, decision records,
 the Cowork route through the computer's shell, and the local marketplace. Phase 1 of the v1 plan
 is done: the ledger has a schema version, SessionStart says when capture is off, both launchers
-pick the newer build, and this repository uses Weigh-In on itself. The path from here to v1 is in
-[`v1-plan.md`](v1-plan.md).
+pick the newer build, and this repository uses Weigh-In on itself. Phase 2 is built: each release
+publishes a `marketplace` branch Claude Code installs from without Rust, and
+[`install.md`](install.md) is the install guide; the installs on Ryan's machines (#13) follow the
+`v0.4.0` tag. The path from here to v1 is in [`v1-plan.md`](v1-plan.md).
 
 Open work is tracked as GitHub issues ([D-0011](decisions/build-decisions.md#d-0011)), in the order of
 the [v1 plan](v1-plan.md). This page summarises them; the issue is where status is kept.
@@ -31,8 +33,9 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 
 ## Known gaps
 
-- **No binaries in a git install:** [#12](https://github.com/Wet-Ink-Corporation/weigh-in/issues/12), [#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13).
-  Capture is no longer silently off: SessionStart says so ([B-11](decisions/build-decisions.md#b-11)).
+- **No binaries on `main`:** install from the `marketplace` branch instead ([B-14](decisions/build-decisions.md#b-14));
+  verified on Ryan's machines under [#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13).
+  A plugin without a binary says capture is off ([B-11](decisions/build-decisions.md#b-11)).
 - **Cowork download is dormant** while releases are internal ([D-0012](decisions/build-decisions.md#d-0012));
   Cowork uses a connected checkout of the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)).
 - **This repository's ledger does not outlive a cloud session** ([D-0014](decisions/build-decisions.md#d-0014)):
