@@ -63,6 +63,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
+          # The build artifacts only (each named for its target): a rerun of this job also sees
+          # the release-assets artifact of the attempt that failed (#43).
+          pattern: "*-*-*"
           path: plugin/libexec
       - name: package the plugin (skill stamped with this build's Linux binary)
         # The Cowork skill downloads the Linux binary from this release with no GitHub login, so

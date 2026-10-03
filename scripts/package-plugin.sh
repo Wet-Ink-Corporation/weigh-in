@@ -22,6 +22,14 @@ version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' plugin/.claude-plugin/plug
 # claude.ai rejects hosted plugins with a top-level bin/ (Claude Code puts it on PATH).
 [ ! -e plugin/bin ] || { echo "plugin/bin/ must not exist: claude.ai rejects it; binaries live in plugin/libexec/" >&2; exit 1; }
 ls plugin/libexec/*/weighin* >/dev/null 2>&1 || { echo "no binaries under plugin/libexec/<target>/; build them first" >&2; exit 1; }
+# libexec/ holds the launchers and one directory per target with its binary, nothing else: a
+# stray folder (a release rerun's assets, #43) would ship inside the plugin.
+stray=$(cd plugin/libexec && find . -mindepth 1 \
+  ! -path ./weighin ! -path ./weighin.cmd \
+  ! \( -type d -path './*-*-*' ! -path './*/*' \) \
+  ! \( -type f -path './*-*-*/weighin' ! -path './*/*/*' \) \
+  ! \( -type f -path './*-*-*/weighin.exe' ! -path './*/*/*' \) | sort)
+[ -z "$stray" ] || { printf 'plugin/libexec/ must hold only the launchers and <target>/weighin[.exe]; found:\n%s\n' "$stray" >&2; exit 1; }
 
 musl=plugin/libexec/x86_64-unknown-linux-musl/weighin
 if $no_download; then

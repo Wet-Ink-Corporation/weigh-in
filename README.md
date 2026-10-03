@@ -88,7 +88,8 @@ see `/weigh-in` twice, remove one of the two installs.
 ## Releasing
 
 Bump `version` in `Cargo.toml` and `plugin/.claude-plugin/plugin.json`, commit to `main`, then
-push the tag `v<version>`. The release workflow tests, builds the Linux (musl), Windows (msvc)
+push the tag `v<version>`; push only the tag, since the workflow creates the GitHub release and
+stops if one already exists. The release workflow tests, builds the Linux (musl), Windows (msvc)
 and macOS binaries, packages the plugin with its skill stamped to that Linux build's SHA-256,
 publishes the release with the zip, the raw binaries and `SHA256SUMS`, and then replaces the
 `marketplace` branch with one commit holding that zip's plugin and `marketplace.json`, which

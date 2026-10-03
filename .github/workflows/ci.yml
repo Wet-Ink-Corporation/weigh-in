@@ -65,6 +65,12 @@ jobs:
           zip="dist/weigh-in-plugin-$VERSION.zip"
           unzip -p "$zip" skills/weigh-in/SKILL.md | grep -q "V=$VERSION; S=none;"
           unzip -l "$zip" | grep -q 'libexec/x86_64-unknown-linux-gnu/weighin$'
+          # A stray folder in libexec/ (a release rerun's assets, #43) is refused, not shipped.
+          mkdir plugin/libexec/release-assets && touch plugin/libexec/release-assets/SHA256SUMS
+          if scripts/package-plugin.sh --no-download 2>/dev/null; then
+            echo "package-plugin.sh shipped a stray plugin/libexec/release-assets/" >&2; exit 1
+          fi
+          rm -r plugin/libexec/release-assets
       - name: claude plugin validate (Node from the runner image)
         run: |
           npm install -g @anthropic-ai/claude-code
