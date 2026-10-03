@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/weighin-core", "crates/weighin"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 # Same pin as redkiln-rs (rust-toolchain.toml there), so weighin-core can be adopted as a crate.
 rust-version = "1.98.1"
