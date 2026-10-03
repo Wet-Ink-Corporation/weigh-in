@@ -299,6 +299,30 @@ fn hooks_never_fail_a_session() {
     assert!(ok);
 }
 
+/// When the report cannot be marked as seen, the message says it will repeat rather than
+/// dropping that failure (H-10).
+#[test]
+fn session_start_says_when_the_error_report_cannot_be_marked_seen() {
+    let (_tmp, repo) = setup();
+    let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
+    let state = repo.join(".git/weighin");
+    // A directory where the marker file goes, so writing it fails.
+    std::fs::create_dir_all(state.join("hook-errors.seen")).unwrap();
+    std::fs::write(
+        state.join("hook-errors.log"),
+        "2026-10-02T09:00:00Z Stop: locked\n",
+    )
+    .unwrap();
+
+    let out: Value = serde_json::from_str(&hook(&repo, &start)).unwrap();
+    let message = out["systemMessage"].as_str().unwrap();
+    assert!(
+        message.contains("1 hook error(s)") && message.contains("will repeat"),
+        "{message}"
+    );
+    assert!(!message.contains('\n'), "one line: {message}");
+}
+
 #[test]
 fn session_start_reports_hook_errors_since_the_last_session() {
     let (_tmp, repo) = setup();
@@ -709,8 +733,7 @@ fn cmd_launcher_runs_the_newer_build() {
     .unwrap();
     let msvc = tmp.path().join("x86_64-pc-windows-msvc/weighin.exe");
     let gnu = tmp.path().join("x86_64-pc-windows-gnu/weighin.exe");
-    let stand_in =
-        std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32/cmd.exe");
+    let stand_in = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32/cmd.exe");
     let set_age = |path: &Path, hours_ago: u64| {
         let t = SystemTime::now() - Duration::from_secs(hours_ago * 3600);
         std::fs::File::options()
@@ -723,7 +746,7 @@ fn cmd_launcher_runs_the_newer_build() {
     let ran = || {
         let out = run_within(
             Command::new(&launcher).args(["/d", "/c", "exit", "7"]),
-            std::time::Duration::from_secs(30),
+            Duration::from_secs(30),
         );
         let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
         match out.status.code() {

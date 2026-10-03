@@ -125,8 +125,11 @@ fn new_errors(env: &Env) -> Option<String> {
     if seen == log.len() {
         return None;
     }
-    let _ = std::fs::write(dir.join(ERRORS_SEEN), log.len().to_string());
-    let added = String::from_utf8_lossy(&log[seen..]);
+    let marked = match std::fs::write(dir.join(ERRORS_SEEN), log.len().to_string()) {
+        Ok(()) => String::new(),
+        Err(e) => format!(" Could not mark this report as seen, so it will repeat: {e}."),
+    };
+    let added = String::from_utf8_lossy(log.get(seen..)?);
     let lines: Vec<&str> = added.lines().filter(|l| !l.trim().is_empty()).collect();
     let last = lines.last()?;
     let last: String = if last.chars().count() > 200 {
@@ -135,7 +138,7 @@ fn new_errors(env: &Env) -> Option<String> {
         (*last).to_owned()
     };
     Some(format!(
-        "Weigh-In: {} hook error(s) since the last session, so capture may be off. Last: {last} (full log: {})",
+        "Weigh-In: {} hook error(s) since the last session, so capture may be off. Last: {last} (full log: {}){marked}",
         lines.len(),
         log_path.display()
     ))
