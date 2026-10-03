@@ -6,10 +6,12 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 0.4.1 — 2026-10-03
+
 - A rerun release no longer packs the failed attempt's release assets into the plugin and the
   `marketplace` branch, and `package-plugin.sh` refuses anything in `libexec/` but the launchers
-  and one binary per target (B-15). 0.4.0's zip and branch carry an extra 19 MB
-  `libexec/release-assets/`; the next release replaces them.
+  and one binary per target (B-15). This release replaces 0.4.0's zip and branch, which carried
+  an extra 19 MB `libexec/release-assets/`.
 - The install guide turns on auto-update for the `weigh-in` marketplace, which Claude Code
   leaves off for marketplaces that are not official; without it, releases arrive only through
   `/plugin marketplace update weigh-in`.

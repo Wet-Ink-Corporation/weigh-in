@@ -1,6 +1,6 @@
 # Roadmap and open items
 
-State at 0.4.0 (2026-10-03). Slice 1 is built: capture, the in-chat sitting, decision records,
+State at 0.4.1 (2026-10-03). Slice 1 is built: capture, the in-chat sitting, decision records,
 the Cowork route through the computer's shell, and the local marketplace. Phase 1 of the v1 plan
 is done: the ledger has a schema version, SessionStart says when capture is off, both launchers
 pick the newer build, and this repository uses Weigh-In on itself. Phase 2 is built: each release
