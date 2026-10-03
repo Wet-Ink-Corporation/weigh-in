@@ -159,4 +159,13 @@ On Windows, Claude Code starts `libexec/weighin` with no shell, and that path re
 `libexec/weighin.exe` (B-16). When that file is missing, every hook fails this way instead of
 saying capture is off. Released packages ship it. A local checkout gets it only from the build
 scripts of 0.5.0 or later, so a checkout built before 0.5.0 has the per-target build but not this
-copy. From the checkout, run `pwsh scripts/build-plugin-bins.ps1`, then start a new session.
+copy. Check with `dir <checkout>\plugin\libexec`. Rebuild in the checkout (not the repository
+you were working in), then start a new session:
+
+```powershell
+cd <checkout>
+pwsh scripts/build-plugin-bins.ps1
+```
+
+Or install from the `marketplace` branch (above), which ships `weighin.exe`, and remove the local
+install.
