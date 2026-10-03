@@ -288,3 +288,16 @@ itself, after the build, asking Claude Code to re-scan skills. A separate Sessio
 run alongside the build and find no binary. Stop, SubagentStop and PostToolUse go through
 `.claude/hooks/weigh-in.sh`, which runs the plugin's launcher. Both do nothing outside cloud
 sessions, where the installed plugin captures, so nothing is captured twice.
+
+## B-13
+
+**The cloud SessionStart's lint step only warms the cache.** 2026-10-03 · Claude's call, two-way ·
+fixes [B-12](#b-12) after temper's lint tables (#37) · closes
+[#38](https://github.com/Wet-Ink-Corporation/weigh-in/issues/38).
+
+temper's `[workspace.lints]` deny findings that `.claude/temper-baseline.json` records, so plain
+`cargo clippy` fails on the legacy code, and under `set -e` that stopped `session-start.sh`
+before it built `weighin`, installed the skill or ran Weigh-In's SessionStart: capture was off
+in every cloud session, without a word. The hook now runs clippy with `--keep-going` and goes on
+when it fails, saying the gate is `temper.mjs baseline --check`. Lints are judged by the gate,
+never by session setup.

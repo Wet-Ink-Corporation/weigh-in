@@ -6,6 +6,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Claude Code cloud sessions on this repository build `weighin` and offer `/weigh-in` again: the
+  SessionStart hook no longer stops when clippy reports the findings temper's baseline records
+  (B-13).
+
 ## 0.3.0 — 2026-10-03
 
 - Repository setup for ongoing development (v1 plan, phase 0): CI also runs on macOS, checks the
