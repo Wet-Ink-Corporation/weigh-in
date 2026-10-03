@@ -1,12 +1,14 @@
 #!/bin/sh
 # Weigh-In launcher: runs the prebuilt binary for this platform from libexec/<target>/.
 # Not bin/: Claude Code puts a plugin's bin/ on PATH, and claude.ai rejects hosted plugins that ship
-# one. Hooks and the skill call this launcher by path.
+# one. Hooks start this launcher by path with no shell (exec form, B-16), so it must stay
+# executable; on Windows the same path resolves to libexec/weighin.exe instead. The skill runs it
+# with sh.
 # Falls back to a `weighin` on PATH (cargo install --path crates/weighin). Hooks never fail a session.
 dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # hooks.json names the SessionStart event (`hook SessionStart`) so that this script, which cannot
 # parse the hook's JSON, knows when to say capture is off. The binary reads the event from stdin,
-# so the name is dropped before it runs: an older weighin would refuse the extra argument.
+# so the name is dropped before it runs: a weighin older than 0.5.0 would refuse the extra argument.
 event=""
 if [ "${1:-}" = "hook" ] && [ $# -ge 2 ]; then
   event=$2

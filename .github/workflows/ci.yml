@@ -61,10 +61,16 @@ jobs:
           mkdir -p plugin/libexec/x86_64-unknown-linux-gnu
           cp target/debug/weighin plugin/libexec/x86_64-unknown-linux-gnu/
           sh plugin/libexec/weighin --version
+          # A stand-in Windows build: packaging must also place it at libexec/weighin.exe, which
+          # Windows exec-form hooks start (B-16).
+          mkdir -p plugin/libexec/x86_64-pc-windows-msvc
+          cp target/debug/weighin plugin/libexec/x86_64-pc-windows-msvc/weighin.exe
           scripts/package-plugin.sh --no-download
           zip="dist/weigh-in-plugin-$VERSION.zip"
           unzip -p "$zip" skills/weigh-in/SKILL.md | grep -q "V=$VERSION; S=none;"
           unzip -l "$zip" | grep -q 'libexec/x86_64-unknown-linux-gnu/weighin$'
+          unzip -l "$zip" | grep -q ' libexec/weighin.exe$' \
+            || { echo "package-plugin.sh did not place the Windows build at libexec/weighin.exe" >&2; exit 1; }
           # A stray folder in libexec/ (a release rerun's assets, #43) is refused, not shipped.
           mkdir plugin/libexec/release-assets && touch plugin/libexec/release-assets/SHA256SUMS
           if scripts/package-plugin.sh --no-download 2>/dev/null; then
@@ -82,9 +88,12 @@ jobs:
           git -C "$mp" ls-tree -r HEAD plugin/libexec | grep -q '^100755 .*libexec/x86_64-unknown-linux-gnu/weighin$' \
             || { echo "the marketplace commit must hold the binary as executable (100755)" >&2; exit 1; }
           git -C "$mp" ls-tree -r HEAD plugin/libexec | grep -q '^100755 .*libexec/weighin$'
+          git -C "$mp" ls-tree -r HEAD plugin/libexec | grep -q '^100755 .*libexec/weighin.exe$'
           grep -q "V=$VERSION; S=none;" "$mp/plugin/skills/weigh-in/SKILL.md"
           (cd "$mp" && claude plugin validate .)
           sh "$mp/plugin/libexec/weighin" --version
+          # Hooks start the launcher with no shell (exec form, B-16), as a checkout of the branch has it.
+          git -C "$mp" checkout -q -- . && "$mp/plugin/libexec/weighin" --version
 
   deny:
     # Advisories, licences and sources of every dependency (deny.toml).

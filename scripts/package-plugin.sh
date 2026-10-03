@@ -25,11 +25,11 @@ ls plugin/libexec/*/weighin* >/dev/null 2>&1 || { echo "no binaries under plugin
 # libexec/ holds the launchers and one directory per target with its binary, nothing else: a
 # stray folder (a release rerun's assets, #43) would ship inside the plugin.
 stray=$(cd plugin/libexec && find . -mindepth 1 \
-  ! -path ./weighin ! -path ./weighin.cmd \
+  ! -path ./weighin ! -path ./weighin.cmd ! -path ./weighin.exe \
   ! \( -type d -path './*-*-*' ! -path './*/*' \) \
   ! \( -type f -path './*-*-*/weighin' ! -path './*/*/*' \) \
   ! \( -type f -path './*-*-*/weighin.exe' ! -path './*/*/*' \) | sort)
-[ -z "$stray" ] || { printf 'plugin/libexec/ must hold only the launchers and <target>/weighin[.exe]; found:\n%s\n' "$stray" >&2; exit 1; }
+[ -z "$stray" ] || { printf 'plugin/libexec/ must hold only the launchers, weighin.exe and <target>/weighin[.exe]; found:\n%s\n' "$stray" >&2; exit 1; }
 
 musl=plugin/libexec/x86_64-unknown-linux-musl/weighin
 if $no_download; then
@@ -44,6 +44,14 @@ fi
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 cp -R plugin/. "$stage/"
+# Hooks start libexec/weighin with no shell (exec form, B-16); on Windows that path resolves to
+# libexec/weighin.exe, so the Windows build goes there too: msvc, which the release ships, else gnu.
+for t in x86_64-pc-windows-msvc x86_64-pc-windows-gnu; do
+  if [ -f "$stage/libexec/$t/weighin.exe" ]; then
+    cp "$stage/libexec/$t/weighin.exe" "$stage/libexec/weighin.exe"
+    break
+  fi
+done
 skill="$stage/skills/weigh-in/SKILL.md"
 [ "$(grep -c 'V=[^;]*; S=[^;]*;' "$skill")" = 1 ] || { echo "SKILL.md must hold exactly one 'V=…; S=…;' stamp" >&2; exit 1; }
 sed "s/V=[^;]*; S=[^;]*;/V=$version; S=$sha;/" "$skill" > "$skill.new" && mv "$skill.new" "$skill"

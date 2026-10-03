@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build the release binaries the plugin launcher looks for, into plugin/libexec/<target>/.
 # Linux (static, musl) and Windows (mingw) cross-build from Linux; on Windows run
-#   cargo build --release -p weighin && copy target\release\weighin.exe plugin\libexec\x86_64-pc-windows-msvc\
+#   scripts\build-plugin-bins.ps1
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
@@ -13,6 +13,11 @@ build() {
   for f in weighin weighin.exe; do
     [ -f "target/$target/release/$f" ] && cp "target/$target/release/$f" "plugin/libexec/$target/"
   done
+  # Hooks start libexec/weighin with no shell, which on Windows resolves to libexec/weighin.exe
+  # (B-16); the build made last is the one there, as the launchers prefer the newer build (B-05).
+  if [ -f "target/$target/release/weighin.exe" ]; then
+    cp "target/$target/release/weighin.exe" plugin/libexec/weighin.exe
+  fi
   echo "built plugin/libexec/$target"
 }
 case "${1:-all}" in
