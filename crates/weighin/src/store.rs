@@ -48,7 +48,7 @@ pub const JOURNAL_MODE: &str = "truncate";
 ///
 /// 1. happenstance 0.3.2's event store schema under a TRUNCATE journal. Ledgers written by
 ///    0.1.x (WAL) and 0.2.x (TRUNCATE) have this schema unstamped, as 0.
-pub const LEDGER_SCHEMA: i64 = 1;
+pub(crate) const LEDGER_SCHEMA: i64 = 1;
 
 /// How long a connection waits for a lock, and for a WAL ledger to be released to TRUNCATE.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -361,12 +361,17 @@ fn migrate(conn: &Connection) -> Result<()> {
         set_user_version(conn, LEDGER_SCHEMA)
     })();
     match migrated {
-        Ok(()) => conn.execute_batch("COMMIT")?,
-        Err(_) => {
-            let _ = conn.execute_batch("ROLLBACK");
+        Ok(()) => conn
+            .execute_batch("COMMIT")
+            .context("committing the ledger schema migration"),
+        Err(e) => {
+            let e = match conn.execute_batch("ROLLBACK") {
+                Ok(()) => e,
+                Err(rollback) => e.context(format!("rolling back also failed: {rollback}")),
+            };
+            Err(e.context("migrating the ledger schema"))
         }
     }
-    migrated.context("migrating the ledger schema")
 }
 
 #[cfg(test)]
