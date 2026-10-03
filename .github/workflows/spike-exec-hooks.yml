@@ -1,0 +1,97 @@
+# Spike for #21, not part of CI: does an exec-form hook (no shell) reach Weigh-In on every
+# platform, including Windows without Git Bash? See spike/exec-hooks/README.md. Removed when #21
+# is decided.
+name: spike-exec-hooks
+
+on:
+  push:
+    branches: ["feature/*-spike21"]
+    paths: ["spike/exec-hooks/**", ".github/workflows/spike-exec-hooks.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  spike:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - name: Build the stub
+        run: |
+          cd spike/exec-hooks/stub
+          cargo build --release --quiet
+      - name: Lay out libexec
+        run: |
+          root="$RUNNER_TEMP/plugin"
+          mkdir -p "$root/libexec"
+          cp plugin/libexec/weighin plugin/libexec/weighin.cmd "$root/libexec/"
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          case "$host" in
+            *windows*)
+              cp spike/exec-hooks/stub/target/release/hook-stub.exe "$root/libexec/weighin.exe"
+              mkdir -p "$root/libexec/x86_64-pc-windows-msvc"
+              cp spike/exec-hooks/stub/target/release/hook-stub.exe "$root/libexec/x86_64-pc-windows-msvc/weighin.exe" ;;
+            *)
+              mkdir -p "$root/libexec/$host"
+              cp spike/exec-hooks/stub/target/release/hook-stub "$root/libexec/$host/weighin"
+              chmod +x "$root/libexec/weighin" "$root/libexec/$host/weighin" ;;
+          esac
+          ls -laR "$root/libexec"
+          echo "ROOT=$root" >> "$GITHUB_ENV"
+
+      # Unix: the extensionless sh launcher, run by the kernel through its shebang.
+      - name: "U1: launcher, exec bit set"
+        if: runner.os != 'Windows'
+        continue-on-error: true
+        run: bun spike/exec-hooks/spawn.mjs "$ROOT/libexec/weighin" hook SessionStart
+      - name: "U2: launcher, exec bit cleared"
+        if: runner.os != 'Windows'
+        continue-on-error: true
+        run: |
+          cp "$ROOT/libexec/weighin" "$ROOT/libexec/weighin-noexec"
+          chmod -x "$ROOT/libexec/weighin-noexec"
+          bun spike/exec-hooks/spawn.mjs "$ROOT/libexec/weighin-noexec" hook SessionStart
+
+      # Windows: the same extensionless path, which holds the sh launcher, beside weighin.exe
+      # and weighin.cmd. Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} with forward slashes.
+      - name: "W1: extensionless, forward slashes"
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: bun spike/exec-hooks/spawn.mjs "$(cygpath -m "$ROOT")/libexec/weighin" hook SessionStart
+      - name: "W2: extensionless, backslashes"
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: bun spike/exec-hooks/spawn.mjs "$(cygpath -w "$ROOT")\\libexec\\weighin" hook SessionStart
+      - name: "W3: extensionless, no Git on PATH"
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $bun = (Get-Command bun).Source
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          $root = $env:ROOT -replace '\\','/'
+          & $bun spike/exec-hooks/spawn.mjs "$root/libexec/weighin" hook SessionStart
+      - name: "W4: explicit weighin.exe"
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: bun spike/exec-hooks/spawn.mjs "$(cygpath -m "$ROOT")/libexec/weighin.exe" hook SessionStart
+      - name: "W5: weighin.cmd in exec form"
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: bun spike/exec-hooks/spawn.mjs "$(cygpath -m "$ROOT")/libexec/weighin.cmd" hook SessionStart
+      - name: "W6: extensionless, no weighin.exe beside it"
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: |
+          mv "$ROOT/libexec/weighin.exe" "$ROOT/libexec/weighin.exe.off"
+          bun spike/exec-hooks/spawn.mjs "$(cygpath -m "$ROOT")/libexec/weighin" hook SessionStart
