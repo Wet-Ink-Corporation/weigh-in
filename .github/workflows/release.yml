@@ -1,7 +1,8 @@
 name: release
 # A tag v<version> (matching plugin.json and Cargo.toml) builds the binaries, packages the plugin
 # with its skill stamped to this release's Linux binary, and publishes the GitHub release that
-# the skill downloads from in Cowork. Push the tag only after the commit is on main.
+# the skill downloads from in Cowork, then replaces the `marketplace` branch Claude Code installs
+# from (D-0009). Push the tag only after the commit is on main.
 on:
   push:
     tags: ["v*"]
@@ -86,6 +87,12 @@ jobs:
         with:
           name: release-assets
           path: assets/
+      - name: marketplace branch, built and validated before anything is published (D-0009)
+        run: |
+          v=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' plugin/.claude-plugin/plugin.json)
+          scripts/marketplace-branch.sh "dist/weigh-in-plugin-$v.zip" "$RUNNER_TEMP/marketplace"
+          npm install -g @anthropic-ai/claude-code
+          (cd "$RUNNER_TEMP/marketplace" && claude plugin validate .)
       - name: publish
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -100,3 +107,11 @@ jobs:
           gh release create "$GITHUB_REF_NAME" assets/* \
             --title "Weigh-In $GITHUB_REF_NAME" \
             --notes-file notes.md
+      - name: publish the marketplace branch (one commit, replaced each release; B-14)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git -C "$RUNNER_TEMP/marketplace" push --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            HEAD:refs/heads/marketplace

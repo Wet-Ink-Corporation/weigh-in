@@ -301,3 +301,23 @@ before it built `weighin`, installed the skill or ran Weigh-In's SessionStart: c
 in every cloud session, without a word. The hook now runs clippy with `--keep-going` and goes on
 when it fails, saying the gate is `temper.mjs baseline --check`. Lints are judged by the gate,
 never by session setup.
+
+## B-14
+
+**The `marketplace` branch is one commit built from the release zip, and has no ruleset.**
+2026-10-03 · Claude's call, two-way, except the ruleset, which is Ryan's · implements
+[D-0009](#d-0009) · closes [#12](https://github.com/Wet-Ink-Corporation/weigh-in/issues/12).
+
+`scripts/marketplace-branch.sh` unpacks the zip the release uploads into `plugin/` beside
+`main`'s `.claude-plugin/marketplace.json`, and commits it as the only commit of a fresh
+repository, with the launcher and every binary set to mode 100755 whatever the zip kept. So
+Claude Code installs exactly the plugin Cowork is given, skill stamped `V=<version>; S=none;`
+while releases are internal ([D-0012](#d-0012)). `release.yml` builds and validates the tree
+before publishing anything, then force-pushes it to `marketplace` after the release is created;
+old binaries never stay in the history clones download, and Claude Code's update re-clones a
+marketplace when it finds new commits, so the rewritten branch updates cleanly. CI builds the same tree from
+its own zip on every pull request and checks the modes, the stamp and `claude plugin validate`.
+
+Ryan chose no ruleset for the branch: a ruleset cannot name the workflow's `GITHUB_TOKEN` as a
+bypass actor, so guarding it would need a GitHub App or a deploy key, and the `main` ruleset
+already covers only `main`. People with write access could push it; the next release replaces it.
