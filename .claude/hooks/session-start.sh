@@ -17,7 +17,10 @@ cd "$CLAUDE_PROJECT_DIR"
 rustup toolchain install >&2
 cargo fetch --locked >&2
 cargo test --workspace --no-run --locked >&2
-cargo clippy --workspace --all-targets --locked >&2
+# Lints warm clippy's cache only. temper's lint tables deny findings the baseline records, so
+# plain clippy fails; the gate (temper.mjs baseline --check) judges them, not this hook (B-13).
+cargo clippy --workspace --all-targets --locked --keep-going >&2 \
+  || echo "session-start: clippy reports findings; the gate is node .claude/temper/temper.mjs baseline --check" >&2
 
 # The binary, where the launcher looks for it (git ignores plugin/libexec/*/).
 cargo build -p weighin --locked >&2
