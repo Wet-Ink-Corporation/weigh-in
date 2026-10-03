@@ -10,6 +10,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   `marketplace` branch, and `package-plugin.sh` refuses anything in `libexec/` but the launchers
   and one binary per target (B-15). 0.4.0's zip and branch carry an extra 19 MB
   `libexec/release-assets/`; the next release replaces them.
+- The install guide turns on auto-update for the `weigh-in` marketplace, which Claude Code
+  leaves off for marketplaces that are not official; without it, releases arrive only through
+  `/plugin marketplace update weigh-in`.
 
 ## 0.4.0 — 2026-10-03
 

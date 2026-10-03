@@ -26,7 +26,10 @@ macOS (Apple silicon) and Windows binaries (D-0009). No Rust toolchain is needed
    /plugin install weigh@weigh-in
    ```
 
-3. Start a new session. Type `/weigh-in` (Claude Code also lists it as `/weigh:weigh-in`). In a
+3. Turn on auto-update: `/plugin` → **Marketplaces** → `weigh-in` → **Enable auto-update**.
+   Claude Code leaves it off for every marketplace that is not an official one or added from
+   claude.ai, so without this step releases arrive only when you update by hand.
+4. Start a new session. Type `/weigh-in` (Claude Code also lists it as `/weigh:weigh-in`). In a
    client repository, run `/weigh-in init client` first, which keeps the board local.
 
 Hooks run through `sh`; on Windows that needs Git for Windows (Git Bash). Whether Claude Code
@@ -34,8 +37,9 @@ always provides it is still open ([#21](https://github.com/Wet-Ink-Corporation/w
 
 ### Update
 
-Claude Code checks marketplaces in the background and re-clones one that has new commits, so a
-release reaches you without a step of your own. To update now:
+With auto-update on (step 3), Claude Code checks the marketplace in the background and re-clones
+it when it has new commits, so a release reaches you without a step of your own. To update now,
+or with auto-update off:
 
 ```
 /plugin marketplace update weigh-in
