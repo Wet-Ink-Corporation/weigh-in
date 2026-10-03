@@ -141,6 +141,17 @@ survive either way as committed `.kb` atoms; what a container takes with it is t
 and anything left open, deferred or defaulted, so cloud sessions settle everything before they
 end. Accepted until Phase 2's installs, and noted as a known gap.
 
+## D-0015
+
+**Hooks work on Windows without Git Bash in v1.** 2026-10-03 · provenance: Ryan, choosing between
+exec-form hooks now, requiring Git Bash for v1, and exec-form hooks with a shell-neutral skill ·
+closes the hook half of [#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21).
+
+Claude Code without Git for Windows runs shell-form hooks under PowerShell, where `sh` is not
+found, so capture was silently off. The hooks move to exec form ([B-16](#b-16)) in 0.5.0. The
+sitting still runs through `sh`, so `/weigh-in` on Windows still needs Git Bash; a shell-neutral
+skill was not chosen.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.
@@ -335,4 +346,39 @@ instead of about 13). The job now downloads only artifacts named like a target (
 `<target>/weighin[.exe]`, so a stray file fails the release instead of shipping. CI checks the
 refusal on every pull request. The first attempt failed because a GitHub release for the tag
 already existed; the README now says to push only the tag.
+
+## B-16
+
+**Hooks start the launcher directly (exec form), with the Windows build at `libexec/weighin.exe`.**
+2026-10-03 · Claude's call, two-way · implements [D-0015](#d-0015) · amends [B-11](#b-11) for
+Windows.
+
+Each hook in `hooks.json` is `{"command": "${CLAUDE_PLUGIN_ROOT}/libexec/weighin", "args":
+["hook", …]}`. With `args`, Claude Code (2.1.139 and later) spawns the command with no shell on
+every platform, Git Bash or not. A spike under Bun, Claude Code's runtime
+([#56](https://github.com/Wet-Ink-Corporation/weigh-in/pull/56)), settled the rest:
+
+- On Linux and macOS the kernel runs the `sh` launcher by its shebang, so it must be executable.
+  The `marketplace` branch commits it 100755 ([B-14](#b-14)); with the bit cleared the hook fails
+  with `EACCES`.
+- On Windows the same extensionless path resolves to `libexec/weighin.exe`, with forward or back
+  slashes and with no Git on `PATH`; the hook JSON reaches stdin. A `.cmd` cannot be spawned this
+  way (`EINVAL`), so `weighin.cmd` cannot stand in.
+- `package-plugin.sh` copies the Windows build (msvc, else gnu) to `libexec/weighin.exe` in the
+  package, and the local build scripts do the same, so the newest build is there ([B-05](#b-05)).
+  The release ships the msvc build twice, once per path; the per-target copy stays for the `sh`
+  launcher the skill uses.
+- Nothing strips the event name on Windows, so `weighin hook` takes it as an optional argument
+  and still reads the event from stdin. Hooks of 0.5.0 need a 0.5.0 binary, which the same
+  package ships.
+
+What it costs: on Windows a missing `weighin.exe` is a hook error (`ENOENT`), not [B-11](#b-11)'s
+"capture is off" message, which still covers Linux and macOS. Claude Code older than 2.1.139 has
+no exec form. Unverified: whether plugins synced from the uploaded zip (Cowork, a claude.ai
+upload) keep the launcher's executable bit, which `sh launcher` never needed; if they don't, hooks
+there fail with `EACCES`, and Cowork loses its SessionStart convention. To check in Cowork before
+0.5.0 is tagged. Rejected: a second hook entry with
+`"shell": "powershell"`, which fails on macOS and Linux without `pwsh` and runs twice where both
+shells exist; one shell-form string for both shells, which neither parses; `commandWindows`, which
+Claude Code ignores.
 

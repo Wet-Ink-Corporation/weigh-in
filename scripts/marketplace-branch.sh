@@ -31,6 +31,11 @@ grep -q '"source": *"\./plugin"' .claude-plugin/marketplace.json \
 [ -f plugin/libexec/weighin ] || { echo "the zip has no libexec/weighin launcher" >&2; exit 1; }
 bins=$(ls plugin/libexec/*/weighin plugin/libexec/*/weighin.exe 2>/dev/null || true)
 [ -n "$bins" ] || { echo "the zip has no binaries under libexec/<target>/" >&2; exit 1; }
+# Windows hooks start libexec/weighin.exe directly (B-16).
+if ls plugin/libexec/*-windows-*/weighin.exe >/dev/null 2>&1; then
+  [ -f plugin/libexec/weighin.exe ] || { echo "the zip has a Windows build but no libexec/weighin.exe" >&2; exit 1; }
+  bins="$bins plugin/libexec/weighin.exe"
+fi
 version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' plugin/.claude-plugin/plugin.json)
 [ -n "$version" ] || { echo "plugin.json has no version" >&2; exit 1; }
 
@@ -38,8 +43,8 @@ git init -q
 git checkout -q -b marketplace
 # -f: a global or system gitignore must not drop the binaries.
 git add -f .
-# Executable whatever the zip or the filesystem kept: hooks run the launcher with sh, but the
-# launcher execs the binary.
+# Executable whatever the zip or the filesystem kept: hooks start the launcher with no shell
+# (exec form, B-16), and the launcher execs the binary.
 for f in plugin/libexec/weighin $bins; do
   git update-index --chmod=+x "$f"
 done
