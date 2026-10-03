@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # Weigh-In
 
 A decision ledger for agent sessions: a Rust CLI (`weighin`) over happenstance's SQLite event
@@ -16,17 +18,18 @@ what it does, `docs/decisions/` before changing behaviour, and `docs/roadmap.md`
 
 ```sh
 cargo test --workspace
-cargo clippy --all-targets -- -D warnings
+node .claude/temper/temper.mjs baseline --check   # clippy, rustdoc and temper's scan, against .claude/temper-baseline.json
 cargo fmt --check
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+cargo doc --workspace --no-deps
 cargo deny check                             # advisories, licences, sources (deny.toml)
 ./scripts/build-plugin-bins.sh               # binaries into plugin/libexec/<target>/
 ./scripts/package-plugin.sh --no-download    # dist/weigh-in-plugin-<version>.zip
 claude plugin validate .                     # marketplace and plugin manifests
 ```
 
-The four cargo checks are what `.github/workflows/ci.yml` runs on every push to `main` and every
-pull request, on Linux, Windows and macOS. CI also checks the plugin package (stamp, versions,
+`.github/workflows/ci.yml` runs fmt, tests and docs on every push to `main` and every pull request,
+on Linux, Windows and macOS; `.github/workflows/rust.yml` runs temper's lint ratchet (`baseline --check`)
+and the rest of the temper gate on Linux. Legacy findings are recorded in the baseline; only new ones fail. CI also checks the plugin package (stamp, versions,
 changelog entry, `claude plugin validate`) and runs `cargo deny check` (`deny.toml`); the release
 workflow runs all of it before it builds. Claude Code cloud sessions run
 `.claude/hooks/session-start.sh`, which installs the toolchain and pre-builds the tests.
@@ -74,3 +77,10 @@ Bump both versions and move `## Unreleased` in `CHANGELOG.md` to the new version
 changelog entry. The workflow tests, builds Linux,
 Windows and macOS binaries, packages the plugin and publishes the release. While the repository
 is internal it packages with `--no-download` (D-0007).
+
+## temper (Claude Code specifics)
+
+- The temper plugin enforces the rust-craft standard in this repository. It refuses Rust edits until the `temper:rust-craft` skill is loaded, refuses escape hatches before they are written, routes configuration changes, new dependencies, lint exceptions and removed tests to you for approval, and will not let a turn that changed Rust end until the gate is green and `temper:rust-reviewer` has approved the current tree. A turn can also end honestly with `Status: WIP` or `Status: BLOCKED`.
+- Entry points: `/temper:implement <task>` (plan, then test-first implementation, then independent review), `/temper:review`, `/temper:gate`, `/temper:audit`, `/temper:setup`.
+- Subagents: `temper:rust-architect` plans, `temper:rust-implementer` implements test-first, and `temper:rust-reviewer` gives an adversarial fresh-context review with a validated verdict. Each starts with the standard preloaded.
+- Each crate's `CLAUDE.md` imports its `AGENTS.md` charter, so the charter loads when you read files in that crate.

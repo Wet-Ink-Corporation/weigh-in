@@ -25,13 +25,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
-      RUSTDOCFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v7
       - name: toolchain (pinned by rust-toolchain.toml)
         run: rustup toolchain install
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Clippy and rustdoc lints are checked once, by rust.yml's `Lint (temper)` step on Linux,
+      # against the committed baseline (.claude/temper-baseline.json): only new findings fail.
+      # A `-D warnings` run here would fail on the recorded legacy findings.
       - run: cargo test --workspace
       - run: cargo doc --workspace --no-deps
   plugin:
