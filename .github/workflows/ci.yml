@@ -37,7 +37,8 @@ jobs:
       - run: cargo doc --workspace --no-deps
   plugin:
     # The plugin as shipped: manifests valid, the skill's one stamp intact, versions and changelog
-    # in step, and package-plugin.sh producing a zip whose skill is stamped and launcher runs.
+    # in step, package-plugin.sh producing a zip whose skill is stamped and launcher runs, and the
+    # marketplace branch the release would publish from that zip.
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
@@ -68,6 +69,16 @@ jobs:
         run: |
           npm install -g @anthropic-ai/claude-code
           claude plugin validate .
+      - name: marketplace branch as the release builds it (D-0009)
+        run: |
+          mp="$RUNNER_TEMP/marketplace"
+          scripts/marketplace-branch.sh "dist/weigh-in-plugin-$VERSION.zip" "$mp"
+          git -C "$mp" ls-tree -r HEAD plugin/libexec | grep -q '^100755 .*libexec/x86_64-unknown-linux-gnu/weighin$' \
+            || { echo "the marketplace commit must hold the binary as executable (100755)" >&2; exit 1; }
+          git -C "$mp" ls-tree -r HEAD plugin/libexec | grep -q '^100755 .*libexec/weighin$'
+          grep -q "V=$VERSION; S=none;" "$mp/plugin/skills/weigh-in/SKILL.md"
+          (cd "$mp" && claude plugin validate .)
+          sh "$mp/plugin/libexec/weighin" --version
 
   deny:
     # Advisories, licences and sources of every dependency (deny.toml).

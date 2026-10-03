@@ -85,7 +85,9 @@ see `/weigh-in` twice, remove one of the two installs.
 Bump `version` in `Cargo.toml` and `plugin/.claude-plugin/plugin.json`, commit to `main`, then
 push the tag `v<version>`. The release workflow tests, builds the Linux (musl), Windows (msvc)
 and macOS binaries, packages the plugin with its skill stamped to that Linux build's SHA-256,
-and publishes the release with the zip, the raw binaries and `SHA256SUMS`. The zip and the
+publishes the release with the zip, the raw binaries and `SHA256SUMS`, and then replaces the
+`marketplace` branch with one commit holding that zip's plugin and `marketplace.json`, which
+Claude Code installs from (D-0009, `scripts/marketplace-branch.sh`). The zip and the
 Linux binary must come from the same build, which is why the release is made only there;
 `scripts/package-plugin.sh` run locally gives a zip that matches only a local build. The
 download needs public release assets: while the repository is internal the workflow packages
