@@ -45,7 +45,8 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 - **happenstance is held at 0.3.2**, now with a way past it: a schema change is one more ledger
   migration step ([B-10](decisions/build-decisions.md#b-10)).
 - **The default owner is `ryan`** unless `init --owner` sets it; after v1 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
-- **Sitting cost is above the estimate:** $0.42–0.57 against $0.28 ([#24](https://github.com/Wet-Ink-Corporation/weigh-in/issues/24)).
+- **Sitting cost follows session length:** about 3 × the context at the cache-read price plus
+  about 5,600 output tokens, recorded as the v1 figure ([D-0016](decisions/build-decisions.md#d-0016), [#24](https://github.com/Wet-Ink-Corporation/weigh-in/issues/24)).
 - **Open from wi-4d8b6a:** which provider the separately held model key is for; slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 
 ## Slice 2
