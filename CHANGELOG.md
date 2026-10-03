@@ -6,6 +6,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- The install guide says Weigh-In's hooks need Git for Windows: without Git Bash, Claude Code
+  runs hooks under PowerShell, where `sh` is missing and nothing is captured (#21).
+
 ## 0.4.1 — 2026-10-03
 
 - A rerun release no longer packs the failed attempt's release assets into the plugin and the
