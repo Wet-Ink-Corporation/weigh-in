@@ -53,9 +53,14 @@ the session; your files are on your computer, behind its shell. So in Cowork:
 
 - [`docs/research/report.md`](docs/research/report.md): the research and the design, with dated amendments.
 - [`docs/decisions/`](docs/decisions/README.md): every decision so far, including the board sitting and the calls made while building.
+- [`docs/install.md`](docs/install.md): installing, updating and removing a release.
 - [`docs/roadmap.md`](docs/roadmap.md): what is not yet verified, known gaps, and slice 2.
 
 ## Install
+
+To use Weigh-In, install a release: [`docs/install.md`](docs/install.md) covers Claude Code
+(from the `marketplace` branch, no Rust needed), Cowork, updates, uninstalling, where the ledger
+is and what to do when capture is off. The rest of this section builds it from source.
 
 ```sh
 # Linux / macOS / cloud: static binaries into plugin/libexec/<target>/
