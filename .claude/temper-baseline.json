@@ -1,7 +1,7 @@
 {
   "temper_baseline": 1,
   "created": "2026-10-02T23:45:18.870Z",
-  "updated": "2026-10-02T23:49:16.473Z",
+  "updated": "2026-10-03T13:32:15.726Z",
   "commit": "fa821db3ff90970556fcc26bc4b64c88899448de",
   "toolchain": "1.98.1",
   "host": "x86_64-unknown-linux-gnu",
@@ -20,8 +20,8 @@
       "clippy::doc_markdown": 9,
       "clippy::expect_used": 13,
       "clippy::format_push_string": 15,
-      "clippy::indexing_slicing": 6,
-      "clippy::let_underscore_must_use": 6,
+      "clippy::indexing_slicing": 5,
+      "clippy::let_underscore_must_use": 4,
       "clippy::map_err_ignore": 1,
       "clippy::option_option": 1,
       "clippy::or_fun_call": 3,
@@ -34,7 +34,7 @@
       "clippy::unreachable": 1,
       "clippy::unused_self": 1,
       "clippy::unwrap_used": 10,
-      "let_underscore_drop": 6,
+      "let_underscore_drop": 4,
       "scan:as-cast": 4,
       "scan:catch-unwind": 1,
       "scan:discard-ok": 1,
@@ -43,7 +43,7 @@
       "scan:print": 41,
       "scan:ptr-param": 1,
       "scan:unwrap": 1,
-      "unreachable_pub": 55
+      "unreachable_pub": 54
     },
     "weighin-core": {
       "clippy::as_conversions": 4,
