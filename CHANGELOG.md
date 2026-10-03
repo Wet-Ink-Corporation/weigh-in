@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Read-only commands (`stats`, `open`, `show`, `context`, `digest`, `trailer`, `board export`,
+  `prime`) no longer create a ledger in a folder that has none: they report it as empty. Before,
+  `weighin --dir <folder> stats` left `.weighin/ledger.sqlite3` and its journal behind, which a
+  Cowork connected folder cannot delete. `board export` with no ledger and no `--out` writes
+  nothing and says so. A ledger is still created by the first item raised.
 - The install guide says Weigh-In's hooks need Git for Windows: without Git Bash, Claude Code
   runs hooks under PowerShell, where `sh` is missing and nothing is captured (#21).
 

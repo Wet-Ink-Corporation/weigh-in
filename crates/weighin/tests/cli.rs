@@ -868,3 +868,78 @@ fn the_ledger_goes_where_the_folder_says() {
     assert!(ok, "{out}");
     assert!(!out.contains("Which rule wins"), "{out}");
 }
+
+/// Every command that only reads, run where no ledger exists yet.
+const READ_ONLY: &[&[&str]] = &[
+    &["stats"],
+    &["stats", "--json"],
+    &["open"],
+    &["open", "--all", "--json"],
+    &["digest"],
+    &["digest", "--json"],
+    &["prime"],
+    &["board", "export"],
+];
+
+/// Read-only commands that name an item; with no ledger there is none to find.
+const READ_ONLY_BY_ID: &[&[&str]] = &[
+    &["show", "wi-000000"],
+    &["context", "wi-000000"],
+    &["trailer", "wi-000000"],
+];
+
+#[test]
+fn read_only_commands_leave_no_ledger_behind() {
+    // A non-git folder, reached with `--dir` as Cowork does, and a git repository.
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("empty");
+    std::fs::create_dir_all(&folder).unwrap();
+    let (_repo_tmp, repo) = setup();
+    let dir = folder.to_str().unwrap();
+
+    for args in READ_ONLY {
+        let (ok, out) = weighin(tmp.path(), "s1", &[&["--dir", dir], *args].concat(), None);
+        assert!(ok, "{args:?}: {out}");
+        let (ok, out) = weighin(&repo, "s1", args, None);
+        assert!(ok, "{args:?}: {out}");
+    }
+    for args in READ_ONLY_BY_ID {
+        let (ok, out) = weighin(tmp.path(), "s1", &[&["--dir", dir], *args].concat(), None);
+        assert!(
+            !ok && out.contains("no single item matches"),
+            "{args:?}: {out}"
+        );
+        let (ok, out) = weighin(&repo, "s1", args, None);
+        assert!(
+            !ok && out.contains("no single item matches"),
+            "{args:?}: {out}"
+        );
+    }
+
+    let (ok, out) = weighin(tmp.path(), "s1", &["--dir", dir, "stats"], None);
+    assert!(ok && out.contains("presented 0"), "{out}");
+    // An explicit `--out` still gets the (empty) board, and only that file is written.
+    let board = tmp.path().join("board.json");
+    let out_arg = board.to_str().unwrap();
+    let (ok, out) = weighin(
+        tmp.path(),
+        "s1",
+        &["--dir", dir, "board", "export", "--out", out_arg],
+        None,
+    );
+    assert!(ok, "{out}");
+    let state: Value = serde_json::from_str(&std::fs::read_to_string(&board).unwrap()).unwrap();
+    for key in ["items", "decided", "defaults"] {
+        assert_eq!(state[key], json!([]), "{key} in {state}");
+    }
+    let (ok, out) = weighin(tmp.path(), "s1", &["--dir", dir, "board", "export"], None);
+    assert!(ok && out.contains("nothing to export"), "{out}");
+    assert!(
+        !folder.join(".weighin").exists(),
+        "a read created .weighin/"
+    );
+    assert!(
+        !repo.join(".git/weighin").exists(),
+        "a read created .git/weighin/"
+    );
+}

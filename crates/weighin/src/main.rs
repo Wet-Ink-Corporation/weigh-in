@@ -14,15 +14,15 @@ mod store;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
-use std::io::Read as _;
+use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
 use weighin_core::board::{self, Answer, Scope, ValidAnswer};
 use weighin_core::marker::{Door, parse_markers};
 use weighin_core::projection::Health;
-use weighin_core::{Item, Status};
+use weighin_core::{Item, Ledger, Status};
 
 use crate::env::{Config, Env};
-use crate::ops::{Op, RaiseInput, Session};
+use crate::ops::{Op, RaiseInput, Session, read_ledger};
 
 #[derive(Parser)]
 #[command(name = "weighin", version, about = "Weigh-In decision ledger")]
@@ -261,18 +261,18 @@ fn run(cli: Cli) -> Result<()> {
             with_context,
             json,
         } => {
-            let s = Session::open(&env, "cli")?;
+            let ledger = read_ledger(&env)?;
             let scope_session = if repo || all {
                 None
             } else {
                 env.session.clone()
             };
             let items: Vec<&Item> = if all {
-                s.ledger.items.values().collect()
+                ledger.items.values().collect()
             } else {
                 match &scope_session {
-                    Some(id) => s.ledger.open_in_session(id),
-                    None => s.ledger.open(),
+                    Some(id) => ledger.open_in_session(id),
+                    None => ledger.open(),
                 }
             };
             if json {
@@ -282,16 +282,16 @@ fn run(cli: Cli) -> Result<()> {
                 );
                 return Ok(());
             }
-            let repo_open = s.ledger.open();
+            let repo_open = ledger.open();
             let one_way = repo_open
                 .iter()
                 .filter(|i| i.door() == Door::OneWay)
                 .count();
-            let defaults = s.ledger.unacknowledged_defaults().len();
+            let defaults = ledger.unacknowledged_defaults().len();
             let here = scope_session.as_deref().map_or_else(String::new, |id| {
                 format!(
                     "{} open in this session · ",
-                    s.ledger.open_in_session(id).len()
+                    ledger.open_in_session(id).len()
                 )
             });
             println!(
@@ -321,9 +321,8 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Show { id, json } => {
-            let s = Session::open(&env, "cli")?;
-            let item = s
-                .ledger
+            let ledger = read_ledger(&env)?;
+            let item = ledger
                 .resolve(&id)
                 .ok_or_else(|| anyhow!("no single item matches `{id}`"))?;
             if json {
@@ -349,9 +348,8 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Context { id, json } => {
-            let s = Session::open(&env, "cli")?;
-            let item = s
-                .ledger
+            let ledger = read_ledger(&env)?;
+            let item = ledger
                 .resolve(&id)
                 .ok_or_else(|| anyhow!("no single item matches `{id}`"))?;
             let pack = context::build(&env, item);
@@ -510,10 +508,9 @@ fn run(cli: Cli) -> Result<()> {
             );
         }
         Cmd::Digest { json } => {
-            let s = Session::open(&env, "cli")?;
-            let defaults = s.ledger.unacknowledged_defaults();
-            let untriaged: Vec<&Item> = s
-                .ledger
+            let ledger = read_ledger(&env)?;
+            let defaults = ledger.unacknowledged_defaults();
+            let untriaged: Vec<&Item> = ledger
                 .open()
                 .into_iter()
                 .filter(|i| {
@@ -547,8 +544,8 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Stats { json } => {
-            let s = Session::open(&env, "cli")?;
-            let h = Health::of(&s.ledger);
+            let ledger = read_ledger(&env)?;
+            let h = Health::of(&ledger);
             if json {
                 println!("{}", serde_json::to_string(&h)?);
             } else {
@@ -571,11 +568,12 @@ fn run(cli: Cli) -> Result<()> {
                     h.deferred_unqualified,
                     h.defaults_unacknowledged
                 );
-                if !s.ledger.orphans.is_empty() {
-                    println!(
+                if !ledger.orphans.is_empty() {
+                    writeln!(
+                        std::io::stdout().lock(),
                         "warning: {} event(s) for unknown items",
-                        s.ledger.orphans.len()
-                    );
+                        ledger.orphans.len()
+                    )?;
                 }
             }
         }
@@ -606,9 +604,8 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Trailer { id } => {
-            let s = Session::open(&env, "cli")?;
-            let item = s
-                .ledger
+            let ledger = read_ledger(&env)?;
+            let item = ledger
                 .resolve(&id)
                 .ok_or_else(|| anyhow!("no single item matches `{id}`"))?;
             let d = item
@@ -619,7 +616,20 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Board { cmd } => match cmd {
             BoardCmd::Export { out } => {
-                let s = Session::open(&env, "cli")?;
+                // The default state file sits beside the ledger; writing it would create the
+                // ledger's directory where no item was ever raised.
+                let ledger = match (ops::stored_ledger(&env)?, &out) {
+                    (Some(ledger), _) => ledger,
+                    (None, Some(_)) => Ledger::default(),
+                    (None, None) => {
+                        writeln!(
+                            std::io::stdout().lock(),
+                            "no ledger at {} yet: nothing to export",
+                            env.store_path().display()
+                        )?;
+                        return Ok(());
+                    }
+                };
                 let scope = Scope {
                     repo: env.worktree.clone().unwrap_or_else(|| {
                         env.cwd
@@ -641,15 +651,13 @@ fn run(cli: Cli) -> Result<()> {
                         env.config.board.mode
                     );
                 }
-                let state =
-                    board::export(&s.ledger, scope, env.config.caps.board_focus, &env::now());
+                let state = board::export(&ledger, scope, env.config.caps.board_focus, &env::now());
                 let out = out.unwrap_or_else(|| env.state_dir().join("board-state.json"));
                 if let Some(d) = out.parent() {
                     std::fs::create_dir_all(d)?;
                 }
                 std::fs::write(&out, serde_json::to_string_pretty(&state)?)?;
-                let waiting = s
-                    .ledger
+                let waiting = ledger
                     .open()
                     .iter()
                     .filter(|i| i.needs_attention() && i.card.is_none())
