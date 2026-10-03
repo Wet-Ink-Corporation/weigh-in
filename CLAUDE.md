@@ -11,7 +11,7 @@ what it does, `docs/decisions/` before changing behaviour, and `docs/roadmap.md`
 - `crates/weighin-core` — no I/O: events, ids, markers, scanning, cards, projection, atoms, board format.
 - `crates/weighin` — the CLI: store, git, context packs, hooks, the batch write path.
 - `plugin/` — the plugin: `skills/weigh-in/SKILL.md`, `hooks/hooks.json`, `libexec/` launcher and built binaries.
-- `scripts/` — `build-plugin-bins.sh` (Linux musl and Windows gnu), `build-plugin-bins.ps1` (Windows msvc), `package-plugin.sh` (zip for upload), `marketplace-branch.sh` (the `marketplace` branch commit, from that zip).
+- `scripts/` — `build-plugin-bins.sh` (Linux musl and Windows gnu), `build-plugin-bins.ps1` (Windows msvc), `package-plugin.sh` (zip for upload), `marketplace-branch.sh` (the `marketplace` branch commit, from that zip), `weekly-stats.sh` (`weighin stats` across folders, as markdown for #23).
 - `docs/` — research report and notes, decision records, roadmap.
 
 ## Commands
