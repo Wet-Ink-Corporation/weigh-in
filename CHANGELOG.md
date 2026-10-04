@@ -6,6 +6,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 0.5.1 — 2026-10-04
+
 - The board carries at most the newest 200 unacknowledged defaults, with their total, so its
   state stays under the Artifact store's 256 KiB document limit, which about 700 defaults
   overflowed (#19). Acknowledged defaults no longer appear on it; `/weigh-in digest` covers the
