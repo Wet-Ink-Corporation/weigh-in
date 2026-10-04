@@ -314,6 +314,32 @@ fn scorer_counts_each_outcome() -> Res<()> {
     Ok(())
 }
 
+/// The real seed (#22): end-of-turn messages from sessions that ran with the marker convention
+/// (0.5.0 and later), labelled by hand. This is where the slice 1 exit criterion applies:
+/// capture precision of at least 80%. It must hold at least 20 items, so the bar is not met
+/// by a seed trimmed down to the items capture gets right.
+#[test]
+fn real_seed_meets_the_precision_bar() -> Res<()> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval/seed.jsonl");
+    let items = parse(&std::fs::read_to_string(&path)?)?;
+    assert!(
+        items.len() >= 20,
+        "eval/seed.jsonl holds {} items; the seed is at least 20",
+        items.len()
+    );
+
+    let s = score(&items)?;
+
+    writeln!(std::io::stderr(), "real seed: {}", s.summary()?)?;
+    assert!(
+        s.true_pos + s.false_pos > 0 && s.precision()? >= 0.8,
+        "precision below 80%: {}\n{}",
+        s.summary()?,
+        s.misses.join("\n")
+    );
+    Ok(())
+}
+
 /// The provisional seed (#22): the real messages of five earlier sessions, none of which carried a
 /// real block, plus blocks written onto some of them. Its precision is set by how many noise
 /// blocks were written, so it is pinned here rather than held to the bar: a change to what capture
