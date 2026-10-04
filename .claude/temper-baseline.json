@@ -1,7 +1,7 @@
 {
   "temper_baseline": 1,
   "created": "2026-10-02T23:45:18.870Z",
-  "updated": "2026-10-03T17:57:07.053Z",
+  "updated": "2026-10-04T05:42:35.833Z",
   "commit": "fa821db3ff90970556fcc26bc4b64c88899448de",
   "toolchain": "1.98.1",
   "host": "x86_64-unknown-linux-gnu",
@@ -27,7 +27,7 @@
       "clippy::or_fun_call": 3,
       "clippy::panic": 1,
       "clippy::print_stderr": 2,
-      "clippy::print_stdout": 39,
+      "clippy::print_stdout": 38,
       "clippy::string_slice": 1,
       "clippy::too_many_arguments": 4,
       "clippy::too_many_lines": 8,
@@ -38,7 +38,7 @@
       "scan:catch-unwind": 1,
       "scan:discard-ok": 1,
       "scan:exit": 1,
-      "scan:print": 41,
+      "scan:print": 40,
       "scan:ptr-param": 1,
       "scan:unwrap": 1,
       "unreachable_pub": 54
@@ -49,7 +49,7 @@
       "clippy::cast_precision_loss": 2,
       "clippy::cognitive_complexity": 1,
       "clippy::doc_markdown": 6,
-      "clippy::expect_used": 2,
+      "clippy::expect_used": 1,
       "clippy::format_collect": 2,
       "clippy::format_push_string": 56,
       "clippy::indexing_slicing": 2,
@@ -59,10 +59,10 @@
       "clippy::too_long_first_doc_paragraph": 2,
       "clippy::too_many_lines": 7,
       "clippy::unreachable": 1,
-      "missing_docs": 381,
+      "missing_docs": 380,
       "scan:as-cast": 3,
       "scan:panic": 1,
-      "scan:unwrap": 2
+      "scan:unwrap": 1
     }
   }
 }
