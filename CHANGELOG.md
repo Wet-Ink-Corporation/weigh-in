@@ -6,6 +6,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 0.5.2 — 2026-10-04
+
 - The marker convention SessionStart gives agents now says that a list of calls for the user
   ("Decisions for you", "Your calls") gets one block per call. Agents wrote such lists as prose,
   which capture does not see: since 0.5.0, 1 of the 7 calls in the eval seed was captured (#68).
