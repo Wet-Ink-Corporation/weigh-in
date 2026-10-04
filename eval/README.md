@@ -46,5 +46,6 @@ One JSON object per line:
 
   Drafted 2026-10-04 from three sessions (`s3`, `s5`, `s6`; 51 turns since 0.5.0): 25 items, 7
   labelled `capture`. Capture raises one of them, the only turn that carried a block, so
-  precision is 100% on one captured item and recall is 14%. The bar passes, but on a single
-  item; it says little until agents emit more blocks.
+  precision is 100% on one captured item and recall is 14%. The test passes, but the exit
+  criterion counts only once the seed holds at least 10 captured items (wi-a9df17): blocks from
+  #23's weeks are added here as they come.

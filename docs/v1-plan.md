@@ -249,7 +249,8 @@ whichever comes later), the same targets `weighin stats` prints, plus the releas
 
 - Action rate at least 60%; not-useful dismissals at most 10%. If not-useful is above 10%,
   per-category suppression comes into v1 (P-6).
-- Marker capture precision at least 80% on the eval seed.
+- Marker capture precision at least 80% on the eval seed, counted once the seed holds at least
+  10 captured items (wi-a9df17).
 - No "pending" item is ever reported as "done", and at least one sitting correctly returns
   "no decisions need you".
 - Every V-item is closed or has a recorded decision to defer it past 1.0.
