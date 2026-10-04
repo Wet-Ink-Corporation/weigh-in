@@ -244,12 +244,37 @@ B-14), and only the tag is pushed, since the workflow creates the release.
    $0.35, or record the measured cost as the v1 figure in a decision.
 5. Fix what use finds, releasing 0.9.x release candidates through the same workflow.
 
+**Progress at 0.5.1 (2026-10-04).** Landed, each as its own PR:
+- **Step 1:** [#53](https://github.com/Wet-Ink-Corporation/weigh-in/pull/53) recorded V7 as verified
+  (#21). [#57](https://github.com/Wet-Ink-Corporation/weigh-in/pull/57) moved the hooks to exec form
+  in 0.5.0, so they need no Git Bash on Windows ([D-0015](decisions/build-decisions.md#d-0015),
+  [B-16](decisions/build-decisions.md#b-16)), after the spike in
+  [#56](https://github.com/Wet-Ink-Corporation/weigh-in/pull/56).
+  [#61](https://github.com/Wet-Ink-Corporation/weigh-in/pull/61) capped the board's defaults at 200
+  in 0.5.1, ahead of V5's run (#19). The checklists for V1, V2, V4, V5 and V6 are posted on #16–#20,
+  and Ryan has not run them yet. #21 waits on one Windows session with Git Bash hidden.
+- **Step 2:** [#55](https://github.com/Wet-Ink-Corporation/weigh-in/pull/55) added the scorer and a
+  provisional scripted seed. [#66](https://github.com/Wet-Ink-Corporation/weigh-in/pull/66) added
+  the real seed of 25 items from three sessions since 0.5.0, labels for review, with the 80% bar as a
+  test. It passes on the one captured item, and recall is 1 of 7, because agents seldom write blocks
+  (#22).
+- **Step 3:** [#54](https://github.com/Wet-Ink-Corporation/weigh-in/pull/54) added
+  `scripts/weekly-stats.sh`. No week has been posted on #23 yet, so the action and not-useful rates,
+  and with them #25, are not yet measured.
+- **Step 4:** done. [#59](https://github.com/Wet-Ink-Corporation/weigh-in/pull/59) recorded the
+  measured cost as a formula ([D-0016](decisions/build-decisions.md#d-0016), #24).
+- **Step 5:** [#58](https://github.com/Wet-Ink-Corporation/weigh-in/pull/58) stopped read-only
+  commands from creating a ledger, which a Cowork folder cannot delete (0.5.1).
+  [#62](https://github.com/Wet-Ink-Corporation/weigh-in/pull/62) covered the Windows `ENOENT` hook
+  error in the install guide. No 0.9.x candidate yet.
+
 Exit criteria. These are the design's slice 1 exit criteria (two weeks or 30 presented items,
 whichever comes later), the same targets `weighin stats` prints, plus the release checks:
 
 - Action rate at least 60%; not-useful dismissals at most 10%. If not-useful is above 10%,
   per-category suppression comes into v1 (P-6).
-- Marker capture precision at least 80% on the eval seed.
+- Marker capture precision at least 80% on the eval seed, counted once the seed holds at least
+  10 captured items (wi-a9df17).
 - No "pending" item is ever reported as "done", and at least one sitting correctly returns
   "no decisions need you".
 - Every V-item is closed or has a recorded decision to defer it past 1.0.
