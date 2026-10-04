@@ -1,7 +1,7 @@
 {
   "temper_baseline": 1,
   "created": "2026-10-02T23:45:18.870Z",
-  "updated": "2026-10-04T05:42:35.833Z",
+  "updated": "2026-10-04T17:22:36.762Z",
   "commit": "fa821db3ff90970556fcc26bc4b64c88899448de",
   "toolchain": "1.98.1",
   "host": "x86_64-unknown-linux-gnu",
@@ -41,7 +41,7 @@
       "scan:print": 40,
       "scan:ptr-param": 1,
       "scan:unwrap": 1,
-      "unreachable_pub": 54
+      "unreachable_pub": 53
     },
     "weighin-core": {
       "clippy::as_conversions": 4,
