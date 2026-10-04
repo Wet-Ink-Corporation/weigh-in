@@ -9,7 +9,7 @@ domain. Pure: nothing here reads a clock, a file, a process or the environment, 
 ## Allowed dependencies
 - Workspace crates: none.
 - Third-party: `serde` and `serde_json` (events, cards and board documents are JSON); `sha2` (item ids hash the session and the normalised question); `thiserror` (typed errors).
-- Never: `weighin`, happenstance, tokio, clap, anyhow, `time` or anything that does I/O. Timestamps arrive as values from the caller (inferred, confirm).
+- Never: `weighin`, happenstance, tokio, clap, anyhow, `time` or anything that does I/O. Timestamps arrive as values from the caller.
 
 ## Public surface
 The modules `atom`, `board`, `card`, `event`, `id`, `marker`, `projection` and `scan`, re-exporting `Card`, `EventEnvelope`, `LedgerEvent`, `ItemId`, `Item`, `Ledger` and `Status` at the root. Workspace-internal, never published (`publish = false`, D-0007).
