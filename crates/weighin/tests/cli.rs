@@ -408,6 +408,21 @@ fn session_start_says_when_the_error_report_cannot_be_marked_seen() {
 }
 
 #[test]
+fn session_start_asks_for_one_block_per_call_in_a_list_for_the_user() {
+    // Agents list calls for the user in prose ("Decisions for you:") with no block, so capture
+    // misses them (eval seed recall 1 of 7, wi-357345); the convention names that case.
+    let (_tmp, repo) = setup();
+    let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
+
+    let prime = hook(&repo, &start);
+
+    assert!(
+        prime.contains("Decisions for you") && prime.contains("one block per call"),
+        "{prime}"
+    );
+}
+
+#[test]
 fn session_start_reports_hook_errors_since_the_last_session() {
     let (_tmp, repo) = setup();
     let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});

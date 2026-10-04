@@ -6,6 +6,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- The marker convention SessionStart gives agents now says that a list of calls for the user
+  ("Decisions for you", "Your calls") gets one block per call. Agents wrote such lists as prose,
+  which capture does not see: since 0.5.0, 1 of the 7 calls in the eval seed was captured (#68).
+
 ## 0.5.1 — 2026-10-04
 
 - The board carries at most the newest 200 unacknowledged defaults, with their total, so its
