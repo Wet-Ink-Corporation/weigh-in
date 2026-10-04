@@ -189,7 +189,7 @@ fn cowork_nudge(payload: &Value) -> String {
     serde_json::json!({ "systemMessage": msg }).to_string()
 }
 
-pub const CONVENTION: &str = "When you assume, defer, make a call the user did not examine, or cannot decide, end your message with:\n```weigh-in\nkind: question|assumption|deferral|call\ndoor: one-way|two-way|unsure\nauthority: authority|judgment\nq: <the full question?>\ndid: <what you did meanwhile, or blocked>\nflip: <the fact that would change the answer>\nat: <path:line>\n```\nA list of calls for the user (\"Decisions for you\", \"Your calls\") gets one block per call. No TODO/FIXME/\"revisit later\" without a block. If you cannot ask the user, take no one-way path: `did: blocked`, then continue with independent work.\n";
+const CONVENTION: &str = "When you assume, defer, make a call the user did not examine, or cannot decide, end your message with:\n```weigh-in\nkind: question|assumption|deferral|call\ndoor: one-way|two-way|unsure\nauthority: authority|judgment\nq: <the full question?>\ndid: <what you did meanwhile, or blocked>\nflip: <the fact that would change the answer>\nat: <path:line>\n```\nA list of calls for the user (\"Decisions for you\", \"Your calls\") gets one block per call. No TODO/FIXME/\"revisit later\" without a block. If you cannot ask the user, take no one-way path: `did: blocked`, then continue with independent work.\n";
 
 fn capture(env: &Env, payload: &Value) -> Result<String> {
     let text = payload
