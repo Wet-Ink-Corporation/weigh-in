@@ -43,3 +43,8 @@ One JSON object per line:
   later), read back from the session's transcript; with the ledger gone with the container
   (D-0014), the transcript is the only record. `by: claude-draft` until Ryan has reviewed the
   label, then `by: ryan`.
+
+  Drafted 2026-10-04 from three sessions (`s3`, `s5`, `s6`; 51 turns since 0.5.0): 25 items, 7
+  labelled `capture`. Capture raises one of them, the only turn that carried a block, so
+  precision is 100% on one captured item and recall is 14%. The bar passes, but on a single
+  item; it says little until agents emit more blocks.
