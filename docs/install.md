@@ -4,7 +4,28 @@ For using Weigh-In. Building it from source, for development, is in the
 [README](../README.md#install). Releases are internal for v1 (D-0012), so every route below needs
 read access to `Wet-Ink-Corporation/weigh-in`.
 
-## Claude Code
+## Through your organization (recommended)
+
+Each release is pushed to `Wet-Ink-Corporation/weigh-in-plugin`, a release-only repository
+holding the built plugin with its Linux, macOS and Windows binaries (B-19). An organization that
+syncs it gets every release in Cowork and in Claude Code with no step of anyone's. Once, as an
+owner:
+
+1. Create `Wet-Ink-Corporation/weigh-in-plugin`, private, with no files.
+2. Make an SSH key pair (`ssh-keygen -t ed25519 -N "" -f weigh-in-plugin`). Add the public key to
+   that repository under Settings > Deploy keys, with write access, and the private key to
+   `Wet-Ink-Corporation/weigh-in` under Settings > Secrets and variables > Actions as
+   `WEIGH_IN_PLUGIN_DEPLOY_KEY`. The release refuses to publish without it.
+3. On claude.ai, Organization settings > Plugins & skills: sync from GitHub
+   `Wet-Ink-Corporation/weigh-in-plugin` (not `weigh-in`, whose `main` is the unreleased tree),
+   leave **Sync automatically** on, and set `weigh` to installed by default or required.
+4. Remove other installs, so `/weigh-in` appears once: an uploaded zip under Customize >
+   Plugins, and in Claude Code `/plugin marketplace remove weigh-in` if you added the
+   `#marketplace` branch (below).
+
+The first release after step 2 fills the repository; until then there is nothing to sync.
+
+## Claude Code without the organization sync
 
 Each release publishes a `marketplace` branch: one commit holding the plugin with its Linux,
 macOS (Apple silicon) and Windows binaries (D-0009). No Rust toolchain is needed.
@@ -87,9 +108,10 @@ cannot download the binary, so it uses one in a connected folder (D-0012).
    commit; the reset takes it. Keep nothing of your own in this checkout.
 2. Connect that folder to Cowork once. The skill finds
    `plugin/libexec/x86_64-unknown-linux-musl/weighin` in it.
-3. Upload `weigh-in-plugin-<version>.zip` from the
+3. With the organization sync (above), the plugin is already there. Without it, upload
+   `weigh-in-plugin-<version>.zip` from the
    [release](https://github.com/Wet-Ink-Corporation/weigh-in/releases) under Customize >
-   Plugins. Do it again for each release.
+   Plugins, and again for each release.
 
 The plugin you upload also appears in Claude Code. If you installed from the marketplace branch
 too, you will see `/weigh-in` twice; remove one.

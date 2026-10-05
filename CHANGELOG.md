@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Each release is also published to `Wet-Ink-Corporation/weigh-in-plugin`, a release-only
+  repository whose push starts claude.ai's organization sync, so a release reaches Cowork and
+  Claude Code with no zip to upload (B-19). The release needs the secret
+  `WEIGH_IN_PLUGIN_DEPLOY_KEY` and refuses to publish without it.
+
 ## 0.5.2 — 2026-10-04
 
 - The marker convention SessionStart gives agents now says that a list of calls for the user

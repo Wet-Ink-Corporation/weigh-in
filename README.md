@@ -81,9 +81,10 @@ After pulling a new version, rebuild every binary you keep: the launcher prefers
 build next to a new one would reopen the ledger under its own journal mode.
 
 Cowork and claude.ai take plugins from your account, not from a local marketplace, and the
-binaries are not in git. Upload `weigh-in-plugin-<version>.zip` from the GitHub release under
-Customize > Plugins. A plugin saved to your account also shows up in Claude Code; if you then
-see `/weigh-in` twice, remove one of the two installs.
+binaries are not in git. An organization that syncs `Wet-Ink-Corporation/weigh-in-plugin`, which
+each release fills (B-19), gets every release; otherwise upload `weigh-in-plugin-<version>.zip`
+from the GitHub release under Customize > Plugins. A plugin saved to your account also shows up
+in Claude Code; if you then see `/weigh-in` twice, remove one of the two installs.
 
 ## Releasing
 
@@ -93,8 +94,9 @@ stops if one already exists. The release workflow tests, builds the Linux (musl)
 and macOS binaries, packages the plugin with its skill stamped to that Linux build's SHA-256,
 publishes the release with the zip, the raw binaries and `SHA256SUMS`, and then replaces the
 `marketplace` branch with one commit holding that zip's plugin and `marketplace.json`, which
-Claude Code installs from (D-0009, `scripts/marketplace-branch.sh`). The zip and the
-Linux binary must come from the same build, which is why the release is made only there;
+Claude Code installs from (D-0009, `scripts/marketplace-branch.sh`), and pushes the same commit
+to the default branch of `Wet-Ink-Corporation/weigh-in-plugin` for the organization sync (B-19).
+The zip and the Linux binary must come from the same build, which is why the release is made only there;
 `scripts/package-plugin.sh` run locally gives a zip that matches only a local build. The
 download needs public release assets: while the repository is internal the workflow packages
 with `--no-download`, and so should a local build (`scripts/package-plugin.sh --no-download`);
