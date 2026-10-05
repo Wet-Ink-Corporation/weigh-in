@@ -61,7 +61,8 @@ enum Cmd {
     Ledger(LedgerCmd),
 }
 
-/// Every command but `hook`: these report their errors and exit 1 on failure.
+/// Every command but `hook`: these report their errors and exit 1 on failure (a closed stdout
+/// aside, which exits 0; see `report`).
 #[derive(Subcommand)]
 enum LedgerCmd {
     /// Print the marker convention and open counts.
@@ -773,11 +774,12 @@ fn stats(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()> {
 }
 
 /// `n` of `d` as a whole percentage, rounded half to even as `{:.0}` rounds a float, or `—`
-/// when there is nothing to divide by.
+/// when there is nothing to divide by (or the count is too large to scale).
 fn percent(n: usize, d: usize) -> String {
     rounded_percent(n, d).map_or_else(|| "—".to_owned(), |p| format!("{p}%"))
 }
 
+/// `None` when `d` is zero or `n * 100` overflows `usize`.
 fn rounded_percent(n: usize, d: usize) -> Option<usize> {
     let scaled = n.checked_mul(100)?;
     let quotient = scaled.checked_div(d)?;

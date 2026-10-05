@@ -11,6 +11,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   with exit 1.
 - A hook whose output cannot be written now exits 0 and logs the failure to `hook-errors.log`;
   before, it panicked with exit 101. A hook whose input cannot be read logs that too.
+- A failed `DETACH` of the template database when the store is opened is now returned as an
+  error; before, it was ignored.
 
 ## 0.5.3 — 2026-10-05
 
