@@ -10,7 +10,7 @@ by running each item through the real capture path in a scratch repository: a `S
 - **status** = captured `capture` items whose first ledger item has `expect.status`
 
 ```sh
-cargo test -p weighin --test eval_seed -- --nocapture
+cargo test -p weighin --test it eval_seed -- --nocapture
 ```
 
 ## Format
