@@ -4,6 +4,7 @@
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use serde::Deserialize;
+use std::fmt::Write as _;
 use std::path::Path;
 use weighin_core::atom::{self, RenderContext};
 use weighin_core::card::Card;
@@ -23,25 +24,25 @@ use crate::store::{Appended, Guard, Store};
 /// What an agent or a person raises.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
-pub struct RaiseInput {
-    pub q: String,
-    pub kind: Option<String>,
-    pub door: Option<String>,
-    pub authority: Option<String>,
-    pub did: Option<String>,
-    pub flip: Option<String>,
-    pub at: Option<String>,
-    pub sym: Option<String>,
-    pub blocks: Option<String>,
-    pub channel: Option<String>,
-    pub quote: Option<String>,
-    pub source_path: Option<String>,
-    pub source_line: Option<usize>,
+pub(crate) struct RaiseInput {
+    pub(crate) q: String,
+    pub(crate) kind: Option<String>,
+    pub(crate) door: Option<String>,
+    pub(crate) authority: Option<String>,
+    pub(crate) did: Option<String>,
+    pub(crate) flip: Option<String>,
+    pub(crate) at: Option<String>,
+    pub(crate) sym: Option<String>,
+    pub(crate) blocks: Option<String>,
+    pub(crate) channel: Option<String>,
+    pub(crate) quote: Option<String>,
+    pub(crate) source_path: Option<String>,
+    pub(crate) source_line: Option<usize>,
 }
 
 impl RaiseInput {
     #[must_use]
-    pub fn from_marker(m: &Marker, channel: Channel) -> Self {
+    pub(crate) fn from_marker(m: &Marker, channel: Channel) -> Self {
         Self {
             q: m.question.clone(),
             kind: Some(m.kind.as_str().into()),
@@ -62,7 +63,7 @@ impl RaiseInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case")]
-pub enum Op {
+pub(crate) enum Op {
     Raise(RaiseInput),
     Triage {
         id: String,
@@ -154,7 +155,7 @@ pub enum Op {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum RaiseOutcome {
+pub(crate) enum RaiseOutcome {
     New(ItemId),
     /// The same session raised it before (a hook firing twice).
     Existing(ItemId),
@@ -164,7 +165,7 @@ pub enum RaiseOutcome {
 
 impl RaiseOutcome {
     #[must_use]
-    pub fn id(&self) -> &ItemId {
+    pub(crate) fn id(&self) -> &ItemId {
         match self {
             Self::New(i) | Self::Existing(i) | Self::Duplicate(i) => i,
         }
@@ -199,11 +200,86 @@ pub(crate) fn read_ledger(env: &Env) -> Result<Ledger> {
     Ok(stored_ledger(env)?.unwrap_or_default())
 }
 
-pub struct Session<'a> {
-    pub env: &'a Env,
-    pub store: Store,
-    pub ledger: Ledger,
-    tree: Option<Option<String>>,
+/// The working tree's hash, read from git at most once per session.
+#[derive(Debug)]
+enum TreeCache {
+    Unread,
+    /// `None` when there is no repository or git could not hash the tree.
+    Read(Option<String>),
+}
+
+/// A decision as `Op::Decide` carries it, with the defaults for `note` and `via` applied.
+struct DecideArgs<'o> {
+    id: &'o str,
+    option: &'o str,
+    note: &'o str,
+    provenance: Option<&'o str>,
+    via: &'o str,
+    seconds: Option<u64>,
+}
+
+/// A deferral as `Op::Defer` carries it.
+struct DeferArgs<'o> {
+    id: &'o str,
+    flip: &'o str,
+    trigger: &'o str,
+    resolve_by: &'o str,
+    default: &'o str,
+    owner: Option<&'o str>,
+    unqualified: bool,
+    reason: &'o str,
+}
+
+/// A triage as `Op::Triage` carries it, less the item it applies to.
+struct TriageArgs<'o> {
+    door: &'o str,
+    blast: &'o str,
+    authority: Option<&'o str>,
+    route: &'o str,
+    timing: Option<&'o Timing>,
+    resolve_by: Option<&'o str>,
+    reason: &'o str,
+}
+
+/// The one event an operation appends to an item, and the receipt printed for it.
+struct Change {
+    event: LedgerEvent,
+    receipt: String,
+}
+
+/// How a raise was routed, read from its hints (unknown or missing values take the defaults).
+#[derive(Clone, Copy)]
+struct Hints {
+    channel: Channel,
+    door: Door,
+    authority: Authority,
+}
+
+impl Hints {
+    fn of(input: &RaiseInput) -> Self {
+        let channel = match input.channel.as_deref() {
+            Some("scan") => Channel::Scan,
+            Some("sweep") => Channel::Sweep,
+            Some("manual") => Channel::Manual,
+            _ => Channel::Marker,
+        };
+        Self {
+            channel,
+            door: input.door.as_deref().map(Door::parse).unwrap_or_default(),
+            authority: input
+                .authority
+                .as_deref()
+                .map(Authority::parse)
+                .unwrap_or_default(),
+        }
+    }
+}
+
+pub(crate) struct Session<'a> {
+    pub(crate) env: &'a Env,
+    pub(crate) store: Store,
+    pub(crate) ledger: Ledger,
+    tree: TreeCache,
     actor: String,
     /// Ids raised earlier in this batch, so later ops can say `@1`, `@2`, ...
     raised: Vec<ItemId>,
@@ -212,25 +288,27 @@ pub struct Session<'a> {
 impl<'a> Session<'a> {
     /// # Errors
     /// Fails when the store cannot be opened or read.
-    pub fn open(env: &'a Env, actor: &str) -> Result<Self> {
+    pub(crate) fn open(env: &'a Env, actor: &str) -> Result<Self> {
         let store = Store::open(&env.store_path())?;
         let ledger = store.ledger()?;
         Ok(Self {
             env,
             store,
             ledger,
-            tree: None,
+            tree: TreeCache::Unread,
             actor: actor.to_owned(),
             raised: Vec::new(),
         })
     }
 
     fn tree_hash(&mut self) -> Option<String> {
-        if self.tree.is_none() {
-            let t = self.env.repo_root.as_ref().and_then(|r| git::tree_hash(r));
-            self.tree = Some(t);
+        if let TreeCache::Read(t) = &self.tree {
+            // The cache keeps its copy for the next event; the caller's event owns this one.
+            return t.clone();
         }
-        self.tree.clone().flatten()
+        let t = self.env.repo_root.as_ref().and_then(|r| git::tree_hash(r));
+        self.tree = TreeCache::Read(t.clone());
+        t
     }
 
     /// Append events for `id` guarded on the item being unchanged since this session read it.
@@ -245,9 +323,10 @@ impl<'a> Session<'a> {
             .append(&envs, &Guard::ItemUnchangedSince(id.clone(), since))?
         {
             Appended::At(last) => {
-                let first = last + 1 - envs.len() as u64;
-                for (i, e) in envs.iter().enumerate() {
-                    self.ledger.apply(first + i as u64, e);
+                let n = u64::try_from(envs.len()).context("too many events in one append")?;
+                let first = last + 1 - n;
+                for (position, e) in (first..).zip(&envs) {
+                    self.ledger.apply(position, e);
                 }
                 Ok(())
             }
@@ -262,9 +341,10 @@ impl<'a> Session<'a> {
 
     fn item(&self, needle: &str) -> Result<Item> {
         if let Some(n) = needle.strip_prefix('@') {
-            let k: usize = n.parse().map_err(|_| {
-                anyhow!("`{needle}`: refs are @1, @2, ... (raises earlier in this batch)")
-            })?;
+            // The parse error adds nothing the message does not already say.
+            let Ok(k) = n.parse::<usize>() else {
+                bail!("`{needle}`: refs are @1, @2, ... (raises earlier in this batch)");
+            };
             let id = self.raised.get(k.wrapping_sub(1)).ok_or_else(|| {
                 anyhow!(
                     "`{needle}`: only {} raise(s) so far in this batch",
@@ -287,7 +367,7 @@ impl<'a> Session<'a> {
     ///
     /// # Errors
     /// Fails on an empty question or a store error.
-    pub fn raise(&mut self, input: &RaiseInput) -> Result<RaiseOutcome> {
+    pub(crate) fn raise(&mut self, input: &RaiseInput) -> Result<RaiseOutcome> {
         let q = input.q.trim();
         if q.is_empty() {
             bail!("a raised item needs a question");
@@ -298,6 +378,23 @@ impl<'a> Session<'a> {
             .clone()
             .unwrap_or_else(|| "no-session".into());
         let minted = ItemId::mint(&session, q);
+        if let Some(known) = self.already_raised(q, &session, &minted)? {
+            return Ok(known);
+        }
+        let outcome = self.append_raised(input, minted, &session)?;
+        if let RaiseOutcome::New(id) = &outcome {
+            self.default_acted_call(input, id)?;
+        }
+        Ok(outcome)
+    }
+
+    /// The item already asking `q`, if any, noting that `session` raised it again.
+    fn already_raised(
+        &mut self,
+        q: &str,
+        session: &str,
+        minted: &ItemId,
+    ) -> Result<Option<RaiseOutcome>> {
         if let Some(closed) = self
             .ledger
             .any_with_question(q)
@@ -305,79 +402,67 @@ impl<'a> Session<'a> {
         {
             // Settled (decided, defaulted, dismissed): never re-asked. Record the re-raise only.
             let cid = closed.id.clone();
-            if closed.session_id.as_deref() != Some(session.as_str())
-                && !closed.also_raised_in.contains(&session)
+            if closed.session_id.as_deref() != Some(session)
+                && !closed.also_raised_in.iter().any(|s| s.as_str() == session)
             {
                 self.write(
                     &cid,
                     vec![LedgerEvent::ItemLinked(Linked {
                         item_id: cid.clone(),
                         kind: "raised-again".into(),
-                        target: session,
+                        target: session.to_owned(),
                         reason: "a settled question was raised again; not re-asked".into(),
                     })],
                 )?;
             }
-            return Ok(RaiseOutcome::Existing(cid));
+            return Ok(Some(RaiseOutcome::Existing(cid)));
         }
-        if let Some(existing) = self.ledger.open_with_question(q) {
-            let eid = existing.id.clone();
-            if eid == minted || existing.session_id.as_deref() == Some(session.as_str()) {
-                return Ok(RaiseOutcome::Existing(eid));
-            }
-            if !existing.also_raised_in.contains(&session) {
-                self.write(
-                    &eid,
-                    vec![LedgerEvent::ItemLinked(Linked {
-                        item_id: eid.clone(),
-                        kind: "raised-again".into(),
-                        target: session,
-                        reason: "the same question was raised in another session".into(),
-                    })],
-                )?;
-            }
-            return Ok(RaiseOutcome::Duplicate(eid));
+        let Some(existing) = self.ledger.open_with_question(q) else {
+            return Ok(None);
+        };
+        let eid = existing.id.clone();
+        if &eid == minted || existing.session_id.as_deref() == Some(session) {
+            return Ok(Some(RaiseOutcome::Existing(eid)));
         }
-        let channel = match input.channel.as_deref() {
-            Some("scan") => Channel::Scan,
-            Some("sweep") => Channel::Sweep,
-            Some("manual") => Channel::Manual,
-            _ => Channel::Marker,
-        };
-        let door = input.door.as_deref().map(Door::parse).unwrap_or_default();
-        let authority = input
-            .authority
-            .as_deref()
-            .map(Authority::parse)
-            .unwrap_or_default();
-        let mk = |id: ItemId| {
-            LedgerEvent::ItemRaised(Raised {
-                item_id: id,
-                kind: input.kind.as_deref().map(Kind::parse).unwrap_or_default(),
-                question: q.to_owned(),
-                did: input.did.clone(),
-                flip: input.flip.clone(),
-                at: input.at.as_deref().map(|a| self.env.relative_anchor(a)),
-                sym: input.sym.clone(),
-                blocks: input.blocks.clone(),
-                door_hint: door,
-                authority_hint: authority,
-                channel,
-                quote: input.quote.clone().unwrap_or_else(|| q.to_owned()),
-                source_path: input.source_path.clone(),
-                source_line: input.source_line,
-            })
-        };
+        if !existing
+            .also_raised_in
+            .iter()
+            .any(|s| s.as_str() == session)
+        {
+            self.write(
+                &eid,
+                vec![LedgerEvent::ItemLinked(Linked {
+                    item_id: eid.clone(),
+                    kind: "raised-again".into(),
+                    target: session.to_owned(),
+                    reason: "the same question was raised in another session".into(),
+                })],
+            )?;
+        }
+        Ok(Some(RaiseOutcome::Duplicate(eid)))
+    }
+
+    /// Append the raise under `minted`, or under its extended form when another question holds
+    /// the short id. `Existing` when a racing writer raised the same question first.
+    fn append_raised(
+        &mut self,
+        input: &RaiseInput,
+        minted: ItemId,
+        session: &str,
+    ) -> Result<RaiseOutcome> {
+        let q = input.q.trim();
         let mut id = minted;
-        for attempt in 0..2 {
-            let env = self.env.envelope(mk(id.clone()), &self.actor);
+        for _ in 0..2 {
+            let env = self
+                .env
+                .envelope(self.raised_event(input, id.clone()), &self.actor);
             match self
                 .store
                 .append(std::slice::from_ref(&env), &Guard::NotYetRaised(id.clone()))?
             {
                 Appended::At(p) => {
                     self.ledger.apply(p, &env);
-                    break;
+                    return Ok(RaiseOutcome::New(id));
                 }
                 Appended::Conflict => {
                     self.ledger = self.store.ledger()?;
@@ -388,15 +473,38 @@ impl<'a> Session<'a> {
                     if same {
                         return Ok(RaiseOutcome::Existing(id));
                     }
-                    if attempt == 1 {
-                        bail!("could not mint a free id for this question");
-                    }
-                    id = ItemId::mint_with_len(&session, q, EXTENDED_HEX_LEN);
+                    id = ItemId::mint_with_len(session, q, EXTENDED_HEX_LEN);
                 }
             }
         }
-        // Decision wi-4d8b6a: a judgment-bound two-way door the agent already acted on is its own
-        // call, logged as a default and listed in the digest; it never becomes a question.
+        bail!("could not mint a free id for this question")
+    }
+
+    fn raised_event(&self, input: &RaiseInput, id: ItemId) -> LedgerEvent {
+        let q = input.q.trim();
+        let hints = Hints::of(input);
+        LedgerEvent::ItemRaised(Raised {
+            item_id: id,
+            kind: input.kind.as_deref().map(Kind::parse).unwrap_or_default(),
+            question: q.to_owned(),
+            did: input.did.clone(),
+            flip: input.flip.clone(),
+            at: input.at.as_deref().map(|a| self.env.relative_anchor(a)),
+            sym: input.sym.clone(),
+            blocks: input.blocks.clone(),
+            door_hint: hints.door,
+            authority_hint: hints.authority,
+            channel: hints.channel,
+            quote: input.quote.clone().unwrap_or_else(|| q.to_owned()),
+            source_path: input.source_path.clone(),
+            source_line: input.source_line,
+        })
+    }
+
+    /// Decision wi-4d8b6a: a judgment-bound two-way door the agent already acted on is its own
+    /// call, logged as a default and listed in the digest; it never becomes a question.
+    fn default_acted_call(&mut self, input: &RaiseInput, id: &ItemId) -> Result<()> {
+        let hints = Hints::of(input);
         let did = input
             .did
             .as_deref()
@@ -405,131 +513,30 @@ impl<'a> Session<'a> {
         // The tripwire keeps authority-sounding questions (compliance, isolation, retention, ...)
         // open for the sitting even when the agent called them judgment calls.
         let tripwire = authority_tripwire(&format!(
-            "{q} {} {}",
+            "{} {} {}",
+            input.q.trim(),
             did.unwrap_or(""),
             input.flip.as_deref().unwrap_or("")
         ));
-        if channel == Channel::Marker
-            && door == Door::TwoWay
-            && authority == Authority::Judgment
+        if hints.channel == Channel::Marker
+            && hints.door == Door::TwoWay
+            && hints.authority == Authority::Judgment
             && tripwire.is_none()
             && let Some(did) = did
         {
-            self.write(&id, vec![LedgerEvent::ItemDefaulted(Defaulted { item_id: id.clone(), option: did.to_owned(), cause: DefaultCause::TwoWay, reason: "judgment-bound two-way door the agent acted on; logged, reversible from the digest".into() })])?;
+            self.write(id, vec![LedgerEvent::ItemDefaulted(Defaulted { item_id: id.clone(), option: did.to_owned(), cause: DefaultCause::TwoWay, reason: "judgment-bound two-way door the agent acted on; logged, reversible from the digest".into() })])?;
         }
-        Ok(RaiseOutcome::New(id))
+        Ok(())
     }
 
     /// Apply one operation and return a one-line receipt.
     ///
     /// # Errors
     /// Fails when the operation is invalid for the item or the store refuses it.
-    pub fn apply(&mut self, op: &Op) -> Result<String> {
+    pub(crate) fn apply(&mut self, op: &Op) -> Result<String> {
         match op {
-            Op::Raise(r) => {
-                let out = self.raise(r)?;
-                self.raised.push(out.id().clone());
-                let status = self.ledger.get(out.id()).map_or("?", |i| i.status.as_str());
-                Ok(match out {
-                    RaiseOutcome::New(id) => format!("raised {id} ({status})"),
-                    RaiseOutcome::Existing(id) => format!("{id} already raised"),
-                    RaiseOutcome::Duplicate(id) => format!("linked to open {id}"),
-                })
-            }
-            Op::Triage {
-                id,
-                door,
-                blast,
-                authority,
-                route,
-                timing,
-                resolve_by,
-                reason,
-            } => {
-                let item = self.item(id)?;
-                let blast = Blast::parse(blast)
-                    .ok_or_else(|| anyhow!("blast must be file, module, system or external"))?;
-                let route = match route.as_str() {
-                    "present" => Route::Present,
-                    "default" => Route::Default,
-                    "dismiss" => Route::Dismiss,
-                    _ => bail!("route must be present, default or dismiss"),
-                };
-                let door = Door::parse(door);
-                let authority = authority
-                    .as_deref()
-                    .map_or(item.authority(), Authority::parse);
-                if route == Route::Default
-                    && (door != Door::TwoWay || authority != Authority::Judgment)
-                {
-                    bail!(
-                        "{}: only a judgment-bound two-way door may be defaulted (door {}, {})",
-                        item.id,
-                        door.as_str(),
-                        authority.as_str()
-                    );
-                }
-                self.write(
-                    &item.id,
-                    vec![LedgerEvent::ItemTriaged(Triaged {
-                        item_id: item.id.clone(),
-                        door,
-                        blast,
-                        authority,
-                        route,
-                        timing: timing.clone(),
-                        resolve_by: resolve_by.clone(),
-                        reason: reason.clone(),
-                    })],
-                )?;
-                Ok(format!(
-                    "triaged {} · {} · {} · {}",
-                    item.id,
-                    door.as_str(),
-                    blast.as_str(),
-                    route_str(route)
-                ))
-            }
-            Op::Ground { id, card, reason } => {
-                let item = self.item(id)?;
-                card.validate().map_err(|e| anyhow!("{}: {e}", item.id))?;
-                self.write(
-                    &item.id,
-                    vec![LedgerEvent::ItemGrounded(Grounded {
-                        item_id: item.id.clone(),
-                        card: card.clone(),
-                        reason: reason.clone().unwrap_or_else(|| "grounded".into()),
-                    })],
-                )?;
-                let earned = if card.recommendation_earned() {
-                    "recommendation earned"
-                } else {
-                    "options first"
-                };
-                Ok(format!(
-                    "grounded {} · {} options · {earned}",
-                    item.id,
-                    card.options.len()
-                ))
-            }
-            Op::Present { id, surface } => {
-                let item = self.item(id)?;
-                if !item.status.is_open() {
-                    bail!("{} is {}, not open", item.id, item.status.as_str());
-                }
-                let tree = self.tree_hash();
-                let surface = surface.clone().unwrap_or_else(|| "chat".into());
-                self.write(
-                    &item.id,
-                    vec![LedgerEvent::ItemPresented(Presented {
-                        item_id: item.id.clone(),
-                        surface: surface.clone(),
-                        tree_hash: tree,
-                        reason: format!("shown in {surface}"),
-                    })],
-                )?;
-                Ok(format!("presented {} ({surface})", item.id))
-            }
+            Op::Raise(r) => self.apply_raise(r),
+            Op::Present { id, surface } => self.present(id, surface.as_deref()),
             Op::Decide {
                 id,
                 option,
@@ -537,14 +544,14 @@ impl<'a> Session<'a> {
                 provenance,
                 via,
                 seconds,
-            } => self.decide(
+            } => self.decide(&DecideArgs {
                 id,
                 option,
-                note.as_deref().unwrap_or(""),
-                provenance.as_deref(),
-                via.as_deref().unwrap_or("chat"),
-                *seconds,
-            ),
+                note: note.as_deref().unwrap_or(""),
+                provenance: provenance.as_deref(),
+                via: via.as_deref().unwrap_or("chat"),
+                seconds: *seconds,
+            }),
             Op::Defer {
                 id,
                 flip,
@@ -554,237 +561,108 @@ impl<'a> Session<'a> {
                 owner,
                 unqualified,
                 reason,
-            } => {
-                let item = self.item(id)?;
-                if !item.status.is_open() {
-                    bail!("{} is {}, not open", item.id, item.status.as_str());
-                }
-                if let Some(card) = &item.card
-                    && card.option(default).is_none()
-                {
-                    bail!("{}: default `{default}` is not an option", item.id);
-                }
-                // A bare "defer" from the user is recorded as unqualified: it names no flip fact
-                // and is counted against the action rate.
-                for (k, v) in [
-                    ("flip", if *unqualified { trigger } else { flip }),
-                    ("trigger", trigger),
-                    ("resolve_by", resolve_by),
-                ] {
-                    if v.trim().is_empty() {
-                        bail!(
-                            "a deferral needs {k}: waiting without a named fact is the can being kicked"
-                        );
-                    }
-                }
-                let owner = owner
-                    .clone()
-                    .unwrap_or_else(|| self.env.config.owner.clone());
-                self.write(
-                    &item.id,
-                    vec![LedgerEvent::ItemDeferred(Deferred {
-                        item_id: item.id.clone(),
-                        flip: flip.clone(),
-                        trigger: trigger.clone(),
-                        resolve_by: resolve_by.clone(),
-                        default_option: default.clone(),
-                        owner,
-                        unqualified: *unqualified,
-                        reason: reason.clone(),
-                    })],
-                )?;
-                let mut receipt = format!(
-                    "deferred {} until {trigger} (default {default} by {resolve_by})",
-                    item.id
-                );
-                if item.door() == Door::OneWay
-                    && let Some(path) = self.write_open_question(&item.id)?
-                {
-                    receipt.push_str(&format!(" · tracking atom {path}"));
-                }
-                Ok(receipt)
-            }
-            Op::Default {
+            } => self.defer(&DeferArgs {
                 id,
-                option,
-                cause,
+                flip,
+                trigger,
+                resolve_by,
+                default,
+                owner: owner.as_deref(),
+                unqualified: *unqualified,
                 reason,
-            } => {
-                let item = self.item(id)?;
-                let cause = DefaultCause::parse(cause)
-                    .ok_or_else(|| anyhow!("cause must be two-way, expired or unattended"))?;
-                if item.door() != Door::TwoWay {
-                    bail!(
-                        "{} is a {} door; only a two-way door is defaulted (triage it first)",
-                        item.id,
-                        item.door().as_str()
-                    );
-                }
-                if cause != DefaultCause::Expired && item.authority() != Authority::Judgment {
-                    bail!(
-                        "{} is authority-bound; only its resolve-by expiring may default it (triage it as judgment if that is wrong)",
-                        item.id
-                    );
-                }
-                self.write(
-                    &item.id,
-                    vec![LedgerEvent::ItemDefaulted(Defaulted {
-                        item_id: item.id.clone(),
-                        option: option.clone(),
-                        cause,
-                        reason: reason.clone(),
-                    })],
-                )?;
-                Ok(format!(
-                    "defaulted {} to {option} ({})",
-                    item.id,
-                    cause.as_str()
-                ))
-            }
-            Op::Dismiss {
-                id,
-                why,
-                note,
-                reason,
-            } => {
-                let item = self.item(id)?;
-                let why = DismissReason::parse(why).ok_or_else(|| anyhow!("why must be not-useful, recoverable, moot, already-decided:<ref>, duplicate-of:<id> or not-my-call:<who>"))?;
-                // Papering-over guard: an authority-sounding item is "already decided" only by an
-                // accepted .kb decision or by the user's own words choosing it.
-                if let DismissReason::AlreadyDecided(r) = &why
-                    && let Some(word) =
-                        authority_tripwire(&format!("{} {}", item.question, item.quote))
-                    && !(r.starts_with("kb-") || r.starts_with("chat:"))
-                {
-                    bail!(
-                        "{} is authority-bound (`{word}`): cite the accepted atom (already-decided:kb-…) or the user's words choosing it (already-decided:chat:\"…\"). \"Assume and keep going\" delegates the work, not this decision; present it instead",
-                        item.id
-                    );
-                }
-                self.write(
-                    &item.id,
-                    vec![LedgerEvent::ItemDismissed(Dismissed {
-                        item_id: item.id.clone(),
-                        why: why.clone(),
-                        note: note.clone().unwrap_or_default(),
-                        reason: reason.clone(),
-                    })],
-                )?;
-                Ok(format!("dismissed {} ({})", item.id, why.label()))
-            }
-            Op::Reopen { id, note, reason } => {
-                let item = self.item(id)?;
-                if item.status.is_open() && item.status != Status::Deferred {
-                    bail!("{} is already open", item.id);
-                }
-                self.write(
-                    &item.id,
-                    vec![LedgerEvent::ItemReopened(Reopened {
-                        item_id: item.id.clone(),
-                        note: note.clone().unwrap_or_default(),
-                        reason: reason.clone(),
-                    })],
-                )?;
-                Ok(format!("reopened {}", item.id))
-            }
-            Op::Supersede { id, by, reason } => {
-                let item = self.item(id)?;
-                self.write(
-                    &item.id,
-                    vec![LedgerEvent::ItemSuperseded(Superseded {
-                        item_id: item.id.clone(),
-                        by: by.clone(),
-                        reason: reason.clone(),
-                    })],
-                )?;
-                Ok(format!("{} superseded by {by}", item.id))
-            }
-            Op::Link {
-                id,
-                kind,
-                target,
-                reason,
-            } => {
-                let item = self.item(id)?;
-                self.write(
-                    &item.id,
-                    vec![LedgerEvent::ItemLinked(Linked {
-                        item_id: item.id.clone(),
-                        kind: kind.clone(),
-                        target: target.clone(),
-                        reason: reason.clone().unwrap_or_else(|| "linked".into()),
-                    })],
-                )?;
-                Ok(format!("linked {} → {kind} {target}", item.id))
-            }
-            Op::Ack { id, reason } => {
-                let item = self.item(id)?;
-                if item.status != Status::Defaulted {
-                    bail!(
-                        "{} is {}, only defaults are acknowledged",
-                        item.id,
-                        item.status.as_str()
-                    );
-                }
-                self.write(
-                    &item.id,
-                    vec![LedgerEvent::ItemAcknowledged(Acknowledged {
-                        item_id: item.id.clone(),
-                        reason: reason
-                            .clone()
-                            .unwrap_or_else(|| "left as defaulted after the digest".into()),
-                    })],
-                )?;
-                Ok(format!("acknowledged default on {}", item.id))
-            }
+            }),
+            Op::Triage { id, .. }
+            | Op::Ground { id, .. }
+            | Op::Default { id, .. }
+            | Op::Dismiss { id, .. }
+            | Op::Reopen { id, .. }
+            | Op::Supersede { id, .. }
+            | Op::Link { id, .. }
+            | Op::Ack { id, .. } => self.change(id, |item| change_event(op, item)),
         }
     }
 
-    fn decide(
-        &mut self,
-        id: &str,
-        option: &str,
-        note: &str,
-        provenance: Option<&str>,
-        via: &str,
-        seconds: Option<u64>,
-    ) -> Result<String> {
+    fn apply_raise(&mut self, r: &RaiseInput) -> Result<String> {
+        let out = self.raise(r)?;
+        self.raised.push(out.id().clone());
+        let status = self.ledger.get(out.id()).map_or("?", |i| i.status.as_str());
+        Ok(match out {
+            RaiseOutcome::New(id) => format!("raised {id} ({status})"),
+            RaiseOutcome::Existing(id) => format!("{id} already raised"),
+            RaiseOutcome::Duplicate(id) => format!("linked to open {id}"),
+        })
+    }
+
+    /// Resolve `id`, let `build` validate it and name its one event, append that, and return the
+    /// receipt.
+    fn change(&mut self, id: &str, build: impl FnOnce(&Item) -> Result<Change>) -> Result<String> {
+        let item = self.item(id)?;
+        let Change { event, receipt } = build(&item)?;
+        self.write(&item.id, vec![event])?;
+        Ok(receipt)
+    }
+
+    fn present(&mut self, id: &str, surface: Option<&str>) -> Result<String> {
         let item = self.item(id)?;
         if !item.status.is_open() {
-            bail!(
-                "{} is {}, not open; reopen it first",
-                item.id,
-                item.status.as_str()
-            );
+            bail!("{} is {}, not open", item.id, item.status.as_str());
         }
-        let matched = item
-            .card
-            .as_ref()
-            .map(|c| c.recommendation.option == option);
-        if let Some(card) = &item.card {
-            let opt = card.option(option).ok_or_else(|| {
-                anyhow!(
-                    "{} has no option `{option}` (options: {})",
-                    item.id,
-                    card.options
-                        .iter()
-                        .map(|o| o.id.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })?;
-            if let Some(m) = &opt.fails_must {
-                bail!("{}: option {option} fails a MUST ({m})", item.id);
-            }
+        let tree = self.tree_hash();
+        let surface = surface.unwrap_or("chat");
+        self.write(
+            &item.id,
+            vec![LedgerEvent::ItemPresented(Presented {
+                item_id: item.id.clone(),
+                surface: surface.to_owned(),
+                tree_hash: tree,
+                reason: format!("shown in {surface}"),
+            })],
+        )?;
+        Ok(format!("presented {} ({surface})", item.id))
+    }
+
+    fn defer(&mut self, d: &DeferArgs<'_>) -> Result<String> {
+        let item = self.item(d.id)?;
+        check_deferral(&item, d)?;
+        let owner = d
+            .owner
+            .map_or_else(|| self.env.config.owner.clone(), str::to_owned);
+        self.write(
+            &item.id,
+            vec![LedgerEvent::ItemDeferred(Deferred {
+                item_id: item.id.clone(),
+                flip: d.flip.to_owned(),
+                trigger: d.trigger.to_owned(),
+                resolve_by: d.resolve_by.to_owned(),
+                default_option: d.default.to_owned(),
+                owner,
+                unqualified: d.unqualified,
+                reason: d.reason.to_owned(),
+            })],
+        )?;
+        let mut receipt = format!(
+            "deferred {} until {} (default {} by {})",
+            item.id, d.trigger, d.default, d.resolve_by
+        );
+        if item.door() == Door::OneWay
+            && let Some(path) = self.write_open_question(&item.id)?
+        {
+            write!(receipt, " · tracking atom {path}")?;
         }
-        let provenance = match provenance {
+        Ok(receipt)
+    }
+
+    fn decide(&mut self, d: &DecideArgs<'_>) -> Result<String> {
+        let item = self.item(d.id)?;
+        let matched = check_answer(&item, d.option)?;
+        let provenance = match d.provenance {
             Some("user-approved") => Provenance::UserApproved,
             Some("user-directed") => Provenance::UserDirected,
             _ if matched == Some(true) => Provenance::UserApproved,
             _ => Provenance::UserDirected,
         };
         let now = env::now();
-        let seconds = seconds.or_else(|| {
+        let seconds = d.seconds.or_else(|| {
             item.presented_ts
                 .as_deref()
                 .and_then(|p| env::seconds_between(p, &now))
@@ -795,13 +673,13 @@ impl<'a> Session<'a> {
             &item.id,
             vec![LedgerEvent::ItemDecided(Decided {
                 item_id: item.id.clone(),
-                option: option.to_owned(),
+                option: d.option.to_owned(),
                 decider,
                 provenance,
-                note: note.to_owned(),
+                note: d.note.to_owned(),
                 tree_hash: tree,
                 matched_recommendation: matched,
-                via: via.to_owned(),
+                via: d.via.to_owned(),
                 seconds_to_decide: seconds,
                 reason: match matched {
                     Some(true) => "chose the recommended option".into(),
@@ -810,29 +688,28 @@ impl<'a> Session<'a> {
                 },
             })],
         )?;
-        let mut receipt = format!("decided {} → {option}", item.id);
+        self.decision_receipt(&item.id, d.option, matched)
+    }
+
+    /// Write the decision's atom and source annotation, and say what was written.
+    fn decision_receipt(
+        &mut self,
+        id: &ItemId,
+        option: &str,
+        matched: Option<bool>,
+    ) -> Result<String> {
+        let mut receipt = format!("decided {id} → {option}");
         if matched == Some(false) {
             receipt.push_str(" (override)");
         }
-        if let Some(path) = self.write_decision_atom(&item.id)? {
-            receipt.push_str(&format!(" · atom {path}"));
+        if let Some(path) = self.write_decision_atom(id)? {
+            write!(receipt, " · atom {path}")?;
         }
-        if let Some(src) = self.annotate_source(&item.id, option)? {
-            receipt.push_str(&format!(" · annotated {src}"));
+        if let Some(src) = self.annotate_source(id, option)? {
+            write!(receipt, " · annotated {src}")?;
         }
-        receipt.push_str(&format!(
-            " · trailer `Weigh-In: {} decided {option}`",
-            item.id
-        ));
+        write!(receipt, " · trailer `Weigh-In: {id} decided {option}`")?;
         Ok(receipt)
-    }
-
-    fn render_ctx(&self) -> RenderContext {
-        RenderContext {
-            date: env::today(),
-            depends_on: Vec::new(),
-            source_paths: Vec::new(),
-        }
     }
 
     fn write_file(&self, rel: &str, text: &str) -> Result<()> {
@@ -848,7 +725,7 @@ impl<'a> Session<'a> {
         let Some(item) = self.ledger.get(id).cloned() else {
             return Ok(None);
         };
-        let Some(text) = atom::render_decision(&item, &self.render_ctx()) else {
+        let Some(text) = atom::render_decision(&item, &render_ctx()) else {
             return Ok(None);
         };
         let rel = atom::decision_path(&item);
@@ -870,7 +747,7 @@ impl<'a> Session<'a> {
         let Some(item) = self.ledger.get(id).cloned() else {
             return Ok(None);
         };
-        let Some(text) = atom::render_open_question(&item, &self.render_ctx()) else {
+        let Some(text) = atom::render_open_question(&item, &render_ctx()) else {
             return Ok(None);
         };
         let rel = atom::open_question_path(&item);
@@ -917,10 +794,11 @@ impl<'a> Session<'a> {
             };
             if !done && body.trim() == first && !body.contains("→ Weigh-In") {
                 done = true;
-                joined.push_str(&format!(
+                write!(
+                    joined,
                     "{body} → Weigh-In {id}: decided {option} ({})",
                     env::today()
-                ));
+                )?;
             } else {
                 joined.push_str(body);
             }
@@ -932,6 +810,290 @@ impl<'a> Session<'a> {
         std::fs::write(&path, joined)?;
         Ok(Some(src.clone()))
     }
+}
+
+fn render_ctx() -> RenderContext {
+    RenderContext {
+        date: env::today(),
+        depends_on: Vec::new(),
+        source_paths: Vec::new(),
+    }
+}
+
+/// The one event a single-item operation appends to `item`, validated against it.
+///
+/// # Errors
+/// Fails when the operation is invalid for the item, or is not a single-change operation.
+fn change_event(op: &Op, item: &Item) -> Result<Change> {
+    match op {
+        Op::Triage {
+            door,
+            blast,
+            authority,
+            route,
+            timing,
+            resolve_by,
+            reason,
+            ..
+        } => triage_event(
+            item,
+            &TriageArgs {
+                door,
+                blast,
+                authority: authority.as_deref(),
+                route,
+                timing: timing.as_ref(),
+                resolve_by: resolve_by.as_deref(),
+                reason,
+            },
+        ),
+        Op::Ground { card, reason, .. } => ground_event(item, card, reason.as_deref()),
+        Op::Default {
+            option,
+            cause,
+            reason,
+            ..
+        } => default_event(item, option, cause, reason),
+        Op::Dismiss {
+            why, note, reason, ..
+        } => dismiss_event(item, why, note.as_deref(), reason),
+        Op::Reopen { note, reason, .. } => reopen_event(item, note.as_deref(), reason),
+        Op::Supersede { by, reason, .. } => Ok(supersede_event(item, by, reason)),
+        Op::Link {
+            kind,
+            target,
+            reason,
+            ..
+        } => Ok(link_event(item, kind, target, reason.as_deref())),
+        Op::Ack { reason, .. } => ack_event(item, reason.as_deref()),
+        Op::Raise(_) | Op::Present { .. } | Op::Decide { .. } | Op::Defer { .. } => {
+            bail!("{} takes more than one change", item.id)
+        }
+    }
+}
+
+fn triage_event(item: &Item, t: &TriageArgs<'_>) -> Result<Change> {
+    let blast = Blast::parse(t.blast)
+        .ok_or_else(|| anyhow!("blast must be file, module, system or external"))?;
+    let route = match t.route {
+        "present" => Route::Present,
+        "default" => Route::Default,
+        "dismiss" => Route::Dismiss,
+        _ => bail!("route must be present, default or dismiss"),
+    };
+    let door = Door::parse(t.door);
+    let authority = t
+        .authority
+        .map_or_else(|| item.authority(), Authority::parse);
+    if route == Route::Default && (door != Door::TwoWay || authority != Authority::Judgment) {
+        bail!(
+            "{}: only a judgment-bound two-way door may be defaulted (door {}, {})",
+            item.id,
+            door.as_str(),
+            authority.as_str()
+        );
+    }
+    Ok(Change {
+        event: LedgerEvent::ItemTriaged(Triaged {
+            item_id: item.id.clone(),
+            door,
+            blast,
+            authority,
+            route,
+            timing: t.timing.cloned(),
+            resolve_by: t.resolve_by.map(str::to_owned),
+            reason: t.reason.to_owned(),
+        }),
+        receipt: format!(
+            "triaged {} · {} · {} · {}",
+            item.id,
+            door.as_str(),
+            blast.as_str(),
+            route_str(route)
+        ),
+    })
+}
+
+fn ground_event(item: &Item, card: &Card, reason: Option<&str>) -> Result<Change> {
+    card.validate().map_err(|e| anyhow!("{}: {e}", item.id))?;
+    let earned = if card.recommendation_earned() {
+        "recommendation earned"
+    } else {
+        "options first"
+    };
+    Ok(Change {
+        event: LedgerEvent::ItemGrounded(Grounded {
+            item_id: item.id.clone(),
+            card: card.clone(),
+            reason: reason.unwrap_or("grounded").to_owned(),
+        }),
+        receipt: format!(
+            "grounded {} · {} options · {earned}",
+            item.id,
+            card.options.len()
+        ),
+    })
+}
+
+/// The option `option` of an open item, checked against its card: `Some(matched)` says whether
+/// it is the recommendation, `None` that the item has no card.
+fn check_answer(item: &Item, option: &str) -> Result<Option<bool>> {
+    if !item.status.is_open() {
+        bail!(
+            "{} is {}, not open; reopen it first",
+            item.id,
+            item.status.as_str()
+        );
+    }
+    let Some(card) = &item.card else {
+        return Ok(None);
+    };
+    let opt = card.option(option).ok_or_else(|| {
+        anyhow!(
+            "{} has no option `{option}` (options: {})",
+            item.id,
+            card.options
+                .iter()
+                .map(|o| o.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })?;
+    if let Some(m) = &opt.fails_must {
+        bail!("{}: option {option} fails a MUST ({m})", item.id);
+    }
+    Ok(Some(card.recommendation.option == option))
+}
+
+fn check_deferral(item: &Item, d: &DeferArgs<'_>) -> Result<()> {
+    if !item.status.is_open() {
+        bail!("{} is {}, not open", item.id, item.status.as_str());
+    }
+    if let Some(card) = &item.card
+        && card.option(d.default).is_none()
+    {
+        bail!("{}: default `{}` is not an option", item.id, d.default);
+    }
+    // A bare "defer" from the user is recorded as unqualified: it names no flip fact and is
+    // counted against the action rate.
+    for (k, v) in [
+        ("flip", if d.unqualified { d.trigger } else { d.flip }),
+        ("trigger", d.trigger),
+        ("resolve_by", d.resolve_by),
+    ] {
+        if v.trim().is_empty() {
+            bail!("a deferral needs {k}: waiting without a named fact is the can being kicked");
+        }
+    }
+    Ok(())
+}
+
+fn default_event(item: &Item, option: &str, cause: &str, reason: &str) -> Result<Change> {
+    let cause = DefaultCause::parse(cause)
+        .ok_or_else(|| anyhow!("cause must be two-way, expired or unattended"))?;
+    if item.door() != Door::TwoWay {
+        bail!(
+            "{} is a {} door; only a two-way door is defaulted (triage it first)",
+            item.id,
+            item.door().as_str()
+        );
+    }
+    if cause != DefaultCause::Expired && item.authority() != Authority::Judgment {
+        bail!(
+            "{} is authority-bound; only its resolve-by expiring may default it (triage it as judgment if that is wrong)",
+            item.id
+        );
+    }
+    Ok(Change {
+        event: LedgerEvent::ItemDefaulted(Defaulted {
+            item_id: item.id.clone(),
+            option: option.to_owned(),
+            cause,
+            reason: reason.to_owned(),
+        }),
+        receipt: format!("defaulted {} to {option} ({})", item.id, cause.as_str()),
+    })
+}
+
+fn dismiss_event(item: &Item, why: &str, note: Option<&str>, reason: &str) -> Result<Change> {
+    let why = DismissReason::parse(why).ok_or_else(|| anyhow!("why must be not-useful, recoverable, moot, already-decided:<ref>, duplicate-of:<id> or not-my-call:<who>"))?;
+    // Papering-over guard: an authority-sounding item is "already decided" only by an accepted
+    // .kb decision or by the user's own words choosing it.
+    if let DismissReason::AlreadyDecided(r) = &why
+        && let Some(word) = authority_tripwire(&format!("{} {}", item.question, item.quote))
+        && !(r.starts_with("kb-") || r.starts_with("chat:"))
+    {
+        bail!(
+            "{} is authority-bound (`{word}`): cite the accepted atom (already-decided:kb-…) or the user's words choosing it (already-decided:chat:\"…\"). \"Assume and keep going\" delegates the work, not this decision; present it instead",
+            item.id
+        );
+    }
+    let receipt = format!("dismissed {} ({})", item.id, why.label());
+    Ok(Change {
+        event: LedgerEvent::ItemDismissed(Dismissed {
+            item_id: item.id.clone(),
+            why,
+            note: note.unwrap_or_default().to_owned(),
+            reason: reason.to_owned(),
+        }),
+        receipt,
+    })
+}
+
+fn reopen_event(item: &Item, note: Option<&str>, reason: &str) -> Result<Change> {
+    if item.status.is_open() && item.status != Status::Deferred {
+        bail!("{} is already open", item.id);
+    }
+    Ok(Change {
+        event: LedgerEvent::ItemReopened(Reopened {
+            item_id: item.id.clone(),
+            note: note.unwrap_or_default().to_owned(),
+            reason: reason.to_owned(),
+        }),
+        receipt: format!("reopened {}", item.id),
+    })
+}
+
+fn supersede_event(item: &Item, by: &str, reason: &str) -> Change {
+    Change {
+        event: LedgerEvent::ItemSuperseded(Superseded {
+            item_id: item.id.clone(),
+            by: by.to_owned(),
+            reason: reason.to_owned(),
+        }),
+        receipt: format!("{} superseded by {by}", item.id),
+    }
+}
+
+fn link_event(item: &Item, kind: &str, target: &str, reason: Option<&str>) -> Change {
+    Change {
+        event: LedgerEvent::ItemLinked(Linked {
+            item_id: item.id.clone(),
+            kind: kind.to_owned(),
+            target: target.to_owned(),
+            reason: reason.unwrap_or("linked").to_owned(),
+        }),
+        receipt: format!("linked {} → {kind} {target}", item.id),
+    }
+}
+
+fn ack_event(item: &Item, reason: Option<&str>) -> Result<Change> {
+    if item.status != Status::Defaulted {
+        bail!(
+            "{} is {}, only defaults are acknowledged",
+            item.id,
+            item.status.as_str()
+        );
+    }
+    Ok(Change {
+        event: LedgerEvent::ItemAcknowledged(Acknowledged {
+            item_id: item.id.clone(),
+            reason: reason
+                .unwrap_or("left as defaulted after the digest")
+                .to_owned(),
+        }),
+        receipt: format!("acknowledged default on {}", item.id),
+    })
 }
 
 fn route_str(r: Route) -> &'static str {
@@ -950,7 +1112,7 @@ fn route_str(r: Route) -> &'static str {
 ///
 /// # Errors
 /// Fails only when the text is not JSON at all.
-pub fn parse_ops(text: &str) -> Result<Vec<Result<Op>>> {
+pub(crate) fn parse_ops(text: &str) -> Result<Vec<Result<Op>>> {
     let v: serde_json::Value = serde_json::from_str(text)?;
     let arr = match v {
         serde_json::Value::Array(a) => a,
@@ -964,11 +1126,403 @@ pub fn parse_ops(text: &str) -> Result<Vec<Result<Op>>> {
 
 /// Whether a path should be scanned, per config.
 #[must_use]
-pub fn scannable(env: &Env, rel: &str) -> bool {
+pub(crate) fn scannable(env: &Env, rel: &str) -> bool {
     !env.config
         .scan
         .exclude
         .iter()
         .any(|p| rel.starts_with(p.as_str()))
         && !Path::new(rel).components().any(|c| c.as_os_str() == ".git")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::env::Config;
+
+    const ONE_WAY: &str = "Should retention attach per record or per series?";
+    const TWO_WAY: &str = "Name the helper apply or run?";
+
+    /// An environment outside git: no tree hash, the folder is the root, the ledger beside it.
+    fn env_in(dir: &Path, session: &str) -> Env {
+        Env {
+            cwd: dir.to_path_buf(),
+            repo_root: None,
+            common_dir: None,
+            branch: None,
+            head: None,
+            worktree: None,
+            session: Some(session.to_owned()),
+            config: Config::default(),
+            store_override: Some(dir.join("ledger.sqlite3")),
+        }
+    }
+
+    /// Apply a JSON batch and return one line per op, as `weighin batch` prints them.
+    fn run(s: &mut Session<'_>, batch: &serde_json::Value) -> Result<Vec<String>> {
+        Ok(parse_ops(&batch.to_string())?
+            .into_iter()
+            .map(|op| match op.and_then(|op| s.apply(&op)) {
+                Ok(r) => format!("✓ {r}"),
+                Err(e) => format!("✗ {e:#}"),
+            })
+            .collect())
+    }
+
+    fn card() -> serde_json::Value {
+        serde_json::json!({
+            "why": "It fixes what a tenant can hold.",
+            "timing": "Decide now.",
+            "options": [
+                {"id": "A", "title": "Per series"},
+                {"id": "B", "title": "Per record"},
+                {"id": "C", "title": "Both", "fails_must": "one schema"}
+            ],
+            "recommendation": {"option": "A"}
+        })
+    }
+
+    fn id_of(q: &str) -> ItemId {
+        ItemId::mint("s1", q)
+    }
+
+    /// A CRLF source file whose line asks [`ONE_WAY`], for the decision to annotate.
+    fn source(dir: &Path) -> Result<()> {
+        let text = format!("# Plan\r\n\r\n{ONE_WAY}\r\n- tail\r\n");
+        std::fs::write(dir.join("plan.md"), text)?;
+        Ok(())
+    }
+
+    #[test]
+    fn raise_receipts_name_new_existing_and_linked_items() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let first = env_in(dir.path(), "s1");
+        let second = env_in(dir.path(), "s2");
+        let raise = serde_json::json!([{"op": "raise", "q": ONE_WAY, "door": "one-way"}]);
+        let id = id_of(ONE_WAY);
+
+        let new = run(&mut Session::open(&first, "t")?, &raise)?;
+        let again = run(&mut Session::open(&first, "t")?, &raise)?;
+        let elsewhere = run(&mut Session::open(&second, "t")?, &raise)?;
+
+        assert_eq!(new, [format!("✓ raised {id} (raised)")]);
+        assert_eq!(again, [format!("✓ {id} already raised")]);
+        assert_eq!(elsewhere, [format!("✓ linked to open {id}")]);
+        Ok(())
+    }
+
+    #[test]
+    fn an_acted_two_way_judgment_call_is_raised_as_a_default() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let batch = serde_json::json!([
+            {"op": "raise", "q": TWO_WAY, "door": "two-way", "authority": "judgment", "did": "named it apply"},
+            {"op": "ack", "id": "@1"}
+        ]);
+
+        let out = run(&mut Session::open(&env, "t")?, &batch)?;
+
+        let id = id_of(TWO_WAY);
+        assert_eq!(
+            out,
+            [
+                format!("✓ raised {id} (defaulted)"),
+                format!("✓ acknowledged default on {id}"),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_sitting_prints_each_receipt_unchanged() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        source(dir.path())?;
+        let batch = serde_json::json!([
+            {"op": "raise", "q": ONE_WAY, "door": "one-way", "authority": "authority", "source_path": "plan.md"},
+            {"op": "triage", "id": "@1", "door": "one-way", "blast": "system", "route": "present", "reason": "r"},
+            {"op": "ground", "id": "@1", "card": card()},
+            {"op": "present", "id": "@1"},
+            {"op": "decide", "id": "@1", "option": "B", "seconds": 5},
+            {"op": "reopen", "id": "@1", "reason": "r"},
+            {"op": "supersede", "id": "@1", "by": "kb-0001", "reason": "r"},
+            {"op": "link", "id": "@1", "kind": "relates", "target": "wi-000000"}
+        ]);
+        let before = env::today();
+
+        let out = run(&mut Session::open(&env, "t")?, &batch)?;
+
+        let after = env::today();
+
+        let id = id_of(ONE_WAY);
+        let atom = format!(
+            ".kb/_intake/decisions/{id}-should-retention-attach-per-record-or-per-series.md"
+        );
+        assert_eq!(
+            out,
+            [
+                format!("✓ raised {id} (raised)"),
+                format!("✓ triaged {id} · one-way · system · present"),
+                format!("✓ grounded {id} · 3 options · recommendation earned"),
+                format!("✓ presented {id} (chat)"),
+                format!(
+                    "✓ decided {id} → B (override) · atom {atom} · annotated plan.md · trailer `Weigh-In: {id} decided B`"
+                ),
+                format!("✓ reopened {id}"),
+                format!("✓ {id} superseded by kb-0001"),
+                format!("✓ linked {id} → relates wi-000000"),
+            ]
+        );
+        let annotated = std::fs::read_to_string(dir.path().join("plan.md"))?;
+        let on = |day: &str| {
+            format!("# Plan\r\n\r\n{ONE_WAY} → Weigh-In {id}: decided B ({day})\r\n- tail\r\n")
+        };
+        assert!(
+            annotated == on(&before) || annotated == on(&after),
+            "annotated as {annotated:?}, dated neither {before} nor {after}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn deferring_a_one_way_door_writes_a_tracking_atom() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let batch = serde_json::json!([
+            {"op": "raise", "q": ONE_WAY, "door": "one-way"},
+            {"op": "triage", "id": "@1", "door": "one-way", "blast": "module", "route": "present", "reason": "r"},
+            {"op": "defer", "id": "@1", "flip": "a tenant asks", "trigger": "the tenant survey", "resolve_by": "2026-12-01", "default": "A"}
+        ]);
+
+        let out = run(&mut Session::open(&env, "t")?, &batch)?;
+
+        let id = id_of(ONE_WAY);
+        assert_eq!(
+            out.get(2),
+            Some(&format!(
+                "✓ deferred {id} until the tenant survey (default A by 2026-12-01) · tracking atom .kb/_intake/open_questions/{id}-should-retention-attach-per-record-or-per-series.md"
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn defaults_and_dismissals_print_their_cause() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let batch = serde_json::json!([
+            {"op": "raise", "q": TWO_WAY, "door": "two-way", "authority": "judgment"},
+            {"op": "default", "id": "@1", "option": "apply", "cause": "two-way", "reason": "r"},
+            {"op": "raise", "q": "Which colour for the badge?"},
+            {"op": "dismiss", "id": "@2", "why": "moot", "reason": "r"}
+        ]);
+
+        let out = run(&mut Session::open(&env, "t")?, &batch)?;
+
+        let two_way = id_of(TWO_WAY);
+        let badge = id_of("Which colour for the badge?");
+        assert_eq!(
+            out,
+            [
+                format!("✓ raised {two_way} (raised)"),
+                format!("✓ defaulted {two_way} to apply (two-way)"),
+                format!("✓ raised {badge} (raised)"),
+                format!("✓ dismissed {badge} (moot)"),
+            ]
+        );
+        Ok(())
+    }
+
+    /// Run `setup`, then `ops`, in one batch; return only the lines `ops` printed, failing when a
+    /// setup op was refused.
+    fn after(setup: &[serde_json::Value], ops: &[serde_json::Value]) -> Result<Vec<String>> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let batch: Vec<_> = setup.iter().chain(ops).cloned().collect();
+        let mut out = run(
+            &mut Session::open(&env, "t")?,
+            &serde_json::Value::Array(batch),
+        )?;
+        let tail = out.split_off(setup.len().min(out.len()));
+        if let Some(refused) = out.iter().find(|line| !line.starts_with('✓')) {
+            anyhow::bail!("setup refused: {refused}");
+        }
+        Ok(tail)
+    }
+
+    /// [`ONE_WAY`], raised as a one-way door bound to authority.
+    fn raised() -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({"op": "raise", "q": ONE_WAY, "door": "one-way", "authority": "authority"}),
+        ]
+    }
+
+    /// [`ONE_WAY`], raised and grounded on [`card`].
+    fn grounded() -> Vec<serde_json::Value> {
+        let mut ops = raised();
+        ops.push(serde_json::json!({"op": "ground", "id": "@1", "card": card()}));
+        ops
+    }
+
+    #[test]
+    fn a_raise_without_a_question_is_refused() -> Result<()> {
+        let out = after(&[], &[serde_json::json!({"op": "raise", "q": "  "})])?;
+
+        assert_eq!(out, ["✗ a raised item needs a question"]);
+        Ok(())
+    }
+
+    #[test]
+    fn refs_that_name_no_item_are_refused() -> Result<()> {
+        let out = after(
+            &raised(),
+            &[
+                serde_json::json!({"op": "present", "id": "@x"}),
+                serde_json::json!({"op": "present", "id": "@3"}),
+                serde_json::json!({"op": "present", "id": "wi-zzzzzz"}),
+            ],
+        )?;
+
+        assert_eq!(
+            out,
+            [
+                "✗ `@x`: refs are @1, @2, ... (raises earlier in this batch)",
+                "✗ `@3`: only 1 raise(s) so far in this batch",
+                "✗ no single item matches `wi-zzzzzz` (try `weighin open --all`)",
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn triage_refuses_unknown_values_and_defaulting_a_one_way_door() -> Result<()> {
+        let out = after(
+            &raised(),
+            &[
+                serde_json::json!({"op": "triage", "id": "@1", "door": "one-way", "blast": "galaxy", "route": "present", "reason": "r"}),
+                serde_json::json!({"op": "triage", "id": "@1", "door": "one-way", "blast": "file", "route": "later", "reason": "r"}),
+                serde_json::json!({"op": "triage", "id": "@1", "door": "one-way", "blast": "file", "route": "default", "reason": "r"}),
+            ],
+        )?;
+
+        let id = id_of(ONE_WAY);
+        assert_eq!(
+            out,
+            [
+                "✗ blast must be file, module, system or external".to_owned(),
+                "✗ route must be present, default or dismiss".to_owned(),
+                format!(
+                    "✗ {id}: only a judgment-bound two-way door may be defaulted (door one-way, authority)"
+                ),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn decide_refuses_an_unknown_option_and_one_that_fails_a_must() -> Result<()> {
+        let out = after(
+            &grounded(),
+            &[
+                serde_json::json!({"op": "decide", "id": "@1", "option": "Z"}),
+                serde_json::json!({"op": "decide", "id": "@1", "option": "C"}),
+            ],
+        )?;
+
+        let id = id_of(ONE_WAY);
+        assert_eq!(
+            out,
+            [
+                format!("✗ {id} has no option `Z` (options: A, B, C)"),
+                format!("✗ {id}: option C fails a MUST (one schema)"),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn defer_refuses_a_missing_flip_and_a_default_that_is_not_an_option() -> Result<()> {
+        let out = after(
+            &grounded(),
+            &[
+                serde_json::json!({"op": "defer", "id": "@1", "trigger": " ", "resolve_by": "soon", "default": "A"}),
+                serde_json::json!({"op": "defer", "id": "@1", "flip": "f", "trigger": "t", "resolve_by": "soon", "default": "Z"}),
+            ],
+        )?;
+
+        let id = id_of(ONE_WAY);
+        assert_eq!(
+            out,
+            [
+                "✗ a deferral needs flip: waiting without a named fact is the can being kicked"
+                    .to_owned(),
+                format!("✗ {id}: default `Z` is not an option"),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn default_refuses_an_unknown_cause_and_a_one_way_door() -> Result<()> {
+        let out = after(
+            &grounded(),
+            &[
+                serde_json::json!({"op": "default", "id": "@1", "option": "A", "cause": "whenever", "reason": "r"}),
+                serde_json::json!({"op": "default", "id": "@1", "option": "A", "cause": "two-way", "reason": "r"}),
+            ],
+        )?;
+
+        let id = id_of(ONE_WAY);
+        assert_eq!(
+            out,
+            [
+                "✗ cause must be two-way, expired or unattended".to_owned(),
+                format!(
+                    "✗ {id} is a one-way door; only a two-way door is defaulted (triage it first)"
+                ),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dismiss_refuses_an_unknown_why() -> Result<()> {
+        let out = after(
+            &grounded(),
+            &[serde_json::json!({"op": "dismiss", "id": "@1", "why": "bored", "reason": "r"})],
+        )?;
+
+        assert_eq!(
+            out,
+            [
+                "✗ why must be not-useful, recoverable, moot, already-decided:<ref>, duplicate-of:<id> or not-my-call:<who>"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn reopen_refuses_an_open_item() -> Result<()> {
+        let out = after(
+            &grounded(),
+            &[serde_json::json!({"op": "reopen", "id": "@1"})],
+        )?;
+
+        assert_eq!(out, [format!("✗ {} is already open", id_of(ONE_WAY))]);
+        Ok(())
+    }
+
+    #[test]
+    fn ack_refuses_an_item_that_was_not_defaulted() -> Result<()> {
+        let out = after(&grounded(), &[serde_json::json!({"op": "ack", "id": "@1"})])?;
+
+        assert_eq!(
+            out,
+            [format!(
+                "✗ {} is grounded, only defaults are acknowledged",
+                id_of(ONE_WAY)
+            )]
+        );
+        Ok(())
+    }
 }
