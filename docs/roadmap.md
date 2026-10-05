@@ -8,8 +8,9 @@ and 0.5.1 caps the board's defaults below the Artifact store's document limit an
 commands from creating a ledger. 0.5.2 tells agents to write one block per call when they list
 calls for the user ([#68](https://github.com/Wet-Ink-Corporation/weigh-in/issues/68), wi-357345).
 The sitting cost is recorded as a formula ([D-0016](decisions/build-decisions.md#d-0016)). The
-eval seed holds 32 items, its labels waiting on Ryan's review. The V-item checklists are posted on
-their issues, but none has been run, and no week of stats is in yet. The path from here to v1 is
+eval seed holds 33 items, 3 of its 9 `capture` items captured, its labels waiting on Ryan's review;
+each cloud session now saves its own turns to it (wi-48657b). As of 2026-10-05 the V-item
+checklists are posted on their issues, but none has been run, and no week of stats is in yet. The path from here to v1 is
 in [`v1-plan.md`](v1-plan.md).
 
 Open work is tracked as GitHub issues ([D-0011](decisions/build-decisions.md#d-0011)), in the order of
