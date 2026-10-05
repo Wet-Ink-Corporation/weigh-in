@@ -3,7 +3,7 @@
 //!
 //! * `SessionStart` prints the marker convention and the open counts (added to context).
 //! * `Stop` / `SubagentStop` parse `weigh-in` blocks from `last_assistant_message` and raise them.
-//! * `PostToolUse` (Write, Edit, MultiEdit) scans only the text the tool wrote.
+//! * `PostToolUse` (`Write`, `Edit`, `MultiEdit`) scans only the text the tool wrote.
 //!
 //! These are command hooks: they cost no model tokens. They never fail a session: any error is
 //! appended to `<state dir>/hook-errors.log` and the hook exits 0 with no output. The next
@@ -16,9 +16,10 @@
 //! convention, `Stop` nudges on one-way markers, and `/weigh-in` sweeps the conversation and
 //! records through the computer's shell.
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use serde_json::Value;
-use std::io::Write as _;
+use std::fmt::Write as _;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use weighin_core::event::Channel;
 use weighin_core::marker::{Door, parse_markers};
@@ -27,51 +28,92 @@ use weighin_core::scan::{scan_markdown, scan_todos};
 use crate::env::{self, Env};
 use crate::ops::{RaiseInput, RaiseOutcome, Session, read_ledger, scannable};
 
-/// Run a hook. Returns what to print on stdout (possibly nothing).
-#[must_use]
-pub fn run(stdin: &str) -> String {
-    let payload: Value = serde_json::from_str(stdin).unwrap_or(Value::Null);
-    let cwd = payload.get("cwd").and_then(Value::as_str).map_or_else(
-        || std::env::current_dir().unwrap_or_default(),
-        PathBuf::from,
-    );
-    let session = payload
-        .get("session_id")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-    let env = Env::discover(&cwd, session);
-    let event = payload
-        .get("hook_event_name")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if env::cowork() {
-        return match event {
-            "SessionStart" => format!("{COWORK_PRIME}{CONVENTION}"),
-            "Stop" | "SubagentStop" => cowork_nudge(&payload),
-            _ => String::new(),
-        };
+/// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
+/// (possibly nothing). Never fails: a failure to read the input or write the output is logged
+/// like any other hook error.
+pub(crate) fn entry(input: &mut impl Read, output: &mut impl Write) {
+    let mut stdin = String::new();
+    // Whatever was read before a failure is still dispatched.
+    let read = input.read_to_string(&mut stdin);
+    let hook = Hook::parse(&stdin);
+    if let Err(e) = read {
+        hook.log(&anyhow::Error::new(e).context("reading the hook input"));
     }
-    let result = match event {
-        "SessionStart" => {
-            let source = payload
-                .get("source")
-                .and_then(Value::as_str)
-                .unwrap_or("startup");
-            return session_start(&env, source);
-        }
-        "Stop" | "SubagentStop" => capture(&env, &payload),
-        "PostToolUse" => scan(&env, &payload),
-        _ => Ok(String::new()),
-    };
-    match result {
-        Ok(out) => out,
-        Err(e) => {
-            log_error(&env, event, &e);
-            String::new()
-        }
+    let out = hook.run();
+    if let Err(e) = output
+        .write_all(out.as_bytes())
+        .and_then(|()| output.flush())
+    {
+        hook.log(&anyhow::Error::new(e).context("writing the hook output"));
     }
 }
 
+/// One hook invocation: its payload and the environment it names.
+struct Hook {
+    payload: Value,
+    env: Env,
+}
+
+impl Hook {
+    fn parse(stdin: &str) -> Self {
+        let payload: Value = serde_json::from_str(stdin).unwrap_or(Value::Null);
+        let cwd = payload.get("cwd").and_then(Value::as_str).map_or_else(
+            || std::env::current_dir().unwrap_or_default(),
+            PathBuf::from,
+        );
+        let session = payload
+            .get("session_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let env = Env::discover(&cwd, session);
+        Self { payload, env }
+    }
+
+    fn event(&self) -> &str {
+        self.payload
+            .get("hook_event_name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+    }
+
+    fn log(&self, e: &anyhow::Error) {
+        log_error(&self.env, self.event(), e);
+    }
+
+    /// What to print on stdout (possibly nothing).
+    fn run(&self) -> String {
+        let (env, payload, event) = (&self.env, &self.payload, self.event());
+        if env::cowork() {
+            return match event {
+                "SessionStart" => format!("{COWORK_PRIME}{CONVENTION}"),
+                "Stop" | "SubagentStop" => cowork_nudge(payload),
+                _ => String::new(),
+            };
+        }
+        let result = match event {
+            "SessionStart" => {
+                let source = payload
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .unwrap_or("startup");
+                return session_start(env, source);
+            }
+            "Stop" | "SubagentStop" => capture(env, payload),
+            "PostToolUse" => scan(env, payload),
+            _ => Ok(String::new()),
+        };
+        result.unwrap_or_else(|e| {
+            self.log(&e);
+            String::new()
+        })
+    }
+}
+
+#[expect(
+    clippy::let_underscore_must_use,
+    let_underscore_drop,
+    reason = "last-resort sink: a hook has no other channel to report a failed append (hooks.rs module doc)"
+)]
 fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
     let Ok(dir) = env.ensure_state_dir() else {
         return;
@@ -148,7 +190,7 @@ fn new_errors(env: &Env) -> Option<String> {
 ///
 /// # Errors
 /// Fails when the ledger cannot be read.
-pub fn prime(env: &Env, source: &str) -> Result<String> {
+pub(crate) fn prime(env: &Env, source: &str) -> Result<String> {
     // Read-only: a session that raises nothing must not leave a store behind.
     let ledger = read_ledger(env)?;
     let open = ledger.open();
@@ -159,11 +201,13 @@ pub fn prime(env: &Env, source: &str) -> Result<String> {
     let one_way = open.iter().filter(|i| i.door() == Door::OneWay).count();
     let defaults = ledger.unacknowledged_defaults().len();
     let mut out = String::new();
-    out.push_str(&format!(
-        "Weigh-In ({source}): session {} · {here} open here · {} open in repo ({one_way} one-way) · {defaults} default(s) to review.\n",
+    writeln!(
+        out,
+        "Weigh-In ({source}): session {} · {here} open here · {} open in repo ({one_way} one-way) · {defaults} default(s) to review.",
         env.session.as_deref().unwrap_or("?"),
         open.len()
-    ));
+    )
+    .context("formatting the prime")?;
     out.push_str(CONVENTION);
     Ok(out)
 }
@@ -282,7 +326,7 @@ fn scan(env: &Env, payload: &Value) -> Result<String> {
 ///
 /// # Errors
 /// Fails when the ledger cannot be written.
-pub fn scan_text(
+pub(crate) fn scan_text(
     env: &Env,
     file: &str,
     written: &[String],
@@ -345,4 +389,80 @@ pub fn scan_text(
         out.push(s.raise(&input)?);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::entry;
+    use std::io::{self, Read, Write};
+
+    /// A reader or writer whose every call fails.
+    struct Broken;
+
+    impl Read for Broken {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("input gone"))
+        }
+    }
+
+    impl Write for Broken {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "output gone"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "output gone"))
+        }
+    }
+
+    fn payload(dir: &std::path::Path, event: &str) -> String {
+        serde_json::json!({ "cwd": dir, "hook_event_name": event }).to_string()
+    }
+
+    fn error_log(dir: &std::path::Path) -> String {
+        std::fs::read_to_string(dir.join(".weighin").join("hook-errors.log")).unwrap_or_default()
+    }
+
+    #[test]
+    fn a_hook_that_cannot_write_its_output_logs_it() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let input = payload(tmp.path(), "SessionStart");
+
+        entry(&mut input.as_bytes(), &mut Broken);
+
+        let log = error_log(tmp.path());
+        assert!(
+            log.contains("SessionStart: writing the hook output: output gone"),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn a_hook_whose_input_fails_dispatches_what_it_read_and_logs_the_failure() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let input = payload(tmp.path(), "Notification");
+        let mut output = Vec::new();
+
+        entry(&mut input.as_bytes().chain(Broken), &mut output);
+
+        assert!(output.is_empty(), "{}", String::from_utf8_lossy(&output));
+        let log = error_log(tmp.path());
+        assert!(
+            log.contains("Notification: reading the hook input: input gone"),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn a_hook_prints_what_it_dispatched() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let input = payload(tmp.path(), "SessionStart");
+        let mut output = Vec::new();
+
+        entry(&mut input.as_bytes(), &mut output);
+
+        let printed = String::from_utf8(output).expect("utf-8 output");
+        assert!(printed.contains("```weigh-in"), "{printed}");
+        assert_eq!(error_log(tmp.path()), "");
+    }
 }
