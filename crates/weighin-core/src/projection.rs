@@ -3,29 +3,42 @@
 
 use crate::card::Card;
 use crate::event::{
-    Blast, Channel, DefaultCause, Deferred, DismissReason, EventEnvelope, LedgerEvent, Provenance,
-    Route, Timing,
+    Blast, Channel, Decided, DefaultCause, Defaulted, Deferred, DismissReason, EventEnvelope,
+    Grounded, LedgerEvent, Linked, Presented, Provenance, Raised, Route, Timing, Triaged,
 };
 use crate::id::{ItemId, question_key};
 use crate::marker::{Authority, Door, Kind};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+/// Where an item is in its lifecycle.
+///
+/// The order is the lifecycle's: a later triage or grounding never moves an open item backwards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, PartialOrd, Ord)]
 #[serde(rename_all = "kebab-case")]
 pub enum Status {
+    /// Captured and not yet triaged, or reopened before it had a card.
     Raised,
+    /// Classified and routed, with no card yet.
     Triaged,
+    /// Has a decision card that has not been shown, or was reopened after it had one.
     Grounded,
+    /// Shown to the human and waiting for an answer.
     Presented,
+    /// Waiting on a named fact; open, but parked behind the deferral.
     Deferred,
+    /// The human chose an option.
     Decided,
+    /// An option was taken without a human.
     Defaulted,
+    /// Needed no human.
     Dismissed,
+    /// Something else answers it.
     Superseded,
 }
 
 impl Status {
+    /// The wire spelling, such as `raised` or `defaulted`.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -50,82 +63,147 @@ impl Status {
     }
 }
 
+/// The human's decision on an item, from its latest `item_decided` event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Decision {
+    /// The chosen card option id, or the answer itself for an item with no card.
     pub option: String,
+    /// Who decided, as `human:<owner>`.
     pub decider: String,
+    /// Whether the choice followed the recommendation or was the human's own.
     pub provenance: Provenance,
+    /// The human's own words with the choice; empty when none.
     pub note: String,
+    /// Where it was decided: `chat`, `board` or `cli`.
     pub via: String,
+    /// Whether the choice was the card's recommendation; `None` when the item had no card.
     pub matched_recommendation: Option<bool>,
+    /// The tree when it was decided; `None` outside git or when git could not compute it.
     pub tree_hash: Option<String>,
+    /// Seconds from the latest presentation to the decision; `None` when unknown.
     pub seconds_to_decide: Option<u64>,
+    /// When the decision was written, by the writer's clock (RFC 3339 UTC).
     pub ts: String,
 }
 
+/// An option taken without a human, from the item's latest `item_defaulted` event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DefaultTaken {
+    /// The option taken, or what the agent did for its own two-way call.
     pub option: String,
+    /// Why no human chose.
     pub cause: DefaultCause,
+    /// The explanation shown in the digest.
     pub reason: String,
+    /// When the default was written, by the writer's clock (RFC 3339 UTC).
     pub ts: String,
+    /// The human saw it in the digest and left it standing (`item_acknowledged`).
     pub acknowledged: bool,
 }
 
+/// A `.kb` atom written for an item, from a `record_written` event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Record {
+    /// Repo-relative path of the atom file.
     pub path: String,
+    /// The atom's id, as in its frontmatter.
     pub atom_id: String,
+    /// `decision` or `open_question`.
     pub atom_kind: String,
 }
 
+/// One item's current state: its first raise plus every later event, folded.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Item {
+    /// The item's id.
     pub id: ItemId,
+    /// What was raised: a question, an assumption, a deferral or a call.
     pub kind: Kind,
+    /// The question as first raised.
     pub question: String,
+    /// The normalised question, the key duplicates are matched on.
     pub question_key: String,
+    /// What the agent did meanwhile; `None` when the raise said nothing.
     pub did: Option<String>,
+    /// The flip fact the agent named when raising; `None` when it named none.
     pub flip_hint: Option<String>,
+    /// The raise's repo-relative `path:line` anchor; `None` when the item points at no code.
     pub at: Option<String>,
+    /// The symbol the raise named; `None` when it named none.
     pub sym: Option<String>,
+    /// What the item blocks, as the raise gave it; `None` when it blocks nothing.
     pub blocks: Option<String>,
+    /// The agent's reversibility guess at raise time.
     pub door_hint: Door,
+    /// The agent's authority-or-judgment guess at raise time.
     pub authority_hint: Authority,
+    /// How the item was captured.
     pub channel: Channel,
+    /// The raised text exactly as the agent or file had it.
     pub quote: String,
+    /// The repo-relative file the item was scanned from; `None` unless it came from a scan.
     pub source_path: Option<String>,
+    /// The 1-based line of the quote in `source_path`; `None` when unknown.
     pub source_line: Option<usize>,
+    /// The session that first raised it; `None` when that writer had no session.
     pub session_id: Option<String>,
+    /// The worktree the first raise was written from; `None` outside git.
     pub worktree: Option<String>,
+    /// The branch the first raise was written on; `None` outside git or on a detached head.
     pub branch: Option<String>,
+    /// When the first raise was written, by the writer's clock (RFC 3339 UTC).
     pub raised_ts: String,
+    /// Store position of the first raise; the age part of the rank key.
     pub raised_position: u64,
 
+    /// Reversibility from the latest triage; `None` until triaged (see [`Item::door`]).
     pub door: Option<Door>,
+    /// Blast radius from the latest triage; `None` until triaged.
     pub blast: Option<Blast>,
+    /// Authority from the latest triage; `None` until triaged (see [`Item::authority`]).
     pub authority: Option<Authority>,
+    /// Route from the latest triage; `None` until triaged.
     pub route: Option<Route>,
+    /// The latest triage's decide-now test; `None` until triaged, or when it recorded none.
     pub timing: Option<Timing>,
+    /// The latest triage's deadline; `None` until triaged, or when it set none.
     pub resolve_by: Option<String>,
+    /// The card from the latest grounding; `None` until grounded.
     pub card: Option<Card>,
     /// Position of the grounding that produced `card`; answers must name it.
+    ///
+    /// `None` until grounded.
     pub card_rev: Option<u64>,
+    /// When the item was last presented; `None` if it never was.
     pub presented_ts: Option<String>,
+    /// The tree at the latest presentation; `None` if never presented or no tree was recorded.
     pub presented_tree: Option<String>,
+    /// How many times the item was presented.
     pub times_presented: u32,
 
+    /// Where the item is in its lifecycle.
     pub status: Status,
+    /// The latest decision; `None` if never decided, or reopened since.
     pub decision: Option<Decision>,
+    /// The latest deferral; `None` if never deferred, or cleared since by a decision or reopen.
     pub deferral: Option<Deferred>,
+    /// The latest default; `None` if never defaulted, or reopened since.
     pub default: Option<DefaultTaken>,
+    /// Why it was dismissed; `None` if never dismissed, or reopened since.
     pub dismissed: Option<DismissReason>,
+    /// What superseded it, as the caller gave it; `None` if never superseded.
     pub superseded_by: Option<String>,
+    /// Atoms written for the item, oldest first.
     pub records: Vec<Record>,
+    /// `(kind, target)` links other than `raised-again`, oldest first.
     pub links: Vec<(String, String)>,
+    /// Other sessions that raised the same question, each once, in the order they did.
     pub also_raised_in: Vec<String>,
+    /// How many times the item was reopened.
     pub reopened: u32,
+    /// Store position of the latest event applied to the item.
     pub last_position: u64,
+    /// When the latest event applied to the item was written, by the writer's clock.
     pub last_ts: String,
 }
 
@@ -136,6 +214,7 @@ impl Item {
         self.door.unwrap_or(self.door_hint)
     }
 
+    /// Authority as triaged, else as the agent hinted.
     #[must_use]
     pub fn authority(&self) -> Authority {
         self.authority.unwrap_or(self.authority_hint)
@@ -160,12 +239,181 @@ impl Item {
         let auth = u8::from(self.authority() == Authority::Judgment);
         (door, blocks, auth, self.raised_position)
     }
+
+    /// A new item from its first `item_raised` event, written at `position`.
+    fn from_raised(position: u64, env: &EventEnvelope, r: &Raised) -> Self {
+        Self {
+            id: r.item_id.clone(),
+            kind: r.kind,
+            question: r.question.clone(),
+            question_key: question_key(&r.question),
+            did: r.did.clone(),
+            flip_hint: r.flip.clone(),
+            at: r.at.clone(),
+            sym: r.sym.clone(),
+            blocks: r.blocks.clone(),
+            door_hint: r.door_hint,
+            authority_hint: r.authority_hint,
+            channel: r.channel,
+            quote: r.quote.clone(),
+            source_path: r.source_path.clone(),
+            source_line: r.source_line,
+            session_id: env.session_id.clone(),
+            worktree: env.worktree.clone(),
+            branch: env.branch.clone(),
+            raised_ts: env.ts.clone(),
+            raised_position: position,
+            door: None,
+            blast: None,
+            authority: None,
+            route: None,
+            timing: None,
+            resolve_by: None,
+            card: None,
+            card_rev: None,
+            presented_ts: None,
+            presented_tree: None,
+            times_presented: 0,
+            status: Status::Raised,
+            decision: None,
+            deferral: None,
+            default: None,
+            dismissed: None,
+            superseded_by: None,
+            records: Vec::new(),
+            links: Vec::new(),
+            also_raised_in: Vec::new(),
+            reopened: 0,
+            last_position: position,
+            last_ts: env.ts.clone(),
+        }
+    }
+
+    /// Fold one later event, written at `position` with timestamp `ts`, into this item.
+    fn change(&mut self, position: u64, ts: &str, event: &LedgerEvent) {
+        match event {
+            // `Ledger::apply` turns a raise into a new item and never passes one here.
+            LedgerEvent::ItemRaised(_) => {}
+            LedgerEvent::ItemTriaged(t) => self.triaged(t),
+            LedgerEvent::ItemGrounded(g) => self.grounded(position, g),
+            LedgerEvent::ItemPresented(p) => self.presented(ts, p),
+            LedgerEvent::ItemDecided(d) => self.decided(ts, d),
+            LedgerEvent::ItemDeferred(d) => {
+                self.status = Status::Deferred;
+                self.deferral = Some(d.clone());
+            }
+            LedgerEvent::ItemDefaulted(d) => self.defaulted(ts, d),
+            LedgerEvent::ItemDismissed(d) => {
+                self.status = Status::Dismissed;
+                self.dismissed = Some(d.why.clone());
+            }
+            LedgerEvent::ItemReopened(_) => self.reopen(),
+            LedgerEvent::ItemSuperseded(s) => {
+                self.status = Status::Superseded;
+                self.superseded_by = Some(s.by.clone());
+            }
+            LedgerEvent::ItemLinked(l) => self.linked(l),
+            LedgerEvent::RecordWritten(r) => {
+                self.records.push(Record {
+                    path: r.path.clone(),
+                    atom_id: r.atom_id.clone(),
+                    atom_kind: r.atom_kind.clone(),
+                });
+            }
+            LedgerEvent::ItemAcknowledged(_) => {
+                if let Some(d) = &mut self.default {
+                    d.acknowledged = true;
+                }
+            }
+        }
+    }
+
+    fn triaged(&mut self, t: &Triaged) {
+        self.door = Some(t.door);
+        self.blast = Some(t.blast);
+        self.authority = Some(t.authority);
+        self.route = Some(t.route);
+        self.timing.clone_from(&t.timing);
+        self.resolve_by.clone_from(&t.resolve_by);
+        if self.status.is_open() && self.status < Status::Triaged {
+            self.status = Status::Triaged;
+        }
+    }
+
+    fn grounded(&mut self, position: u64, g: &Grounded) {
+        self.card = Some(g.card.clone());
+        self.card_rev = Some(position);
+        if self.status.is_open() && self.status < Status::Grounded {
+            self.status = Status::Grounded;
+        }
+    }
+
+    fn presented(&mut self, ts: &str, p: &Presented) {
+        self.presented_ts = Some(ts.to_owned());
+        self.presented_tree.clone_from(&p.tree_hash);
+        self.times_presented += 1;
+        if self.status.is_open() && self.status != Status::Deferred {
+            self.status = Status::Presented;
+        }
+    }
+
+    fn decided(&mut self, ts: &str, d: &Decided) {
+        self.status = Status::Decided;
+        self.deferral = None;
+        self.decision = Some(Decision {
+            option: d.option.clone(),
+            decider: d.decider.clone(),
+            provenance: d.provenance,
+            note: d.note.clone(),
+            via: d.via.clone(),
+            matched_recommendation: d.matched_recommendation,
+            tree_hash: d.tree_hash.clone(),
+            seconds_to_decide: d.seconds_to_decide,
+            ts: ts.to_owned(),
+        });
+    }
+
+    fn defaulted(&mut self, ts: &str, d: &Defaulted) {
+        self.status = Status::Defaulted;
+        self.default = Some(DefaultTaken {
+            option: d.option.clone(),
+            cause: d.cause,
+            reason: d.reason.clone(),
+            ts: ts.to_owned(),
+            acknowledged: false,
+        });
+    }
+
+    fn reopen(&mut self) {
+        self.reopened += 1;
+        self.decision = None;
+        self.default = None;
+        self.dismissed = None;
+        self.deferral = None;
+        self.status = if self.card.is_some() {
+            Status::Grounded
+        } else {
+            Status::Raised
+        };
+    }
+
+    fn linked(&mut self, l: &Linked) {
+        if l.kind == "raised-again" {
+            if !self.also_raised_in.contains(&l.target) {
+                self.also_raised_in.push(l.target.clone());
+            }
+        } else {
+            self.links.push((l.kind.clone(), l.target.clone()));
+        }
+    }
 }
 
 /// The folded ledger.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Ledger {
+    /// Every item ever raised, by id.
     pub items: BTreeMap<ItemId, Item>,
+    /// The highest store position folded so far; 0 for an empty ledger.
     pub head: u64,
     /// Events the fold could not apply (an event for an item never raised). Surfaced, not dropped.
     pub orphans: Vec<(u64, String)>,
@@ -175,68 +423,12 @@ impl Ledger {
     /// Apply one event at `position`. Positions must be supplied in ascending order.
     pub fn apply(&mut self, position: u64, env: &EventEnvelope) {
         self.head = self.head.max(position);
-        let ts = env.ts.clone();
         if let LedgerEvent::ItemRaised(r) = &env.event {
-            if let Some(existing) = self.items.get_mut(&r.item_id) {
-                // Same id again: the writer's idempotency guard should prevent this; keep the first.
-                if let Some(s) = &env.session_id
-                    && existing.session_id.as_deref() != Some(s.as_str())
-                    && !existing.also_raised_in.contains(s)
-                {
-                    existing.also_raised_in.push(s.clone());
-                }
-                return;
-            }
-            let item = Item {
-                id: r.item_id.clone(),
-                kind: r.kind,
-                question: r.question.clone(),
-                question_key: question_key(&r.question),
-                did: r.did.clone(),
-                flip_hint: r.flip.clone(),
-                at: r.at.clone(),
-                sym: r.sym.clone(),
-                blocks: r.blocks.clone(),
-                door_hint: r.door_hint,
-                authority_hint: r.authority_hint,
-                channel: r.channel,
-                quote: r.quote.clone(),
-                source_path: r.source_path.clone(),
-                source_line: r.source_line,
-                session_id: env.session_id.clone(),
-                worktree: env.worktree.clone(),
-                branch: env.branch.clone(),
-                raised_ts: ts.clone(),
-                raised_position: position,
-                door: None,
-                blast: None,
-                authority: None,
-                route: None,
-                timing: None,
-                resolve_by: None,
-                card: None,
-                card_rev: None,
-                presented_ts: None,
-                presented_tree: None,
-                times_presented: 0,
-                status: Status::Raised,
-                decision: None,
-                deferral: None,
-                default: None,
-                dismissed: None,
-                superseded_by: None,
-                records: Vec::new(),
-                links: Vec::new(),
-                also_raised_in: Vec::new(),
-                reopened: 0,
-                last_position: position,
-                last_ts: ts,
-            };
-            self.items.insert(r.item_id.clone(), item);
+            self.raise(position, env, r);
             return;
         }
-        let id = env.event.item_id().clone();
-        let Some(item) = self.items.get_mut(&id) else {
+        let id = env.event.item_id();
+        let Some(item) = self.items.get_mut(id) else {
             self.orphans.push((
                 position,
                 format!("{} for unknown {id}", env.event.event_type()),
@@ -244,109 +436,59 @@ impl Ledger {
             return;
         };
         item.last_position = position;
-        item.last_ts.clone_from(&ts);
-        match &env.event {
-            LedgerEvent::ItemRaised(_) => unreachable!("handled above"),
-            LedgerEvent::ItemTriaged(t) => {
-                item.door = Some(t.door);
-                item.blast = Some(t.blast);
-                item.authority = Some(t.authority);
-                item.route = Some(t.route);
-                item.timing.clone_from(&t.timing);
-                item.resolve_by.clone_from(&t.resolve_by);
-                if item.status.is_open() && item.status < Status::Triaged {
-                    item.status = Status::Triaged;
-                }
+        item.last_ts.clone_from(&env.ts);
+        item.change(position, &env.ts, &env.event);
+    }
+
+    /// Fold an `item_raised` event: a new item, or a note that another session raised it again.
+    fn raise(&mut self, position: u64, env: &EventEnvelope, r: &Raised) {
+        if let Some(existing) = self.items.get_mut(&r.item_id) {
+            // Same id again: the writer's idempotency guard should prevent this; keep the first.
+            if let Some(s) = &env.session_id
+                && existing.session_id.as_deref() != Some(s.as_str())
+                && !existing.also_raised_in.contains(s)
+            {
+                existing.also_raised_in.push(s.clone());
             }
-            LedgerEvent::ItemGrounded(g) => {
-                item.card = Some(g.card.clone());
-                item.card_rev = Some(position);
-                if item.status.is_open() && item.status < Status::Grounded {
-                    item.status = Status::Grounded;
-                }
-            }
-            LedgerEvent::ItemPresented(p) => {
-                item.presented_ts = Some(ts);
-                item.presented_tree.clone_from(&p.tree_hash);
-                item.times_presented += 1;
-                if item.status.is_open() && item.status != Status::Deferred {
-                    item.status = Status::Presented;
-                }
-            }
-            LedgerEvent::ItemDecided(d) => {
-                item.status = Status::Decided;
-                item.deferral = None;
-                item.decision = Some(Decision {
-                    option: d.option.clone(),
-                    decider: d.decider.clone(),
-                    provenance: d.provenance,
-                    note: d.note.clone(),
-                    via: d.via.clone(),
-                    matched_recommendation: d.matched_recommendation,
-                    tree_hash: d.tree_hash.clone(),
-                    seconds_to_decide: d.seconds_to_decide,
-                    ts,
-                });
-            }
-            LedgerEvent::ItemDeferred(d) => {
-                item.status = Status::Deferred;
-                item.deferral = Some(d.clone());
-            }
-            LedgerEvent::ItemDefaulted(d) => {
-                item.status = Status::Defaulted;
-                item.default = Some(DefaultTaken {
-                    option: d.option.clone(),
-                    cause: d.cause,
-                    reason: d.reason.clone(),
-                    ts,
-                    acknowledged: false,
-                });
-            }
-            LedgerEvent::ItemDismissed(d) => {
-                item.status = Status::Dismissed;
-                item.dismissed = Some(d.why.clone());
-            }
-            LedgerEvent::ItemReopened(_) => {
-                item.reopened += 1;
-                item.decision = None;
-                item.default = None;
-                item.dismissed = None;
-                item.deferral = None;
-                item.status = if item.card.is_some() {
-                    Status::Grounded
-                } else {
-                    Status::Raised
-                };
-            }
-            LedgerEvent::ItemSuperseded(s) => {
-                item.status = Status::Superseded;
-                item.superseded_by = Some(s.by.clone());
-            }
-            LedgerEvent::ItemLinked(l) => {
-                if l.kind == "raised-again" {
-                    if !item.also_raised_in.contains(&l.target) {
-                        item.also_raised_in.push(l.target.clone());
-                    }
-                } else {
-                    item.links.push((l.kind.clone(), l.target.clone()));
-                }
-            }
-            LedgerEvent::RecordWritten(r) => {
-                item.records.push(Record {
-                    path: r.path.clone(),
-                    atom_id: r.atom_id.clone(),
-                    atom_kind: r.atom_kind.clone(),
-                });
-            }
-            LedgerEvent::ItemAcknowledged(_) => {
-                if let Some(d) = &mut item.default {
-                    d.acknowledged = true;
-                }
-            }
+            return;
         }
+        self.items
+            .insert(r.item_id.clone(), Item::from_raised(position, env, r));
     }
 
     /// Fold a whole ordered stream.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use weighin_core::{EventEnvelope, ItemId, Ledger, Status};
+    ///
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let raised = EventEnvelope::from_json(
+    ///         br#"{"type": "item_raised", "item_id": "wi-930e15", "kind": "question",
+    ///              "question": "Which region hosts the backup?", "door_hint": "one-way",
+    ///              "authority_hint": "authority", "channel": "marker",
+    ///              "quote": "Which region hosts the backup?", "actor": "cli",
+    ///              "ts": "2026-10-02T21:40:02Z"}"#,
+    ///     )?;
+    ///     let dismissed = EventEnvelope::from_json(
+    ///         br#"{"type": "item_dismissed", "item_id": "wi-930e15", "why": {"kind": "moot"},
+    ///              "reason": "the backup moved to the provider", "actor": "cli",
+    ///              "ts": "2026-10-02T21:45:00Z"}"#,
+    ///     )?;
+    ///
+    ///     let open = Ledger::fold([(1, &raised)]);
+    ///     assert_eq!(open.open().len(), 1);
+    ///
+    ///     let ledger = Ledger::fold([(1, &raised), (2, &dismissed)]);
+    ///     let id = ItemId::parse("wi-930e15").ok_or("not an item id")?;
+    ///     let item = ledger.get(&id).ok_or("the raise was not folded")?;
+    ///     assert_eq!(item.status, Status::Dismissed);
+    ///     assert!(ledger.open().is_empty());
+    ///     assert_eq!(ledger.head, 2);
+    ///     Ok(())
+    /// }
+    /// ```
     #[must_use]
     pub fn fold<'a>(events: impl IntoIterator<Item = (u64, &'a EventEnvelope)>) -> Self {
         let mut l = Self::default();
@@ -409,6 +551,7 @@ impl Ledger {
         v
     }
 
+    /// The item with exactly this id, open or closed.
     #[must_use]
     pub fn get(&self, id: &ItemId) -> Option<&Item> {
         self.items.get(id)
@@ -442,17 +585,27 @@ impl Ledger {
 /// Health numbers over presented items, as the board shows them.
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct Health {
+    /// Items presented at least once.
     pub presented: usize,
+    /// Presented items decided, deferred with a passing decide-now test, or dismissed as
+    /// someone else's call.
     pub acted: usize,
+    /// Presented items dismissed as not useful.
     pub not_useful: usize,
+    /// Presented items decided against the card's recommendation.
     pub chosen_against_recommendation: usize,
+    /// Presented items decided while the card had a recommendation to compare with.
     pub chosen_with_recommendation_known: usize,
+    /// The lower median of the decision times that were recorded; `None` when none were.
     pub median_seconds_to_decide: Option<u64>,
+    /// Presented items deferred without a passing decide-now test.
     pub deferred_unqualified: usize,
+    /// Never-presented items defaulted and not yet acknowledged.
     pub defaults_unacknowledged: usize,
 }
 
 impl Health {
+    /// Count the health numbers over every item in `ledger`.
     #[must_use]
     pub fn of(ledger: &Ledger) -> Self {
         let mut h = Self::default();
@@ -505,9 +658,14 @@ impl Health {
         h
     }
 
+    /// The share of presented items acted on (`acted / presented`).
+    ///
+    /// `None` when nothing was presented, or when a count does not fit in a `u32`.
     #[must_use]
     pub fn action_rate(&self) -> Option<f64> {
-        (self.presented > 0).then(|| self.acted as f64 / self.presented as f64)
+        let acted = f64::from(u32::try_from(self.acted).ok()?);
+        let presented = f64::from(u32::try_from(self.presented).ok()?);
+        (self.presented > 0).then(|| acted / presented)
     }
 }
 
@@ -579,7 +737,7 @@ mod tests {
                 "s1",
             ),
         ];
-        let l = Ledger::fold(evs.iter().enumerate().map(|(i, e)| (i as u64 + 1, e)));
+        let l = Ledger::fold((1u64..).zip(evs.iter()));
         assert_eq!(l.get(&b).unwrap().status, Status::Decided);
         let open = l.open();
         assert_eq!(open.len(), 1);
@@ -643,8 +801,456 @@ mod tests {
         assert_eq!(l.orphans.len(), 1);
         l.apply(2, &env(raised(&a, "Use Postgres?", Door::Unsure), "s"));
         assert!(l.open_with_question("use postgres").is_some());
-        assert_eq!(l.resolve(&a.as_str()[3..7]).unwrap().id, a);
+        assert_eq!(l.resolve(a.as_str().get(3..7).unwrap()).unwrap().id, a);
     }
+
+    fn card() -> Card {
+        Card {
+            options: vec![
+                crate::card::CardOption {
+                    id: "A".into(),
+                    title: "a".into(),
+                    ..Default::default()
+                },
+                crate::card::CardOption {
+                    id: "B".into(),
+                    title: "b".into(),
+                    ..Default::default()
+                },
+            ],
+            recommendation: crate::card::Recommendation {
+                option: "A".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn triage(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::ItemTriaged(Triaged {
+            item_id: id.clone(),
+            door: Door::OneWay,
+            blast: Blast::System,
+            authority: Authority::Authority,
+            route: Route::Present,
+            timing: Some(Timing {
+                verdict: "defer".into(),
+                flip: "f".into(),
+                obtainable_now: false,
+                arrives_after_expiry: false,
+                cost_of_waiting: "none".into(),
+                options_close: false,
+            }),
+            resolve_by: Some("before-release".into()),
+            reason: "r".into(),
+        })
+    }
+
+    fn ground(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::ItemGrounded(Grounded {
+            item_id: id.clone(),
+            card: card(),
+            reason: "r".into(),
+        })
+    }
+
+    fn present(id: &ItemId, tree: &str) -> LedgerEvent {
+        LedgerEvent::ItemPresented(Presented {
+            item_id: id.clone(),
+            surface: "board".into(),
+            tree_hash: Some(tree.into()),
+            reason: "r".into(),
+        })
+    }
+
+    fn defer(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::ItemDeferred(Deferred {
+            item_id: id.clone(),
+            flip: "f".into(),
+            trigger: "next sitting".into(),
+            resolve_by: "2026-10-09".into(),
+            default_option: "A".into(),
+            owner: "ryan".into(),
+            unqualified: false,
+            reason: "r".into(),
+        })
+    }
+
+    fn decide(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::ItemDecided(Decided {
+            item_id: id.clone(),
+            option: "B".into(),
+            decider: "human:ryan".into(),
+            provenance: Provenance::UserDirected,
+            note: "n".into(),
+            tree_hash: Some("t2".into()),
+            matched_recommendation: Some(false),
+            via: "board".into(),
+            seconds_to_decide: Some(7),
+            reason: "r".into(),
+        })
+    }
+
+    fn record(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::RecordWritten(RecordWritten {
+            item_id: id.clone(),
+            path: ".kb/_intake/x.md".into(),
+            atom_id: "kb-x".into(),
+            atom_kind: "decision".into(),
+            reason: "r".into(),
+        })
+    }
+
+    fn link(id: &ItemId, kind: &str, target: &str) -> LedgerEvent {
+        LedgerEvent::ItemLinked(Linked {
+            item_id: id.clone(),
+            kind: kind.into(),
+            target: target.into(),
+            reason: "r".into(),
+        })
+    }
+
+    fn default_taken(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::ItemDefaulted(Defaulted {
+            item_id: id.clone(),
+            option: "kept it".into(),
+            cause: DefaultCause::TwoWay,
+            reason: "r".into(),
+        })
+    }
+
+    fn acknowledge(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::ItemAcknowledged(Acknowledged {
+            item_id: id.clone(),
+            reason: "r".into(),
+        })
+    }
+
+    fn dismiss(id: &ItemId, why: DismissReason) -> LedgerEvent {
+        LedgerEvent::ItemDismissed(Dismissed {
+            item_id: id.clone(),
+            why,
+            note: String::new(),
+            reason: "r".into(),
+        })
+    }
+
+    fn reopen(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::ItemReopened(Reopened {
+            item_id: id.clone(),
+            note: String::new(),
+            reason: "r".into(),
+        })
+    }
+
+    fn supersede(id: &ItemId, by: &str) -> LedgerEvent {
+        LedgerEvent::ItemSuperseded(Superseded {
+            item_id: id.clone(),
+            by: by.into(),
+            reason: "r".into(),
+        })
+    }
+
+    /// Raised twice, triaged, grounded, presented, deferred, presented again, decided, recorded
+    /// and linked (a raised-again link twice).
+    fn decided_item_events(a: &ItemId) -> Vec<EventEnvelope> {
+        vec![
+            env(raised(a, "a?", Door::Unsure), "s1"),
+            env(raised(a, "a again?", Door::OneWay), "s2"),
+            env(triage(a), "s1"),
+            env(ground(a), "s1"),
+            env(present(a, "t1"), "s1"),
+            env(defer(a), "s1"),
+            env(present(a, "t2"), "s1"),
+            env(decide(a), "s1"),
+            env(record(a), "s1"),
+            env(link(a, "commit", "abc123"), "s1"),
+            env(link(a, "raised-again", "s3"), "s1"),
+            env(link(a, "raised-again", "s3"), "s1"),
+        ]
+    }
+
+    /// Raised, defaulted, acknowledged, reopened without a card, dismissed as not useful.
+    fn defaulted_item_events(b: &ItemId) -> Vec<EventEnvelope> {
+        vec![
+            env(raised(b, "b?", Door::TwoWay), "s1"),
+            env(default_taken(b), "s1"),
+            env(acknowledge(b), "s1"),
+            env(reopen(b), "s1"),
+            env(dismiss(b, DismissReason::NotUseful), "s1"),
+        ]
+    }
+
+    /// Raised, grounded, dismissed, reopened with a card, superseded, then triaged and presented
+    /// while closed.
+    fn superseded_item_events(c: &ItemId) -> Vec<EventEnvelope> {
+        vec![
+            env(raised(c, "c?", Door::OneWay), "s1"),
+            env(ground(c), "s1"),
+            env(dismiss(c, DismissReason::NotMyCall("legal".into())), "s1"),
+            env(reopen(c), "s1"),
+            env(supersede(c, "wi-aaaaaa"), "s1"),
+            env(triage(c), "s1"),
+            env(present(c, "t3"), "s1"),
+        ]
+    }
+
+    /// Every event kind through the fold, pinned as the serialised ledger it produces.
+    #[test]
+    fn every_event_kind_folds_to_the_pinned_ledger() {
+        let a = ItemId::parse("wi-aaaaaa").unwrap();
+        let b = ItemId::parse("wi-bbbbbb").unwrap();
+        let c = ItemId::parse("wi-cccccc").unwrap();
+        let ghost = ItemId::parse("wi-dddddd").unwrap();
+        let mut evs = decided_item_events(&a);
+        evs.extend(defaulted_item_events(&b));
+        evs.extend(superseded_item_events(&c));
+        evs.push(env(triage(&ghost), "s1"));
+        let l = Ledger::fold((1u64..).zip(evs.iter()));
+        let got = serde_json::to_string_pretty(&l).unwrap();
+        assert_eq!(got, PINNED_LEDGER, "the fold's output changed");
+    }
+
+    const PINNED_LEDGER: &str = r#"{
+  "items": {
+    "wi-aaaaaa": {
+      "id": "wi-aaaaaa",
+      "kind": "question",
+      "question": "a?",
+      "question_key": "ca978112ca1bbdca",
+      "did": null,
+      "flip_hint": null,
+      "at": null,
+      "sym": null,
+      "blocks": null,
+      "door_hint": "unsure",
+      "authority_hint": "authority",
+      "channel": "marker",
+      "quote": "a?",
+      "source_path": null,
+      "source_line": null,
+      "session_id": "s1",
+      "worktree": null,
+      "branch": null,
+      "raised_ts": "2026-09-26T00:00:00Z",
+      "raised_position": 1,
+      "door": "one-way",
+      "blast": "system",
+      "authority": "authority",
+      "route": "present",
+      "timing": {
+        "verdict": "defer",
+        "flip": "f",
+        "obtainable_now": false,
+        "arrives_after_expiry": false,
+        "cost_of_waiting": "none",
+        "options_close": false
+      },
+      "resolve_by": "before-release",
+      "card": {
+        "why": "",
+        "timing": "",
+        "evidence": [],
+        "options": [
+          {
+            "id": "A",
+            "title": "a",
+            "summary": "",
+            "holds_if": "",
+            "if_wrong": ""
+          },
+          {
+            "id": "B",
+            "title": "b",
+            "summary": "",
+            "holds_if": "",
+            "if_wrong": ""
+          }
+        ],
+        "criteria": [],
+        "recommendation": {
+          "option": "A",
+          "flip": "",
+          "tradeoff": "",
+          "why_wrong": ""
+        }
+      },
+      "card_rev": 4,
+      "presented_ts": "2026-09-26T00:00:00Z",
+      "presented_tree": "t2",
+      "times_presented": 2,
+      "status": "decided",
+      "decision": {
+        "option": "B",
+        "decider": "human:ryan",
+        "provenance": "user-directed",
+        "note": "n",
+        "via": "board",
+        "matched_recommendation": false,
+        "tree_hash": "t2",
+        "seconds_to_decide": 7,
+        "ts": "2026-09-26T00:00:00Z"
+      },
+      "deferral": null,
+      "default": null,
+      "dismissed": null,
+      "superseded_by": null,
+      "records": [
+        {
+          "path": ".kb/_intake/x.md",
+          "atom_id": "kb-x",
+          "atom_kind": "decision"
+        }
+      ],
+      "links": [
+        [
+          "commit",
+          "abc123"
+        ]
+      ],
+      "also_raised_in": [
+        "s2",
+        "s3"
+      ],
+      "reopened": 0,
+      "last_position": 12,
+      "last_ts": "2026-09-26T00:00:00Z"
+    },
+    "wi-bbbbbb": {
+      "id": "wi-bbbbbb",
+      "kind": "question",
+      "question": "b?",
+      "question_key": "3e23e8160039594a",
+      "did": null,
+      "flip_hint": null,
+      "at": null,
+      "sym": null,
+      "blocks": null,
+      "door_hint": "two-way",
+      "authority_hint": "authority",
+      "channel": "marker",
+      "quote": "b?",
+      "source_path": null,
+      "source_line": null,
+      "session_id": "s1",
+      "worktree": null,
+      "branch": null,
+      "raised_ts": "2026-09-26T00:00:00Z",
+      "raised_position": 13,
+      "door": null,
+      "blast": null,
+      "authority": null,
+      "route": null,
+      "timing": null,
+      "resolve_by": null,
+      "card": null,
+      "card_rev": null,
+      "presented_ts": null,
+      "presented_tree": null,
+      "times_presented": 0,
+      "status": "dismissed",
+      "decision": null,
+      "deferral": null,
+      "default": null,
+      "dismissed": {
+        "kind": "not-useful"
+      },
+      "superseded_by": null,
+      "records": [],
+      "links": [],
+      "also_raised_in": [],
+      "reopened": 1,
+      "last_position": 17,
+      "last_ts": "2026-09-26T00:00:00Z"
+    },
+    "wi-cccccc": {
+      "id": "wi-cccccc",
+      "kind": "question",
+      "question": "c?",
+      "question_key": "2e7d2c03a9507ae2",
+      "did": null,
+      "flip_hint": null,
+      "at": null,
+      "sym": null,
+      "blocks": null,
+      "door_hint": "one-way",
+      "authority_hint": "authority",
+      "channel": "marker",
+      "quote": "c?",
+      "source_path": null,
+      "source_line": null,
+      "session_id": "s1",
+      "worktree": null,
+      "branch": null,
+      "raised_ts": "2026-09-26T00:00:00Z",
+      "raised_position": 18,
+      "door": "one-way",
+      "blast": "system",
+      "authority": "authority",
+      "route": "present",
+      "timing": {
+        "verdict": "defer",
+        "flip": "f",
+        "obtainable_now": false,
+        "arrives_after_expiry": false,
+        "cost_of_waiting": "none",
+        "options_close": false
+      },
+      "resolve_by": "before-release",
+      "card": {
+        "why": "",
+        "timing": "",
+        "evidence": [],
+        "options": [
+          {
+            "id": "A",
+            "title": "a",
+            "summary": "",
+            "holds_if": "",
+            "if_wrong": ""
+          },
+          {
+            "id": "B",
+            "title": "b",
+            "summary": "",
+            "holds_if": "",
+            "if_wrong": ""
+          }
+        ],
+        "criteria": [],
+        "recommendation": {
+          "option": "A",
+          "flip": "",
+          "tradeoff": "",
+          "why_wrong": ""
+        }
+      },
+      "card_rev": 19,
+      "presented_ts": "2026-09-26T00:00:00Z",
+      "presented_tree": "t3",
+      "times_presented": 1,
+      "status": "superseded",
+      "decision": null,
+      "deferral": null,
+      "default": null,
+      "dismissed": null,
+      "superseded_by": "wi-aaaaaa",
+      "records": [],
+      "links": [],
+      "also_raised_in": [],
+      "reopened": 1,
+      "last_position": 24,
+      "last_ts": "2026-09-26T00:00:00Z"
+    }
+  },
+  "head": 25,
+  "orphans": [
+    [
+      25,
+      "item_triaged for unknown wi-dddddd"
+    ]
+  ]
+}"#;
 }
 
 #[cfg(test)]
