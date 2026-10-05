@@ -65,19 +65,7 @@ impl RaiseInput {
 #[serde(tag = "op", rename_all = "kebab-case")]
 pub(crate) enum Op {
     Raise(RaiseInput),
-    Triage {
-        id: String,
-        door: String,
-        blast: String,
-        #[serde(default)]
-        authority: Option<String>,
-        route: String,
-        #[serde(default)]
-        timing: Option<Timing>,
-        #[serde(default)]
-        resolve_by: Option<String>,
-        reason: String,
-    },
+    Triage(TriageOp),
     Ground {
         id: String,
         card: Card,
@@ -89,32 +77,8 @@ pub(crate) enum Op {
         #[serde(default)]
         surface: Option<String>,
     },
-    Decide {
-        id: String,
-        option: String,
-        #[serde(default)]
-        note: Option<String>,
-        #[serde(default)]
-        provenance: Option<String>,
-        #[serde(default)]
-        via: Option<String>,
-        #[serde(default)]
-        seconds: Option<u64>,
-    },
-    Defer {
-        id: String,
-        #[serde(default)]
-        flip: String,
-        trigger: String,
-        resolve_by: String,
-        default: String,
-        #[serde(default)]
-        owner: Option<String>,
-        #[serde(default)]
-        unqualified: bool,
-        #[serde(default)]
-        reason: String,
-    },
+    Decide(DecideOp),
+    Defer(DeferOp),
     Default {
         id: String,
         option: String,
@@ -208,37 +172,52 @@ enum TreeCache {
     Read(Option<String>),
 }
 
-/// A decision as `Op::Decide` carries it, with the defaults for `note` and `via` applied.
-struct DecideArgs<'o> {
-    id: &'o str,
-    option: &'o str,
-    note: &'o str,
-    provenance: Option<&'o str>,
-    via: &'o str,
-    seconds: Option<u64>,
+/// `Op::Triage`: route an item, naming its door and blast radius.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct TriageOp {
+    pub(crate) id: String,
+    pub(crate) door: String,
+    pub(crate) blast: String,
+    #[serde(default)]
+    pub(crate) authority: Option<String>,
+    pub(crate) route: String,
+    #[serde(default)]
+    pub(crate) timing: Option<Timing>,
+    #[serde(default)]
+    pub(crate) resolve_by: Option<String>,
+    pub(crate) reason: String,
 }
 
-/// A deferral as `Op::Defer` carries it.
-struct DeferArgs<'o> {
-    id: &'o str,
-    flip: &'o str,
-    trigger: &'o str,
-    resolve_by: &'o str,
-    default: &'o str,
-    owner: Option<&'o str>,
-    unqualified: bool,
-    reason: &'o str,
+/// `Op::Decide`: record the option chosen. `note` defaults to empty and `via` to `chat`.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct DecideOp {
+    pub(crate) id: String,
+    pub(crate) option: String,
+    #[serde(default)]
+    pub(crate) note: Option<String>,
+    #[serde(default)]
+    pub(crate) provenance: Option<String>,
+    #[serde(default)]
+    pub(crate) via: Option<String>,
+    #[serde(default)]
+    pub(crate) seconds: Option<u64>,
 }
 
-/// A triage as `Op::Triage` carries it, less the item it applies to.
-struct TriageArgs<'o> {
-    door: &'o str,
-    blast: &'o str,
-    authority: Option<&'o str>,
-    route: &'o str,
-    timing: Option<&'o Timing>,
-    resolve_by: Option<&'o str>,
-    reason: &'o str,
+/// `Op::Defer`: wait for a named fact, with a trigger, a resolve-by and a default.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct DeferOp {
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) flip: String,
+    pub(crate) trigger: String,
+    pub(crate) resolve_by: String,
+    pub(crate) default: String,
+    #[serde(default)]
+    pub(crate) owner: Option<String>,
+    #[serde(default)]
+    pub(crate) unqualified: bool,
+    #[serde(default)]
+    pub(crate) reason: String,
 }
 
 /// The one event an operation appends to an item, and the receipt printed for it.
@@ -537,48 +516,39 @@ impl<'a> Session<'a> {
         match op {
             Op::Raise(r) => self.apply_raise(r),
             Op::Present { id, surface } => self.present(id, surface.as_deref()),
-            Op::Decide {
+            Op::Decide(d) => self.decide(d),
+            Op::Defer(d) => self.defer(d),
+            Op::Triage(t) => self.change(&t.id, |item| triage_event(item, t)),
+            Op::Ground { id, card, reason } => {
+                self.change(id, |item| ground_event(item, card, reason.as_deref()))
+            }
+            Op::Default {
                 id,
                 option,
+                cause,
+                reason,
+            } => self.change(id, |item| default_event(item, option, cause, reason)),
+            Op::Dismiss {
+                id,
+                why,
                 note,
-                provenance,
-                via,
-                seconds,
-            } => self.decide(&DecideArgs {
-                id,
-                option,
-                note: note.as_deref().unwrap_or(""),
-                provenance: provenance.as_deref(),
-                via: via.as_deref().unwrap_or("chat"),
-                seconds: *seconds,
-            }),
-            Op::Defer {
-                id,
-                flip,
-                trigger,
-                resolve_by,
-                default,
-                owner,
-                unqualified,
                 reason,
-            } => self.defer(&DeferArgs {
+            } => self.change(id, |item| dismiss_event(item, why, note.as_deref(), reason)),
+            Op::Reopen { id, note, reason } => {
+                self.change(id, |item| reopen_event(item, note.as_deref(), reason))
+            }
+            Op::Supersede { id, by, reason } => {
+                self.change(id, |item| Ok(supersede_event(item, by, reason)))
+            }
+            Op::Link {
                 id,
-                flip,
-                trigger,
-                resolve_by,
-                default,
-                owner: owner.as_deref(),
-                unqualified: *unqualified,
+                kind,
+                target,
                 reason,
+            } => self.change(id, |item| {
+                Ok(link_event(item, kind, target, reason.as_deref()))
             }),
-            Op::Triage { id, .. }
-            | Op::Ground { id, .. }
-            | Op::Default { id, .. }
-            | Op::Dismiss { id, .. }
-            | Op::Reopen { id, .. }
-            | Op::Supersede { id, .. }
-            | Op::Link { id, .. }
-            | Op::Ack { id, .. } => self.change(id, |item| change_event(op, item)),
+            Op::Ack { id, reason } => self.change(id, |item| ack_event(item, reason.as_deref())),
         }
     }
 
@@ -621,23 +591,24 @@ impl<'a> Session<'a> {
         Ok(format!("presented {} ({surface})", item.id))
     }
 
-    fn defer(&mut self, d: &DeferArgs<'_>) -> Result<String> {
-        let item = self.item(d.id)?;
+    fn defer(&mut self, d: &DeferOp) -> Result<String> {
+        let item = self.item(&d.id)?;
         check_deferral(&item, d)?;
         let owner = d
             .owner
-            .map_or_else(|| self.env.config.owner.clone(), str::to_owned);
+            .clone()
+            .unwrap_or_else(|| self.env.config.owner.clone());
         self.write(
             &item.id,
             vec![LedgerEvent::ItemDeferred(Deferred {
                 item_id: item.id.clone(),
-                flip: d.flip.to_owned(),
-                trigger: d.trigger.to_owned(),
-                resolve_by: d.resolve_by.to_owned(),
-                default_option: d.default.to_owned(),
+                flip: d.flip.clone(),
+                trigger: d.trigger.clone(),
+                resolve_by: d.resolve_by.clone(),
+                default_option: d.default.clone(),
                 owner,
                 unqualified: d.unqualified,
-                reason: d.reason.to_owned(),
+                reason: d.reason.clone(),
             })],
         )?;
         let mut receipt = format!(
@@ -652,10 +623,10 @@ impl<'a> Session<'a> {
         Ok(receipt)
     }
 
-    fn decide(&mut self, d: &DecideArgs<'_>) -> Result<String> {
-        let item = self.item(d.id)?;
-        let matched = check_answer(&item, d.option)?;
-        let provenance = match d.provenance {
+    fn decide(&mut self, d: &DecideOp) -> Result<String> {
+        let item = self.item(&d.id)?;
+        let matched = check_answer(&item, &d.option)?;
+        let provenance = match d.provenance.as_deref() {
             Some("user-approved") => Provenance::UserApproved,
             Some("user-directed") => Provenance::UserDirected,
             _ if matched == Some(true) => Provenance::UserApproved,
@@ -673,13 +644,13 @@ impl<'a> Session<'a> {
             &item.id,
             vec![LedgerEvent::ItemDecided(Decided {
                 item_id: item.id.clone(),
-                option: d.option.to_owned(),
+                option: d.option.clone(),
                 decider,
                 provenance,
-                note: d.note.to_owned(),
+                note: d.note.clone().unwrap_or_default(),
                 tree_hash: tree,
                 matched_recommendation: matched,
-                via: d.via.to_owned(),
+                via: d.via.clone().unwrap_or_else(|| "chat".into()),
                 seconds_to_decide: seconds,
                 reason: match matched {
                     Some(true) => "chose the recommended option".into(),
@@ -688,7 +659,7 @@ impl<'a> Session<'a> {
                 },
             })],
         )?;
-        self.decision_receipt(&item.id, d.option, matched)
+        self.decision_receipt(&item.id, &d.option, matched)
     }
 
     /// Write the decision's atom and source annotation, and say what was written.
@@ -820,70 +791,19 @@ fn render_ctx() -> RenderContext {
     }
 }
 
-/// The one event a single-item operation appends to `item`, validated against it.
-///
-/// # Errors
-/// Fails when the operation is invalid for the item, or is not a single-change operation.
-fn change_event(op: &Op, item: &Item) -> Result<Change> {
-    match op {
-        Op::Triage {
-            door,
-            blast,
-            authority,
-            route,
-            timing,
-            resolve_by,
-            reason,
-            ..
-        } => triage_event(
-            item,
-            &TriageArgs {
-                door,
-                blast,
-                authority: authority.as_deref(),
-                route,
-                timing: timing.as_ref(),
-                resolve_by: resolve_by.as_deref(),
-                reason,
-            },
-        ),
-        Op::Ground { card, reason, .. } => ground_event(item, card, reason.as_deref()),
-        Op::Default {
-            option,
-            cause,
-            reason,
-            ..
-        } => default_event(item, option, cause, reason),
-        Op::Dismiss {
-            why, note, reason, ..
-        } => dismiss_event(item, why, note.as_deref(), reason),
-        Op::Reopen { note, reason, .. } => reopen_event(item, note.as_deref(), reason),
-        Op::Supersede { by, reason, .. } => Ok(supersede_event(item, by, reason)),
-        Op::Link {
-            kind,
-            target,
-            reason,
-            ..
-        } => Ok(link_event(item, kind, target, reason.as_deref())),
-        Op::Ack { reason, .. } => ack_event(item, reason.as_deref()),
-        Op::Raise(_) | Op::Present { .. } | Op::Decide { .. } | Op::Defer { .. } => {
-            bail!("{} takes more than one change", item.id)
-        }
-    }
-}
-
-fn triage_event(item: &Item, t: &TriageArgs<'_>) -> Result<Change> {
-    let blast = Blast::parse(t.blast)
+fn triage_event(item: &Item, t: &TriageOp) -> Result<Change> {
+    let blast = Blast::parse(&t.blast)
         .ok_or_else(|| anyhow!("blast must be file, module, system or external"))?;
-    let route = match t.route {
+    let route = match t.route.as_str() {
         "present" => Route::Present,
         "default" => Route::Default,
         "dismiss" => Route::Dismiss,
         _ => bail!("route must be present, default or dismiss"),
     };
-    let door = Door::parse(t.door);
+    let door = Door::parse(&t.door);
     let authority = t
         .authority
+        .as_deref()
         .map_or_else(|| item.authority(), Authority::parse);
     if route == Route::Default && (door != Door::TwoWay || authority != Authority::Judgment) {
         bail!(
@@ -900,9 +820,9 @@ fn triage_event(item: &Item, t: &TriageArgs<'_>) -> Result<Change> {
             blast,
             authority,
             route,
-            timing: t.timing.cloned(),
-            resolve_by: t.resolve_by.map(str::to_owned),
-            reason: t.reason.to_owned(),
+            timing: t.timing.clone(),
+            resolve_by: t.resolve_by.clone(),
+            reason: t.reason.clone(),
         }),
         receipt: format!(
             "triaged {} · {} · {} · {}",
@@ -965,21 +885,21 @@ fn check_answer(item: &Item, option: &str) -> Result<Option<bool>> {
     Ok(Some(card.recommendation.option == option))
 }
 
-fn check_deferral(item: &Item, d: &DeferArgs<'_>) -> Result<()> {
+fn check_deferral(item: &Item, d: &DeferOp) -> Result<()> {
     if !item.status.is_open() {
         bail!("{} is {}, not open", item.id, item.status.as_str());
     }
     if let Some(card) = &item.card
-        && card.option(d.default).is_none()
+        && card.option(&d.default).is_none()
     {
         bail!("{}: default `{}` is not an option", item.id, d.default);
     }
     // A bare "defer" from the user is recorded as unqualified: it names no flip fact and is
     // counted against the action rate.
     for (k, v) in [
-        ("flip", if d.unqualified { d.trigger } else { d.flip }),
-        ("trigger", d.trigger),
-        ("resolve_by", d.resolve_by),
+        ("flip", if d.unqualified { &d.trigger } else { &d.flip }),
+        ("trigger", &d.trigger),
+        ("resolve_by", &d.resolve_by),
     ] {
         if v.trim().is_empty() {
             bail!("a deferral needs {k}: waiting without a named fact is the can being kicked");
@@ -1194,6 +1114,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn raise_receipts_name_new_existing_and_linked_items() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let first = env_in(dir.path(), "s1");
@@ -1212,6 +1133,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn an_acted_two_way_judgment_call_is_raised_as_a_default() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let env = env_in(dir.path(), "s1");
@@ -1234,6 +1156,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn a_sitting_prints_each_receipt_unchanged() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let env = env_in(dir.path(), "s1");
@@ -1285,6 +1208,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn deferring_a_one_way_door_writes_a_tracking_atom() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let env = env_in(dir.path(), "s1");
@@ -1307,6 +1231,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn defaults_and_dismissals_print_their_cause() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let env = env_in(dir.path(), "s1");
@@ -1365,6 +1290,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn a_raise_without_a_question_is_refused() -> Result<()> {
         let out = after(&[], &[serde_json::json!({"op": "raise", "q": "  "})])?;
 
@@ -1373,6 +1299,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn refs_that_name_no_item_are_refused() -> Result<()> {
         let out = after(
             &raised(),
@@ -1395,6 +1322,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn triage_refuses_unknown_values_and_defaulting_a_one_way_door() -> Result<()> {
         let out = after(
             &raised(),
@@ -1420,6 +1348,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn decide_refuses_an_unknown_option_and_one_that_fails_a_must() -> Result<()> {
         let out = after(
             &grounded(),
@@ -1441,6 +1370,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn defer_refuses_a_missing_flip_and_a_default_that_is_not_an_option() -> Result<()> {
         let out = after(
             &grounded(),
@@ -1463,6 +1393,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn default_refuses_an_unknown_cause_and_a_one_way_door() -> Result<()> {
         let out = after(
             &grounded(),
@@ -1486,6 +1417,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn dismiss_refuses_an_unknown_why() -> Result<()> {
         let out = after(
             &grounded(),
@@ -1502,6 +1434,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn reopen_refuses_an_open_item() -> Result<()> {
         let out = after(
             &grounded(),
@@ -1513,6 +1446,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn ack_refuses_an_item_that_was_not_defaulted() -> Result<()> {
         let out = after(&grounded(), &[serde_json::json!({"op": "ack", "id": "@1"})])?;
 

@@ -235,9 +235,10 @@ pub const BOARD_DEFAULTS_CAP: usize = 200;
 const BOARD_DECIDED_CAP: usize = 20;
 
 /// Build the board document from the ledger. Only grounded items make cards; raised-but-ungrounded
-/// items are counted in the scope line but need a sitting before they can be shown.
+/// items make none and need a sitting before they can be shown.
 ///
-/// `focus_cap` bounds the open cards, and `now` becomes [`Scope::generated_at`].
+/// `focus_cap` bounds the open cards (a cap of 0 still carries one; see `focus_cards`), and
+/// `now` becomes [`Scope::generated_at`].
 ///
 /// # Examples
 ///
@@ -308,7 +309,8 @@ pub fn export(ledger: &Ledger, mut scope: Scope, focus_cap: usize, now: &str) ->
     }
 }
 
-/// The open, grounded, not deferred items in rank order, at most `focus_cap` of them.
+/// The open, grounded, not deferred items in rank order, at most `focus_cap` of them and at least
+/// one when any qualifies: the cap is checked after each card, so a cap of 0 acts as 1.
 fn focus_cards(ledger: &Ledger, focus_cap: usize) -> Vec<BoardItem> {
     let mut items = Vec::new();
     for i in ledger.open() {

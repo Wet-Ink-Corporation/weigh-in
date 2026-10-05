@@ -11,6 +11,7 @@ mod git;
 mod hooks;
 mod ops;
 mod store;
+mod text;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use clap::{Args, Parser, Subcommand};
@@ -23,7 +24,7 @@ use weighin_core::projection::Health;
 use weighin_core::{Item, Ledger, Status};
 
 use crate::env::{Config, Env};
-use crate::ops::{Op, RaiseInput, Session, read_ledger};
+use crate::ops::{DecideOp, DeferOp, Op, RaiseInput, Session, read_ledger};
 
 // `help` and `about` attributes, not doc comments, carry text that names environment variables
 // or tools: clap prints them verbatim, so they cannot take rustdoc's backticks.
@@ -132,13 +133,40 @@ struct OpenArgs {
     json: bool,
 }
 
-/// Which items `open` lists: this session's by default.
+/// Which items `open` lists, as its flags spell it; [`OpenScope::scope`] reads them as one
+/// [`OpenFrom`].
 #[derive(Args)]
 struct OpenScope {
+    /// Every open item in the repository, not only this session's.
     #[arg(long)]
     repo: bool,
+    /// Every item, open or not (wins over `--repo`).
     #[arg(long)]
     all: bool,
+}
+
+/// Which items `open` lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OpenFrom {
+    /// The open items of this session, or of the repository when no session is known.
+    Session,
+    /// The open items of the repository.
+    Repo,
+    /// Every item, open or not.
+    All,
+}
+
+impl OpenScope {
+    /// The one scope the flags name: `--all` wins over `--repo`, and neither is this session.
+    fn scope(&self) -> OpenFrom {
+        if self.all {
+            OpenFrom::All
+        } else if self.repo {
+            OpenFrom::Repo
+        } else {
+            OpenFrom::Session
+        }
+    }
 }
 
 #[derive(Args)]
@@ -431,18 +459,15 @@ fn init(env: Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
 
 fn open(env: &Env, a: &OpenArgs, out: &mut impl Write) -> Result<()> {
     let ledger = read_ledger(env)?;
-    let scope_session = if a.scope.repo || a.scope.all {
-        None
-    } else {
-        env.session.as_deref()
+    let from = a.scope.scope();
+    let scope_session = match from {
+        OpenFrom::Session => env.session.as_deref(),
+        OpenFrom::Repo | OpenFrom::All => None,
     };
-    let items: Vec<&Item> = if a.scope.all {
-        ledger.items.values().collect()
-    } else {
-        match scope_session {
-            Some(id) => ledger.open_in_session(id),
-            None => ledger.open(),
-        }
+    let items: Vec<&Item> = match (from, scope_session) {
+        (OpenFrom::All, _) => ledger.items.values().collect(),
+        (OpenFrom::Session, Some(id)) => ledger.open_in_session(id),
+        (OpenFrom::Session | OpenFrom::Repo, _) => ledger.open(),
     };
     if a.json {
         writeln!(
@@ -554,10 +579,52 @@ fn raise(env: &Env, a: RaiseArgs, out: &mut impl Write) -> Result<()> {
     if inputs.is_empty() {
         bail!("no weigh-in blocks found on stdin");
     }
-    for r in inputs {
-        writeln!(out, "{}", s.apply(&Op::Raise(r))?)?;
+    let mut receipts = Receipts::new(out);
+    let outcome = inputs.into_iter().try_for_each(|r| {
+        receipts.line(format_args!("{}", s.apply(&Op::Raise(r))?));
+        Ok(())
+    });
+    receipts.finish(outcome)
+}
+
+/// The receipts of a command that changes the ledger, one line per change. A failed write stops
+/// the receipts but not the changes: every operation is still applied, and [`Receipts::finish`]
+/// returns the failure at the end, so a reader that stops early (`weighin batch | head -1`)
+/// never leaves a batch half applied.
+struct Receipts<W> {
+    out: W,
+    /// The first write that failed; nothing more is written after it.
+    failed: Option<io::Error>,
+}
+
+impl<W: Write> Receipts<W> {
+    fn new(out: W) -> Self {
+        Self { out, failed: None }
     }
-    Ok(())
+
+    /// Write one receipt line, unless an earlier one failed.
+    fn line(&mut self, line: std::fmt::Arguments<'_>) {
+        if self.failed.is_none()
+            && let Err(e) = writeln!(self.out, "{line}")
+        {
+            self.failed = Some(e);
+        }
+    }
+
+    /// The command's result: its own failure first, since the changes matter more than their
+    /// receipts, then the write that failed.
+    ///
+    /// # Errors
+    /// Fails when `outcome` is a failure or a receipt could not be written.
+    fn finish(self, outcome: Result<()>) -> Result<()> {
+        match (outcome, self.failed) {
+            (Ok(()), None) => Ok(()),
+            (Ok(()), Some(written)) => Err(written.into()),
+            (Err(e), None) => Err(e),
+            // Not chained: a closed stdout in the chain would make `report` exit 0 in silence.
+            (Err(e), Some(written)) => Err(anyhow!("{e:#}; the receipts stopped at {written}")),
+        }
+    }
 }
 
 /// What `raise` raises: every `weigh-in` block on stdin with `--markers`, else the one question.
@@ -603,31 +670,34 @@ fn batch(env: &Env, a: BatchArgs, out: &mut impl Write) -> Result<()> {
     };
     let ops = ops::parse_ops(&text)?;
     let mut s = Session::open(env, "cli")?;
+    let mut receipts = Receipts::new(out);
     let mut failed = 0;
     for (n, op) in ops.iter().enumerate() {
         let applied = match op {
             Ok(op) => s.apply(op),
             Err(e) => {
                 failed += 1;
-                writeln!(out, "✗ op {n}: {e:#}")?;
+                receipts.line(format_args!("✗ op {n}: {e:#}"));
                 continue;
             }
         };
         match applied {
-            Ok(r) => writeln!(out, "✓ {r}")?,
+            Ok(r) => receipts.line(format_args!("✓ {r}")),
             Err(e) => {
                 failed += 1;
-                writeln!(out, "✗ op {n}: {e:#}")?;
+                receipts.line(format_args!("✗ op {n}: {e:#}"));
             }
         }
     }
-    if failed > 0 {
-        bail!(
+    let outcome = if failed > 0 {
+        Err(anyhow!(
             "{failed} of {} operations failed; the rest were applied",
             ops.len()
-        );
-    }
-    Ok(())
+        ))
+    } else {
+        Ok(())
+    };
+    receipts.finish(outcome)
 }
 
 /// One operation through the write path, and its receipt.
@@ -639,20 +709,20 @@ fn apply_one(env: &Env, op: &Op, out: &mut impl Write) -> Result<()> {
 
 impl DecideArgs {
     fn into_op(self) -> Op {
-        Op::Decide {
+        Op::Decide(DecideOp {
             id: self.id,
             option: self.option,
             note: self.note,
             provenance: None,
             via: Some(self.via),
             seconds: None,
-        }
+        })
     }
 }
 
 impl DeferArgs {
     fn into_op(self) -> Op {
-        Op::Defer {
+        Op::Defer(DeferOp {
             id: self.id,
             flip: self.flip,
             trigger: self.trigger,
@@ -663,7 +733,7 @@ impl DeferArgs {
             reason: self
                 .reason
                 .unwrap_or_else(|| "deferred with a named fact".into()),
-        }
+        })
     }
 }
 
@@ -791,28 +861,30 @@ fn rounded_percent(n: usize, d: usize) -> Option<usize> {
 }
 
 fn scan(env: &Env, a: ScanArgs, out: &mut impl Write) -> Result<()> {
+    let mut receipts = Receipts::new(out);
     let mut total = 0;
-    for p in a.paths {
+    let outcome = a.paths.into_iter().try_for_each(|p| {
         let text =
             std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
         let abs = if p.is_absolute() { p } else { env.cwd.join(&p) };
         for o in hooks::scan_text(env, &abs.to_string_lossy(), &[text], "cli")? {
             total += 1;
-            writeln!(
-                out,
-                "{}",
-                match o {
-                    ops::RaiseOutcome::New(id) => format!("raised {id}"),
-                    ops::RaiseOutcome::Existing(id) => format!("{id} already raised"),
-                    ops::RaiseOutcome::Duplicate(id) => format!("linked to open {id}"),
+            match o {
+                ops::RaiseOutcome::New(id) => receipts.line(format_args!("raised {id}")),
+                ops::RaiseOutcome::Existing(id) => {
+                    receipts.line(format_args!("{id} already raised"));
                 }
-            )?;
+                ops::RaiseOutcome::Duplicate(id) => {
+                    receipts.line(format_args!("linked to open {id}"));
+                }
+            }
         }
+        Ok(())
+    });
+    if outcome.is_ok() && total == 0 {
+        receipts.line(format_args!("nothing to raise"));
     }
-    if total == 0 {
-        writeln!(out, "nothing to raise")?;
-    }
-    Ok(())
+    receipts.finish(outcome)
 }
 
 fn trailer(env: &Env, a: &TrailerArgs, out: &mut impl Write) -> Result<()> {
@@ -906,34 +978,34 @@ fn board_scope(env: &Env) -> Scope {
 fn board_apply(env: &Env, a: &ApplyArgs, out: &mut impl Write) -> Result<()> {
     let answers = read_answers(&a.path)?;
     let mut s = Session::open(env, "cli")?;
+    let mut receipts = Receipts::new(out);
     let mut applied = Vec::new();
     for (doc_id, answer) in answers {
         let op = match board::validate_answer(&s.ledger, &answer) {
             Ok(v) => to_op(&answer.item_id, v),
             Err(board::AnswerError::AlreadyApplied) => continue,
             Err(e) => {
-                writeln!(out, "✗ {doc_id}: {e}")?;
+                receipts.line(format_args!("✗ {doc_id}: {e}"));
                 continue;
             }
         };
         match s.apply(&op) {
             Ok(r) => {
-                writeln!(out, "✓ {r}")?;
+                receipts.line(format_args!("✓ {r}"));
                 applied.push(doc_id);
             }
-            Err(e) => writeln!(out, "✗ {doc_id}: {e:#}")?,
+            Err(e) => receipts.line(format_args!("✗ {doc_id}: {e:#}")),
         }
     }
-    writeln!(
-        out,
+    receipts.line(format_args!(
         "applied: {}",
         if applied.is_empty() {
             "none".into()
         } else {
             applied.join(" ")
         }
-    )?;
-    Ok(())
+    ));
+    receipts.finish(Ok(()))
 }
 
 fn to_op(id: &str, v: ValidAnswer) -> Op {
@@ -942,20 +1014,20 @@ fn to_op(id: &str, v: ValidAnswer) -> Op {
             option,
             note,
             seconds,
-        } => Op::Decide {
+        } => Op::Decide(DecideOp {
             id: id.into(),
             option,
             note: Some(note),
             provenance: None,
             via: Some("board".into()),
             seconds,
-        },
+        }),
         ValidAnswer::Defer {
             trigger,
             resolve_by,
             default,
             note,
-        } => Op::Defer {
+        } => Op::Defer(DeferOp {
             id: id.into(),
             flip: trigger.clone(),
             trigger,
@@ -968,7 +1040,7 @@ fn to_op(id: &str, v: ValidAnswer) -> Op {
             } else {
                 note
             },
-        },
+        }),
         ValidAnswer::Dismiss { reason, note } => {
             let why = match reason.as_str() {
                 "already-decided" => "already-decided:board".to_owned(),
@@ -1044,13 +1116,9 @@ fn read_answers(path: &std::path::Path) -> Result<Vec<(String, Answer)>> {
     Ok(out)
 }
 
+/// `s` on one line, cut to at most `n` characters.
 fn clip(s: &str, n: usize) -> String {
-    let s = s.replace('\n', " ");
-    if s.chars().count() <= n {
-        s
-    } else {
-        s.chars().take(n.saturating_sub(1)).collect::<String>() + "…"
-    }
+    text::clip(&s.replace('\n', " "), n)
 }
 
 /// Two lines per item, about 60 tokens.
@@ -1106,7 +1174,9 @@ fn write_line(out: &mut impl Write, i: &Item) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Stdout, clip, digest_json, is_closed_stdout, percent};
+    use super::{BatchArgs, Stdout, batch, clip, digest_json, is_closed_stdout, percent};
+    use crate::env::{Config, Env};
+    use crate::ops::read_ledger;
     use anyhow::Context as _;
     use std::io::{self, Write as _};
     use weighin_core::event::{Channel, Raised};
@@ -1228,5 +1298,58 @@ mod tests {
         assert!(!is_closed_stdout(&wrapped));
         let other = anyhow::Error::from(io::Error::from(io::ErrorKind::NotFound));
         assert!(!is_closed_stdout(&other));
+    }
+
+    /// A standard output whose reader stops after the first line.
+    struct OneLine {
+        written: Vec<u8>,
+    }
+
+    impl io::Write for OneLine {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.written.contains(&b'\n') {
+                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+            }
+            self.written.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn a_batch_whose_reader_stops_early_still_applies_every_operation() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = Env {
+            cwd: dir.path().to_path_buf(),
+            repo_root: None,
+            common_dir: None,
+            branch: None,
+            head: None,
+            worktree: None,
+            session: Some("s1".into()),
+            config: Config::default(),
+            store_override: Some(dir.path().join("ledger.sqlite3")),
+        };
+        let file = dir.path().join("batch.json");
+        std::fs::write(
+            &file,
+            r#"[{"op":"raise","q":"one?"},{"op":"raise","q":"two?"},{"op":"raise","q":"three?"}]"#,
+        )?;
+        let mut out = Stdout(OneLine {
+            written: Vec::new(),
+        });
+
+        let result = batch(&env, BatchArgs { file: Some(file) }, &mut out);
+
+        let stopped = result.expect_err("the closed stdout is reported");
+        assert!(is_closed_stdout(&stopped), "{stopped:#}");
+        let printed = String::from_utf8(out.0.written)?;
+        assert_eq!(printed.lines().count(), 1, "{printed}");
+        assert_eq!(read_ledger(&env)?.open().len(), 3);
+        Ok(())
     }
 }

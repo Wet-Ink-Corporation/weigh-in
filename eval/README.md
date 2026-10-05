@@ -1,8 +1,8 @@
 # Eval seed for marker capture (#22)
 
 The design's slice 1 exit criterion is marker capture precision of at least 80% on a labelled
-seed ([v1 plan](../docs/v1-plan.md), Phase 3). `crates/weighin/tests/eval_seed.rs` scores a seed
-by running each item through the real capture path in a scratch repository: a `Stop` hook for
+seed ([v1 plan](../docs/v1-plan.md), Phase 3). `crates/weighin/tests/it/eval_seed.rs` scores a
+seed by running each item through the real capture path in a scratch repository: a `Stop` hook for
 `channel: marker`, a `PostToolUse` Write of a markdown file for `channel: scan`.
 
 - **precision** = captured items labelled `capture` / captured items

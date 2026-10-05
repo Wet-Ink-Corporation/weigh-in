@@ -12,6 +12,7 @@ use weighin_core::Item;
 
 use crate::env::{self, Env};
 use crate::git::{self, LineSpan};
+use crate::text::clip;
 
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct Pack {
@@ -148,14 +149,6 @@ fn is_test_path(p: &str) -> bool {
         || l.contains(".test.")
         || l.contains("spec")
         || l.starts_with("test")
-}
-
-fn clip(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        s.to_owned()
-    } else {
-        s.chars().take(n.saturating_sub(1)).collect::<String>() + "…"
-    }
 }
 
 /// Atom ids and titles in `.kb` (outside `_intake` and `_ledger`) that mention any needle.
@@ -352,68 +345,65 @@ fn add_churn(p: &mut Pack, root: &Path, rel: &str) {
 }
 
 /// Append `label: value` and a newline.
-fn push_line(s: &mut String, label: &str, value: &str) {
-    s.push_str(label);
-    s.push_str(": ");
-    s.push_str(value);
-    s.push('\n');
+/// A pack as compact text, uncapped; [`render`] caps it.
+struct Text<'p>(&'p Pack);
+
+impl std::fmt::Display for Text<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let p = self.0;
+        write!(f, "## {} context", p.item)?;
+        if let Some(a) = &p.anchor {
+            write!(f, " · {a}")?;
+        }
+        writeln!(f)?;
+        if let Some((start, lines)) = &p.excerpt {
+            writeln!(f, "```")?;
+            for (n, l) in (*start..).zip(lines) {
+                writeln!(f, "{n:>4} {l}")?;
+            }
+            writeln!(f, "```")?;
+        }
+        if let Some(sym) = &p.symbol {
+            writeln!(
+                f,
+                "symbol `{sym}`: {} other reference(s)",
+                p.references.unwrap_or(0)
+            )?;
+        }
+        for (k, v) in [("call sites", &p.call_sites), ("tests", &p.tests)] {
+            if !v.is_empty() {
+                writeln!(f, "{k}: {}", v.join(" | "))?;
+            }
+        }
+        for (k, v) in [
+            ("history", &p.history),
+            ("churn", &p.churn),
+            ("permalink", &p.permalink),
+            ("editor", &p.editor),
+        ] {
+            if let Some(v) = v {
+                writeln!(f, "{k}: {v}")?;
+            }
+        }
+        if !p.atoms.is_empty() {
+            writeln!(f, ".kb: {}", p.atoms.join(" | "))?;
+        }
+        for n in &p.notes {
+            writeln!(f, "note: {n}")?;
+        }
+        Ok(())
+    }
 }
 
 /// Compact text within `cap` characters.
 #[must_use]
 pub(crate) fn render(p: &Pack, cap: usize) -> String {
-    let mut s = String::from("## ");
-    s.push_str(&p.item);
-    s.push_str(" context");
-    if let Some(a) = &p.anchor {
-        s.push_str(" · ");
-        s.push_str(a);
-    }
-    s.push('\n');
-    if let Some((start, lines)) = &p.excerpt {
-        s.push_str("```\n");
-        for (i, l) in lines.iter().enumerate() {
-            let n = (start + i).to_string();
-            s.push_str(&" ".repeat(4usize.saturating_sub(n.len())));
-            s.push_str(&n);
-            s.push(' ');
-            s.push_str(l);
-            s.push('\n');
-        }
-        s.push_str("```\n");
-    }
-    if let Some(sym) = &p.symbol {
-        s.push_str("symbol `");
-        s.push_str(sym);
-        s.push_str("`: ");
-        s.push_str(&p.references.unwrap_or(0).to_string());
-        s.push_str(" other reference(s)\n");
-    }
-    for (k, v) in [("call sites", &p.call_sites), ("tests", &p.tests)] {
-        if !v.is_empty() {
-            push_line(&mut s, k, &v.join(" | "));
-        }
-    }
-    for (k, v) in [
-        ("history", &p.history),
-        ("churn", &p.churn),
-        ("permalink", &p.permalink),
-        ("editor", &p.editor),
-    ] {
-        if let Some(v) = v {
-            push_line(&mut s, k, v);
-        }
-    }
-    if !p.atoms.is_empty() {
-        push_line(&mut s, ".kb", &p.atoms.join(" | "));
-    }
-    for n in &p.notes {
-        push_line(&mut s, "note", n);
-    }
+    let s = Text(p).to_string();
     if s.chars().count() > cap {
-        s = s.chars().take(cap.saturating_sub(12)).collect::<String>() + "\n[truncated]";
+        s.chars().take(cap.saturating_sub(12)).collect::<String>() + "\n[truncated]"
+    } else {
+        s
     }
-    s
 }
 
 #[cfg(test)]
@@ -441,6 +431,30 @@ mod tests {
         assert_eq!(
             symbol_on("    let overrides = policy.series_overrides();").as_deref(),
             Some("series_overrides")
+        );
+    }
+
+    #[test]
+    fn a_pack_renders_as_compact_text_within_its_cap() {
+        let pack = Pack {
+            item: "wi-000001".into(),
+            anchor: Some("src/a.rs:9".into()),
+            excerpt: Some((9, vec!["fn a() {}".into(), "fn b() {}".into()])),
+            symbol: Some("a".into()),
+            references: Some(2),
+            call_sites: vec!["src/b.rs:3".into(), "src/c.rs:4".into()],
+            history: Some("abc1234 add a".into()),
+            atoms: vec!["kb-0001".into()],
+            notes: vec!["one".into()],
+            ..Pack::default()
+        };
+        let text = "## wi-000001 context · src/a.rs:9\n```\n   9 fn a() {}\n  10 fn b() {}\n```\nsymbol `a`: 2 other reference(s)\ncall sites: src/b.rs:3 | src/c.rs:4\nhistory: abc1234 add a\n.kb: kb-0001\nnote: one\n";
+
+        assert_eq!(render(&pack, 1000), text);
+        assert_eq!(
+            render(&pack, 20),
+            "## wi-00\n[truncated]",
+            "cut to cap - 12 characters, then marked"
         );
     }
 }
