@@ -91,6 +91,14 @@ cannot download the binary, so it uses one in a connected folder (D-0012).
    [release](https://github.com/Wet-Ink-Corporation/weigh-in/releases) under Customize >
    Plugins. Do it again for each release.
 
+   Or, as the organization's Owner, sync this repository instead (Organization settings >
+   Plugins & skills > Add > Sync from GitHub, `Wet-Ink-Corporation/weigh-in`). `main`'s
+   `marketplace.json` points the plugin at the `marketplace` branch (B-19), so the sync delivers
+   the released build with its binaries, and there is nothing to upload. The sync runs on pushes
+   to `main`, but a release moves only the `marketplace` branch, so after each release select
+   **Sync now** on the marketplace's page (or let the next merge to `main` pick it up). Use one
+   route, not both.
+
 The plugin you upload also appears in Claude Code. If you installed from the marketplace branch
 too, you will see `/weigh-in` twice; remove one.
 

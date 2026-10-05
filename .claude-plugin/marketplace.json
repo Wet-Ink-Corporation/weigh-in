@@ -8,7 +8,12 @@
   "plugins": [
     {
       "name": "weigh",
-      "source": "./plugin",
+      "source": {
+        "source": "git-subdir",
+        "url": "Wet-Ink-Corporation/weigh-in",
+        "path": "plugin",
+        "ref": "marketplace"
+      },
       "description": "Decision ledger for agent sessions: capture, filter, and settle the questions agents leave behind."
     }
   ]

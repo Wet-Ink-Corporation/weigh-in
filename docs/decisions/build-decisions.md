@@ -419,3 +419,24 @@ from Cowork yet", `SKILL.md`), and the board from Cowork is slice 2
 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)). V2 tests a path v1 does not
 take, so it moves with that slice; the v1 exit criterion "every V-item is closed or has a
 recorded decision to defer it past 1.0" is met for V2 by this record.
+
+## B-19
+
+**`main`'s marketplace entry points at the `marketplace` branch.** 2026-10-05 · proposed by
+Claude, Ryan's to take · amends [D-0009](#d-0009) and v1-plan Phase 2 item 4.
+
+claude.ai's organization sync reads only a repository's default branch. With `main` listing
+`./plugin`, syncing this repository gave Cowork, and every Claude Code that receives synced
+plugins, the unreleased development tree: unstamped, no binaries, no `libexec/weighin.exe`
+([B-18](#b-18)). The entry is now a `git-subdir` source, `path: plugin`, `ref: marketplace`,
+which organization sync accepts for a private source with the same owner. The sync then
+delivers the released build and updates without an upload. `marketplace-branch.sh` rewrites the
+entry back to `./plugin` on that branch, and CI also validates `plugin/` directly, because
+`claude plugin validate .` no longer reads a relative-path plugin on `main`.
+
+What it costs: `/plugin marketplace add <checkout>` installs the release, not the working
+tree, so development uses `claude --plugin-dir <checkout>/plugin` (README). A release is picked up
+on the next push to `main` or a manual **Sync now**, not at the tag. Unverified until the first
+sync: that organization sync fetches a `git-subdir` source from a branch other than the default.
+Rejected: two entries (`weigh` from the branch, `weigh-dev` from `./plugin`), which syncs a second
+`/weigh-in` into every Cowork chat unless an Owner hides it.

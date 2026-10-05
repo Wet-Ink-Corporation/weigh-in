@@ -4,7 +4,8 @@
 #   scripts/marketplace-branch.sh dist/weigh-in-plugin-<version>.zip <dir>
 #
 # <dir> must not exist. It becomes a fresh git repository holding one commit:
-#   .claude-plugin/marketplace.json   this checkout's, whose plugin source is ./plugin
+#   .claude-plugin/marketplace.json   this checkout's, with the plugin's source rewritten to ./plugin
+#                                     (main's points at this branch, for claude.ai's org sync; B-19)
 #   plugin/                           the zip unpacked: stamped skill, hooks, launchers and the
 #                                     prebuilt binaries in libexec/<target>/, committed executable
 # Claude Code installs from it with `/plugin marketplace add Wet-Ink-Corporation/weigh-in#marketplace`,
@@ -20,11 +21,12 @@ out=$2
 [ ! -e "$out" ] || { echo "$out already exists" >&2; exit 1; }
 
 mkdir -p "$out/.claude-plugin" "$out/plugin"
-cp "$root/.claude-plugin/marketplace.json" "$out/.claude-plugin/"
+jq '.plugins |= map(.source = "./plugin")' "$root/.claude-plugin/marketplace.json" \
+  > "$out/.claude-plugin/marketplace.json"
 unzip -q "$zip" -d "$out/plugin"
 
 cd "$out"
-grep -q '"source": *"\./plugin"' .claude-plugin/marketplace.json \
+[ "$(jq -r '[.plugins[].source] | unique | join(",")' .claude-plugin/marketplace.json)" = "./plugin" ] \
   || { echo "marketplace.json must point its plugin at ./plugin" >&2; exit 1; }
 # claude.ai rejects hosted plugins with a top-level bin/ (B-03).
 [ ! -e plugin/bin ] || { echo "plugin/bin/ must not exist; binaries live in plugin/libexec/" >&2; exit 1; }

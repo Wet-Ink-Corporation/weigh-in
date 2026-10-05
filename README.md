@@ -69,8 +69,9 @@ is and what to do when capture is off. The rest of this section builds it from s
 pwsh scripts/build-plugin-bins.ps1        # x86_64-pc-windows-msvc
 ```
 
-Then in Claude Code: `/plugin marketplace add <path to this repo>` and
-`/plugin install weigh@weigh-in`. Type `/weigh-in` everywhere. Cowork and claude.ai list plugin
+Then start Claude Code with `claude --plugin-dir <path to this repo>/plugin`, which loads the
+working tree for that session. (`main`'s `marketplace.json` installs the released build from the
+`marketplace` branch, for claude.ai's organization sync, B-19.) Type `/weigh-in` everywhere. Cowork and claude.ai list plugin
 skills by the skill's own name (`/weigh-in`); Claude Code lists them as `/<plugin>:<skill>`
 (`/weigh:weigh-in`) but also resolves the bare name. A repo needs no setup; run
 `/weigh-in init client` first in client repos, which sets the board to `local`. From Claude Code's `!` prompt on Windows, which is Git Bash, use
