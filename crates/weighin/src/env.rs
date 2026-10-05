@@ -9,10 +9,10 @@ use crate::git;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct BoardConfig {
+pub(crate) struct BoardConfig {
     /// `artifact`, `local` or `off`.
-    pub mode: String,
-    pub url: Option<String>,
+    pub(crate) mode: String,
+    pub(crate) url: Option<String>,
 }
 
 impl Default for BoardConfig {
@@ -26,11 +26,11 @@ impl Default for BoardConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Caps {
-    pub chat_cards: usize,
-    pub board_focus: usize,
+pub(crate) struct Caps {
+    pub(crate) chat_cards: usize,
+    pub(crate) board_focus: usize,
     /// Upper bound on a context pack, in characters (about 600 tokens).
-    pub context_chars: usize,
+    pub(crate) context_chars: usize,
 }
 
 impl Default for Caps {
@@ -45,11 +45,11 @@ impl Default for Caps {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct ScanConfig {
-    pub markdown: bool,
-    pub todos: bool,
+pub(crate) struct ScanConfig {
+    pub(crate) markdown: bool,
+    pub(crate) todos: bool,
     /// Repo-relative path prefixes never scanned.
-    pub exclude: Vec<String>,
+    pub(crate) exclude: Vec<String>,
 }
 
 impl Default for ScanConfig {
@@ -72,18 +72,18 @@ impl Default for ScanConfig {
 /// `.kb/_ledger/config.json`, committed with the repo.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Config {
+pub(crate) struct Config {
     /// `own` or `client`. Client repos default to a local board (decision wi-7c21e4).
-    pub repo_class: String,
-    pub owner: String,
-    pub board: BoardConfig,
-    pub caps: Caps,
-    pub scan: ScanConfig,
+    pub(crate) repo_class: String,
+    pub(crate) owner: String,
+    pub(crate) board: BoardConfig,
+    pub(crate) caps: Caps,
+    pub(crate) scan: ScanConfig,
     /// Where the ledger lives, when not the default. Relative paths resolve against the folder
-    /// root; `~/` is the home directory. For a folder synced by OneDrive or Dropbox and used
+    /// root; `~/` is the home directory. For a folder synced by `OneDrive` or Dropbox and used
     /// from more than one computer, point this outside the synced tree.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub store: Option<String>,
+    pub(crate) store: Option<String>,
 }
 
 impl Default for Config {
@@ -100,10 +100,10 @@ impl Default for Config {
 }
 
 impl Config {
-    pub const PATH: &'static str = ".kb/_ledger/config.json";
+    pub(crate) const PATH: &'static str = ".kb/_ledger/config.json";
 
     #[must_use]
-    pub fn load(root: &Path) -> Self {
+    pub(crate) fn load(root: &Path) -> Self {
         std::fs::read_to_string(root.join(Self::PATH))
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -112,7 +112,7 @@ impl Config {
 
     /// # Errors
     /// Fails when the directory or file cannot be written.
-    pub fn save(&self, root: &Path) -> Result<PathBuf> {
+    pub(crate) fn save(&self, root: &Path) -> Result<PathBuf> {
         let p = root.join(Self::PATH);
         if let Some(d) = p.parent() {
             std::fs::create_dir_all(d)?;
@@ -123,23 +123,23 @@ impl Config {
 }
 
 #[derive(Debug, Clone)]
-pub struct Env {
-    pub cwd: PathBuf,
-    pub repo_root: Option<PathBuf>,
-    pub common_dir: Option<PathBuf>,
-    pub branch: Option<String>,
-    pub head: Option<String>,
-    pub worktree: Option<String>,
-    pub session: Option<String>,
-    pub config: Config,
+pub(crate) struct Env {
+    pub(crate) cwd: PathBuf,
+    pub(crate) repo_root: Option<PathBuf>,
+    pub(crate) common_dir: Option<PathBuf>,
+    pub(crate) branch: Option<String>,
+    pub(crate) head: Option<String>,
+    pub(crate) worktree: Option<String>,
+    pub(crate) session: Option<String>,
+    pub(crate) config: Config,
     /// `--store`, which wins over everything else.
-    pub store_override: Option<PathBuf>,
+    pub(crate) store_override: Option<PathBuf>,
 }
 
 /// Whether this process runs inside Cowork's cloud workspace, where the project directory is a
 /// scratch folder deleted with the session and the user's files are on their computer.
 #[must_use]
-pub fn cowork() -> bool {
+pub(crate) fn cowork() -> bool {
     std::env::var("CLAUDE_CODE_ENTRYPOINT").is_ok_and(|v| v == "remote_cowork")
 }
 
@@ -210,7 +210,7 @@ impl Env {
     /// Discover the environment from `cwd`. Outside a git repository the ledger lives in
     /// `<cwd>/.weighin/` (Cowork folders, scratch directories).
     #[must_use]
-    pub fn discover(cwd: &Path, session: Option<String>) -> Self {
+    pub(crate) fn discover(cwd: &Path, session: Option<String>) -> Self {
         let repo_root = git::run(cwd, &["rev-parse", "--show-toplevel"])
             .ok()
             .map(|s| PathBuf::from(s.trim()));
@@ -233,10 +233,10 @@ impl Env {
             .and_then(|r| r.file_name())
             .map(|n| n.to_string_lossy().into_owned());
         // An empty value, or a `${…}` a surface did not substitute, is no session.
-        let usable = |s: &String| !s.trim().is_empty() && !s.contains("${");
-        let var = |k: &str| std::env::var(k).ok().filter(usable);
+        let usable = |s: &str| !s.trim().is_empty() && !s.contains("${");
+        let var = |k: &str| std::env::var(k).ok().filter(|s| usable(s));
         let session = session
-            .filter(usable)
+            .filter(|s| usable(s))
             .or_else(|| var("WEIGHIN_SESSION"))
             .or_else(|| var("CLAUDE_SESSION_ID"))
             .or_else(|| var("CLAUDE_CODE_SESSION_ID"));
@@ -257,14 +257,14 @@ impl Env {
 
     /// Use `store` as the ledger, whatever the config and environment say.
     #[must_use]
-    pub fn with_store(mut self, store: Option<PathBuf>) -> Self {
+    pub(crate) fn with_store(mut self, store: Option<PathBuf>) -> Self {
         self.store_override = store;
         self
     }
 
     /// Where `.kb` atoms and the config live: the current worktree's root.
     #[must_use]
-    pub fn root(&self) -> PathBuf {
+    pub(crate) fn root(&self) -> PathBuf {
         self.repo_root.clone().unwrap_or_else(|| self.cwd.clone())
     }
 
@@ -272,7 +272,7 @@ impl Env {
     /// `<git-common-dir>/weighin/ledger.sqlite3`, shared by every worktree and never committed
     /// (decision wi-6e2a47); outside git, `<folder>/.weighin/ledger.sqlite3`.
     #[must_use]
-    pub fn store_path(&self) -> PathBuf {
+    pub(crate) fn store_path(&self) -> PathBuf {
         if let Some(p) = &self.store_override {
             return p.clone();
         }
@@ -299,14 +299,14 @@ impl Env {
 
     /// The directory holding the ledger: board exports and the hook error log go beside it.
     #[must_use]
-    pub fn state_dir(&self) -> PathBuf {
+    pub(crate) fn state_dir(&self) -> PathBuf {
         self.store_path()
             .parent()
             .map_or_else(|| self.root().join(".weighin"), Path::to_path_buf)
     }
 
     #[must_use]
-    pub fn envelope(&self, event: LedgerEvent, actor: &str) -> EventEnvelope {
+    pub(crate) fn envelope(&self, event: LedgerEvent, actor: &str) -> EventEnvelope {
         EventEnvelope {
             event,
             actor: actor.to_owned(),
@@ -319,13 +319,13 @@ impl Env {
     }
 
     #[must_use]
-    pub fn human(&self) -> String {
+    pub(crate) fn human(&self) -> String {
         format!("human:{}", self.config.owner)
     }
 
     /// Repo-relative, forward-slash form of a path the agent or a hook gave us.
     #[must_use]
-    pub fn relative(&self, p: &str) -> String {
+    pub(crate) fn relative(&self, p: &str) -> String {
         let path = Path::new(p);
         let root = self.root();
         let rel = if path.is_absolute() {
@@ -350,14 +350,14 @@ impl Env {
     /// [`Env::relative`] for a `path`, `path:line` or `path:line:col` anchor, keeping the
     /// position as given.
     #[must_use]
-    pub fn relative_anchor(&self, at: &str) -> String {
+    pub(crate) fn relative_anchor(&self, at: &str) -> String {
         let (path, position) = split_anchor(at);
         format!("{}{position}", self.relative(path))
     }
 
     /// # Errors
     /// Fails when the state directory cannot be created.
-    pub fn ensure_state_dir(&self) -> Result<PathBuf> {
+    pub(crate) fn ensure_state_dir(&self) -> Result<PathBuf> {
         let d = self.state_dir();
         std::fs::create_dir_all(&d).with_context(|| format!("creating {}", d.display()))?;
         Ok(d)
@@ -366,7 +366,7 @@ impl Env {
 
 /// RFC 3339 UTC, seconds precision.
 #[must_use]
-pub fn now() -> String {
+pub(crate) fn now() -> String {
     let t = time::OffsetDateTime::now_utc()
         .replace_nanosecond(0)
         .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
@@ -375,13 +375,13 @@ pub fn now() -> String {
 }
 
 #[must_use]
-pub fn today() -> String {
+pub(crate) fn today() -> String {
     now().chars().take(10).collect()
 }
 
 /// Seconds between two RFC 3339 stamps, when both parse and the second is later.
 #[must_use]
-pub fn seconds_between(a: &str, b: &str) -> Option<u64> {
+pub(crate) fn seconds_between(a: &str, b: &str) -> Option<u64> {
     let fmt = &time::format_description::well_known::Rfc3339;
     let a = time::OffsetDateTime::parse(a, fmt).ok()?;
     let b = time::OffsetDateTime::parse(b, fmt).ok()?;
@@ -390,7 +390,7 @@ pub fn seconds_between(a: &str, b: &str) -> Option<u64> {
 
 /// Human age of a stamp relative to now: `12m`, `3h`, `2d`.
 #[must_use]
-pub fn age(ts: &str) -> String {
+pub(crate) fn age(ts: &str) -> String {
     match seconds_between(ts, &now()) {
         Some(s) if s < 3600 => format!("{}m", s / 60),
         Some(s) if s < 172_800 => format!("{}h", s / 3600),
