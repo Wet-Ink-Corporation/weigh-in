@@ -10,7 +10,7 @@
 //! * status agreement = captured `capture` items whose first ledger item has `expect.status`
 //!
 //! The slice 1 exit criterion is precision of at least 80% (`docs/v1-plan.md`, Phase 3), measured
-//! on the real seed once it exists. `cargo test -p weighin --test eval_seed -- --nocapture` prints
+//! on the real seed once it exists. `cargo test -p weighin --test it eval_seed -- --nocapture` prints
 //! the scores.
 
 use serde::Deserialize;

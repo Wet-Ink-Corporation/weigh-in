@@ -30,7 +30,7 @@ None. This is a binary crate; its modules are private (`context`, `env`, `git`, 
 `anyhow` throughout, with `Context` on I/O, store and git failures. Domain rejections from `weighin-core` (`CardError`, `AnswerError`) are reported to the caller as they are. Exit codes: 0 on success; any error prints `weighin: <error chain>` to stderr and exits 1; `weighin hook` always exits 0, even on a panic (`main.rs`).
 
 ## Test strategy
-Unit tests sit beside the code in `env`, `store`, `context` and `git`. End-to-end tests in `tests/cli.rs` cover:
+Unit tests sit beside the code in `env`, `store`, `context` and `git`. End-to-end tests in `tests/it/cli.rs` cover:
 - a scratch repository;
 - hooks fed the JSON Claude Code sends;
 - a linked worktree;
