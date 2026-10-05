@@ -281,6 +281,22 @@ B-14), and only the tag is pushed, since the workflow creates the release.
 - **Step 5:** [#70](https://github.com/Wet-Ink-Corporation/weigh-in/pull/70) tightened the temper
   baseline to 721. No 0.9.x candidate yet.
 
+**Since 0.5.2 (2026-10-05).**
+- **Step 1:** still no V-item results on #16–#21; #21 waits on the Windows session with Git Bash
+  hidden.
+- **Step 2:** [#72](https://github.com/Wet-Ink-Corporation/weigh-in/pull/72) added the release
+  session's turns (s7). [#73](https://github.com/Wet-Ink-Corporation/weigh-in/pull/73) recorded two
+  sitting decisions: each cloud session saves its own end-of-turn messages to the seed before it
+  ends (wi-48657b), and `.claude/settings.json` allows the launcher so the skill's injected ledger
+  command runs in auto mode (wi-6b2fa5); it added s8, the first session on the 0.5.2 line. The
+  next session added s9. The seed holds 38 items, 4 of 10 `capture` items captured (precision 4 of
+  4); recall is 1 of 7 before 0.5.2 and 3 of 3 after (s8, s9). Labels still wait on Ryan's review, and the 80% bar on 10 captured items (wi-a9df17).
+- **Step 3:** no week posted on #23, so #25 is not triggered.
+- **V-items, walked through with Ryan on 2026-10-05:** V2 deferred to slice 2
+  ([B-17](decisions/build-decisions.md#b-17)). V1, V4 and V7's last check are Ryan's runs, V5 is
+  run from a cloud session, and V6 is checked in the desktop app and, with V1, in Cowork. Weeks
+  on #23 count from 2026-10-05.
+
 Exit criteria. These are the design's slice 1 exit criteria (two weeks or 30 presented items,
 whichever comes later), the same targets `weighin stats` prints, plus the release checks:
 

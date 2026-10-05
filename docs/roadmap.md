@@ -8,8 +8,9 @@ and 0.5.1 caps the board's defaults below the Artifact store's document limit an
 commands from creating a ledger. 0.5.2 tells agents to write one block per call when they list
 calls for the user ([#68](https://github.com/Wet-Ink-Corporation/weigh-in/issues/68), wi-357345).
 The sitting cost is recorded as a formula ([D-0016](decisions/build-decisions.md#d-0016)). The
-eval seed holds 32 items, its labels waiting on Ryan's review. The V-item checklists are posted on
-their issues, but none has been run, and no week of stats is in yet. The path from here to v1 is
+eval seed holds 38 items, 4 of its 10 `capture` items captured, its labels waiting on Ryan's review;
+each cloud session now saves its own turns to it (wi-48657b). As of 2026-10-05 the V-item
+checklists are posted on their issues, but none has been run, and no week of stats is in yet. The path from here to v1 is
 in [`v1-plan.md`](v1-plan.md).
 
 Open work is tracked as GitHub issues ([D-0011](decisions/build-decisions.md#d-0011)), in the order of
@@ -29,9 +30,9 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 | Id | What | Issue |
 |---|---|---|
 | V1 | Session identity in Cowork: whether `${CLAUDE_SESSION_ID}` is substituted in a synced skill | [#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16) |
-| V2 | ArtifactData reads and writes from Cowork | [#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17) |
+| V2 | ArtifactData reads and writes from Cowork. **Deferred to slice 2** on 2026-10-05 ([B-17](decisions/build-decisions.md#b-17)): the board does not run from Cowork in v1 | [#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17) |
 | V4 | Editor links (`vscode://file/…`) opened from inside an Artifact | [#18](https://github.com/Wet-Ink-Corporation/weigh-in/issues/18) |
-| V5 | Quotas of the board's `db` store. One document holds at most 256 KiB, which about 700 defaults overflowed; 0.5.1 caps the board at 200 ([#61](https://github.com/Wet-Ink-Corporation/weigh-in/pull/61)). The run that confirms the limit and the count caps is still to do | [#19](https://github.com/Wet-Ink-Corporation/weigh-in/issues/19) |
+| V5 | Quotas of the board's `db` store. One document holds at most 256 KiB, which about 700 defaults overflowed; 0.5.1 caps the board at 200 ([#61](https://github.com/Wet-Ink-Corporation/weigh-in/pull/61)). **Run 2026-10-05:** the limit is exactly 262,144 bytes; a 1,000-default ledger exports 59,678 bytes (200 shown) and round-trips through `ArtifactData`; the store allows 25,000 documents per artifact. Closes once the probe page is seen rendering | [#19](https://github.com/Wet-Ink-Corporation/weigh-in/issues/19) |
 | V6 | Previews in the desktop Code tab and the Cowork question card | [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20) |
 | V7 | The Windows binary from the installed plugin on Ryan's machine. **Verified 2026-10-03** ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)): installed from the `marketplace` branch, hooks fired under Git Bash, a sitting decided an item. Hooks without Git Bash: exec-form hooks from 0.5.0 ([B-16](decisions/build-decisions.md#b-16)), spiked on Linux, macOS and Windows; checked from the 0.5.0 release on 2026-10-03, including Cowork keeping the launcher's executable bit; still to confirm a marker captured on a Windows session without Git Bash | [#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21) |
 
