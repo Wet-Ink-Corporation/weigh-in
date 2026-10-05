@@ -6,13 +6,18 @@
 
 use serde::{Deserialize, Serialize};
 
+/// A question found by scanning text, not yet raised in the ledger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Candidate {
+    /// The question, cleaned of list markers, comment markers and tags.
     pub question: String,
     /// 1-based line within the scanned text.
     pub line: usize,
+    /// The question-style heading the bullet sat under; `None` for a code comment.
     pub heading: Option<String>,
+    /// The trimmed source line, kept as the item's verbatim quote.
     pub quote: String,
+    /// Found in a code comment (a `TODO`-style tag or "for now" prose) rather than a document.
     pub todo: bool,
 }
 
@@ -40,8 +45,10 @@ const HEADINGS: &[&str] = &[
 fn heading_level(line: &str) -> Option<(usize, String)> {
     let t = line.trim_start();
     let n = t.chars().take_while(|c| *c == '#').count();
-    if (1..=6).contains(&n) && t[n..].starts_with(' ') {
-        let text = t[n..]
+    // The `#` marks are one byte each, so trimming them leaves what `t[n..]` would.
+    let rest = t.trim_start_matches('#');
+    if (1..=6).contains(&n) && rest.starts_with(' ') {
+        let text = rest
             .trim()
             .trim_matches(|c: char| c == '*' || c == '_' || c == ':')
             .trim()
@@ -81,12 +88,7 @@ fn bullet_text(line: &str) -> Option<String> {
     {
         r
     } else {
-        let digits = t.chars().take_while(char::is_ascii_digit).count();
-        if digits > 0 && (t[digits..].starts_with(". ") || t[digits..].starts_with(") ")) {
-            &t[digits + 2..]
-        } else {
-            return None;
-        }
+        numbered_rest(t)?
     };
     // Checked boxes are resolved; unchecked or plain bullets are candidates.
     if rest.starts_with("[x]") || rest.starts_with("[X]") {
@@ -98,6 +100,52 @@ fn bullet_text(line: &str) -> Option<String> {
         return None;
     }
     Some(rest.to_owned())
+}
+
+/// The text after a `1. ` or `1) ` list number, or `None` when `t` does not start with one.
+fn numbered_rest(t: &str) -> Option<&str> {
+    let after_digits = t.trim_start_matches(|c: char| c.is_ascii_digit());
+    if after_digits.len() == t.len() {
+        return None;
+    }
+    after_digits
+        .strip_prefix(". ")
+        .or_else(|| after_digits.strip_prefix(") "))
+}
+
+/// The lines after `from` that wrap the bullet `first`, joined to it with single spaces.
+fn join_continuations(lines: &[&str], from: usize, first: String) -> String {
+    let mut full = first;
+    for next in lines.iter().skip(from) {
+        let nt = next.trim_start();
+        let nindent = next.len() - nt.len();
+        if nt.is_empty()
+            || nindent < 2
+            || bullet_text(next).is_some()
+            || nt.starts_with('#')
+            || nt.starts_with("```")
+        {
+            break;
+        }
+        full.push(' ');
+        full.push_str(nt.trim_end());
+    }
+    full
+}
+
+/// The question a joined bullet asks: its leading `**bold**` phrase when that is long enough to
+/// stand alone, else the whole bullet.
+fn bullet_question(full: &str) -> String {
+    let lead = if full.starts_with("**") {
+        full.trim_start_matches("**")
+            .split("**")
+            .next()
+            .unwrap_or(full)
+            .trim()
+    } else {
+        full
+    };
+    clean(if lead.len() < 8 { full } else { lead })
 }
 
 /// Bullets under question-style headings in markdown. A bullet's wrapped continuation lines are
@@ -135,38 +183,9 @@ pub fn scan_markdown(text: &str) -> Vec<Candidate> {
         let Some(first) = bullet_text(line) else {
             continue;
         };
-        let mut full = first;
-        for next in lines.iter().skip(i + 1) {
-            let nt = next.trim_start();
-            let nindent = next.len() - nt.len();
-            if nt.is_empty()
-                || nindent < 2
-                || bullet_text(next).is_some()
-                || nt.starts_with('#')
-                || nt.starts_with("```")
-            {
-                break;
-            }
-            full.push(' ');
-            full.push_str(nt.trim_end());
-        }
-        let question = if full.starts_with("**") {
-            full.trim_start_matches("**")
-                .split("**")
-                .next()
-                .unwrap_or(&full)
-                .trim()
-                .to_owned()
-        } else {
-            full.clone()
-        };
-        let question = if question.len() < 8 {
-            full.clone()
-        } else {
-            question
-        };
+        let full = join_continuations(&lines, i + 1, first);
         out.push(Candidate {
-            question: clean(&question),
+            question: bullet_question(&full),
             line: i + 1,
             heading: Some(heading.clone()),
             quote: line.trim().to_owned(),
@@ -187,45 +206,15 @@ pub fn scan_todos(text: &str) -> Vec<Candidate> {
         if line.contains("→ Weigh-In") {
             continue;
         }
-        let Some(pos) = comment_start(line) else {
+        let Some(comment) = comment_start(line).and_then(|pos| line.get(pos..)) else {
             continue;
         };
-        let comment = &line[pos..];
-        let upper = comment.to_ascii_uppercase();
-        let tag_hit = TODO_TAGS.iter().find_map(|t| {
-            upper.find(t).filter(|&p| {
-                let before_ok = p == 0 || !upper.as_bytes()[p - 1].is_ascii_alphanumeric();
-                let after = upper.as_bytes().get(p + t.len()).copied();
-                before_ok && !after.is_some_and(|c| c.is_ascii_alphanumeric())
-            })
-        });
-        let lower = comment.to_lowercase();
-        let prose_hit = [
-            "revisit later",
-            "revisit this",
-            "for now",
-            "temporary",
-            "temporarily",
-            "hardcoded for now",
-            "come back to",
-        ]
-        .iter()
-        .any(|p| lower.contains(p));
-        if tag_hit.is_none() && !prose_hit {
+        // Uppercasing ASCII keeps byte offsets, so an offset found in `upper` is valid in `comment`.
+        let tag_tail = tag_offset(&comment.to_ascii_uppercase()).and_then(|p| comment.get(p..));
+        if tag_tail.is_none() && !has_prose_hint(comment) {
             continue;
         }
-        let body = match tag_hit {
-            Some(p) => {
-                let after_tag = comment[p..].trim_start_matches(|c: char| c.is_ascii_alphabetic());
-                // TODO(owner): ... carries an owner, not part of the question.
-                let after_owner = match after_tag.strip_prefix('(') {
-                    Some(rest) => rest.split_once(')').map_or(rest, |(_, r)| r),
-                    None => after_tag,
-                };
-                after_owner.trim_start_matches([':', ' ', '-'])
-            }
-            None => comment,
-        };
+        let body = tag_tail.map_or(comment, after_tag_and_owner);
         let body = clean(body.trim_start_matches(['/', '#', '*', '-', ' ', '<', '!']));
         if body.len() < 4 {
             continue;
@@ -241,12 +230,54 @@ pub fn scan_todos(text: &str) -> Vec<Candidate> {
     out
 }
 
+/// Byte offset of the first tag in `upper` (an ASCII-uppercased comment) that stands alone as a
+/// word; a first hit inside a longer word hides later ones.
+fn tag_offset(upper: &str) -> Option<usize> {
+    TODO_TAGS.iter().find_map(|t| {
+        upper.find(t).filter(|&p| {
+            let before_ok = p
+                .checked_sub(1)
+                .and_then(|before| upper.as_bytes().get(before))
+                .is_none_or(|b| !b.is_ascii_alphanumeric());
+            let after = upper.as_bytes().get(p + t.len()).copied();
+            before_ok && !after.is_some_and(|c| c.is_ascii_alphanumeric())
+        })
+    })
+}
+
+/// "Revisit later" style prose, which counts as a deferral without a tag.
+fn has_prose_hint(comment: &str) -> bool {
+    let lower = comment.to_lowercase();
+    [
+        "revisit later",
+        "revisit this",
+        "for now",
+        "temporary",
+        "temporarily",
+        "hardcoded for now",
+        "come back to",
+    ]
+    .iter()
+    .any(|p| lower.contains(p))
+}
+
+/// What follows a tag, minus a `(owner)`: `TODO(owner): ...` carries an owner, which is not part
+/// of the question. `tail` starts at the tag.
+fn after_tag_and_owner(tail: &str) -> &str {
+    let after_tag = tail.trim_start_matches(|c: char| c.is_ascii_alphabetic());
+    let after_owner = match after_tag.strip_prefix('(') {
+        Some(rest) => rest.split_once(')').map_or(rest, |(_, r)| r),
+        None => after_tag,
+    };
+    after_owner.trim_start_matches([':', ' ', '-'])
+}
+
 fn comment_start(line: &str) -> Option<usize> {
     ["//", "#", "--", "/*", "<!--", "*", "'", "REM "]
         .iter()
         .filter_map(|m| {
             line.find(m)
-                .filter(|&p| m != &"*" || line[..p].trim().is_empty())
+                .filter(|&p| m != &"*" || line.get(..p).is_some_and(|s| s.trim().is_empty()))
         })
         .min()
 }
@@ -331,5 +362,84 @@ mod tests {
         assert_eq!(c.len(), 3, "{c:?}");
         assert_eq!(c[0].question, "decide whether to cache tokens per tenant");
         assert!(c.iter().all(|x| x.todo));
+    }
+    #[test]
+    fn heading_levels_run_from_one_to_six() {
+        for (hashes, expected) in [("#", 1), ("###", 3), ("######", 6)] {
+            assert_eq!(
+                heading_level(&format!("{hashes} Open questions")),
+                Some((expected, "Open questions".to_owned()))
+            );
+        }
+        assert_eq!(heading_level("####### Seven"), None);
+        assert_eq!(heading_level("#NoSpace"), None);
+        assert_eq!(
+            heading_level("  ## **Open questions:**"),
+            Some((2, "Open questions".to_owned()))
+        );
+        assert_eq!(
+            heading_level("**Assumptions:**"),
+            Some((7, "Assumptions".to_owned()))
+        );
+        assert_eq!(heading_level("****"), None);
+    }
+
+    #[test]
+    fn bullet_markers_and_numbers() {
+        assert_eq!(bullet_text("- a thing"), Some("a thing".to_owned()));
+        assert_eq!(bullet_text("* a thing"), Some("a thing".to_owned()));
+        assert_eq!(bullet_text("+ a thing"), Some("a thing".to_owned()));
+        assert_eq!(bullet_text("10. ten"), Some("ten".to_owned()));
+        assert_eq!(bullet_text("7) seven"), Some("seven".to_owned()));
+        assert_eq!(bullet_text("12 apples"), None);
+        assert_eq!(bullet_text("3.x"), None);
+        assert_eq!(bullet_text("3."), None);
+        assert_eq!(bullet_text("- [x] done"), None);
+        assert_eq!(bullet_text("- [ ] open"), Some("open".to_owned()));
+        assert_eq!(bullet_text("1. éé"), Some("éé".to_owned()));
+        assert_eq!(bullet_text("é. not a number"), None);
+    }
+
+    #[test]
+    fn a_short_bold_lead_falls_back_to_the_whole_bullet() {
+        let doc = "## Open questions\n- **Why?** Because the whole bullet says more than that.\n";
+        let c = scan_markdown(doc);
+        assert_eq!(c.len(), 1);
+        assert_eq!(
+            c[0].question,
+            "**Why?** Because the whole bullet says more than that."
+        );
+    }
+
+    #[test]
+    fn todo_tags_need_word_boundaries() {
+        assert!(scan_todos("// XTODO: not a tag here\n").is_empty());
+        assert!(scan_todos("// TODOS: not a tag here\n").is_empty());
+        let c = scan_todos("//TODO: first\n// xxx - second thing\n/* FIXME(ann): third thing */\n");
+        let q: Vec<&str> = c.iter().map(|x| x.question.as_str()).collect();
+        assert_eq!(q, ["first", "second thing", "third thing"]);
+    }
+
+    #[test]
+    fn star_comments_only_count_at_the_start_of_a_line() {
+        assert!(scan_todos("let a = b * c; TODO later\n").is_empty());
+        let c = scan_todos("  * TODO: wrapped javadoc style\n");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].question, "wrapped javadoc style");
+    }
+
+    #[test]
+    fn multibyte_text_around_comments_keeps_its_offsets() {
+        let c = scan_todos("let s = \"héllo\"; // ünï TODO(é): décide ça\n");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].question, "décide ça");
+        assert_eq!(c[0].line, 1);
+    }
+
+    #[test]
+    fn prose_comments_are_captured_whole() {
+        let c = scan_todos("x = 1  # temporary until the vendor ships\n");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].question, "temporary until the vendor ships");
     }
 }

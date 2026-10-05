@@ -1,17 +1,21 @@
-//! `.kb` atoms rendered from ledger items, valid against Redkiln's `KbFrontmatter`
-//! (`src/schema/kb.ts`): id, title, kind, status, authority_tier, summary, depends_on, related,
-//! source_paths, last_reviewed, plus decision-only fields. The schema is `.passthrough()`, so the
-//! Weigh-In lineage keys survive validation.
+//! `.kb` atoms rendered from ledger items.
+//!
+//! An atom is valid against Redkiln's `KbFrontmatter` (`src/schema/kb.ts`): `id`, `title`,
+//! `kind`, `status`, `authority_tier`, `summary`, `depends_on`, `related`, `source_paths` and
+//! `last_reviewed`, plus decision-only fields. The schema is `.passthrough()`, so the Weigh-In
+//! lineage keys survive validation.
 //!
 //! The body of a decision atom is MADR 4 (context, drivers, considered options, outcome,
 //! consequences, confirmation) plus "why this might be wrong". YAML strings are written as JSON
 //! strings, which are valid YAML scalars, so no value can break the frontmatter.
 
-use crate::card::Card;
+use crate::card::{Card, CardOption};
+use crate::event::Deferred;
 use crate::marker::Door;
-use crate::projection::Item;
+use crate::projection::{Decision, Item};
+use std::fmt::{self, Display, Formatter};
 
-/// Where an atom is written, relative to the repository root.
+/// Where a decision atom is written, relative to the repository root.
 #[must_use]
 pub fn decision_path(item: &Item) -> String {
     format!(
@@ -21,6 +25,7 @@ pub fn decision_path(item: &Item) -> String {
     )
 }
 
+/// Where an open-question atom is written, relative to the repository root.
 #[must_use]
 pub fn open_question_path(item: &Item) -> String {
     format!(
@@ -30,11 +35,13 @@ pub fn open_question_path(item: &Item) -> String {
     )
 }
 
+/// The `id` of the decision atom for an item.
 #[must_use]
 pub fn decision_atom_id(item: &Item) -> String {
     format!("kb-decision-{}", item.id)
 }
 
+/// The `id` of the open-question atom for an item.
 #[must_use]
 pub fn open_question_atom_id(item: &Item) -> String {
     format!("kb-open-question-{}", item.id)
@@ -58,8 +65,13 @@ pub fn slug(s: &str) -> String {
     if out.len() <= 48 {
         return out;
     }
-    let cut = &out[..48];
-    cut.rfind('-').map_or(cut, |i| &cut[..i]).to_owned()
+    // `out` holds only ASCII alphanumerics and `-`, so every offset is a char boundary and
+    // `get` never misses; the fallbacks keep the function total without a panic path.
+    let cut = out.get(..48).unwrap_or(&out);
+    cut.rfind('-')
+        .and_then(|i| cut.get(..i))
+        .unwrap_or(cut)
+        .to_owned()
 }
 
 /// A YAML-safe double-quoted scalar. JSON escaping covers C0 controls, quotes and backslashes;
@@ -69,7 +81,7 @@ fn q(s: &str) -> String {
     let json = serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into());
     json.chars()
         .map(|c| {
-            let u = c as u32;
+            let u = u32::from(c);
             if (0x7f..=0x9f).contains(&u) || matches!(u, 0x2028 | 0x2029 | 0xfffe | 0xffff) {
                 format!("\\u{u:04x}")
             } else {
@@ -140,14 +152,17 @@ pub fn y_statement(item: &Item) -> String {
         chosen_title
     );
     if !neglected.is_empty() {
-        s.push_str(&format!(" and neglected {}", neglected.join("; ")));
+        s.push_str(" and neglected ");
+        s.push_str(&neglected.join("; "));
     }
     if let Some(o) = chosen {
         if !o.holds_if.is_empty() {
-            s.push_str(&format!(", on the premise that {}", o.holds_if));
+            s.push_str(", on the premise that ");
+            s.push_str(&o.holds_if);
         }
         if !o.if_wrong.is_empty() {
-            s.push_str(&format!(", accepting that if wrong: {}", o.if_wrong));
+            s.push_str(", accepting that if wrong: ");
+            s.push_str(&o.if_wrong);
         }
     }
     s.push('.');
@@ -168,245 +183,715 @@ fn lower_first(s: &str) -> String {
     }
 }
 
+/// The item's own source path, then the caller's extras.
+fn source_list(item: &Item, ctx: &RenderContext) -> Vec<String> {
+    item.source_path
+        .iter()
+        .chain(&ctx.source_paths)
+        .cloned()
+        .collect()
+}
+
+/// A decision atom, written by its [`Display`] impl. Every write goes to the formatter with `?`,
+/// so no failure is discarded; the only error source is the sink, and a `String` has none.
+struct DecisionAtom<'a> {
+    item: &'a Item,
+    dec: &'a Decision,
+    ctx: &'a RenderContext,
+    card: Option<&'a Card>,
+    chosen: Option<&'a CardOption>,
+    title: String,
+}
+
+impl<'a> DecisionAtom<'a> {
+    fn new(item: &'a Item, dec: &'a Decision, ctx: &'a RenderContext) -> Self {
+        let card = item.card.as_ref();
+        let chosen = card.and_then(|c| c.option(&dec.option));
+        let title = match chosen {
+            Some(o) => o.title.clone(),
+            None => format!("{}: {}", item.question.trim_end_matches('?'), dec.option),
+        };
+        Self {
+            item,
+            dec,
+            ctx,
+            card,
+            chosen,
+            title,
+        }
+    }
+
+    fn frontmatter(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let related: Vec<String> = self
+            .item
+            .records
+            .iter()
+            .filter(|r| r.atom_kind == "open_question")
+            .map(|r| r.atom_id.clone())
+            .collect();
+        writeln!(f, "---")?;
+        writeln!(f, "id: {}", q(&decision_atom_id(self.item)))?;
+        writeln!(f, "title: {}", q(&self.title))?;
+        writeln!(
+            f,
+            "kind: decision\nstatus: accepted\nauthority_tier: decision"
+        )?;
+        writeln!(f, "summary: {}", q(&y_statement(self.item)))?;
+        writeln!(f, "depends_on: {}", list(&self.ctx.depends_on))?;
+        writeln!(f, "related: {}", list(&related))?;
+        writeln!(
+            f,
+            "source_paths: {}",
+            list(&source_list(self.item, self.ctx))
+        )?;
+        writeln!(f, "last_reviewed: {}", q(&self.ctx.date))?;
+        writeln!(f, "reversibility: {}", reversibility(self.item.door()))?;
+        writeln!(f, "phase: null\nsupersedes: []\nsuperseded_by: null")?;
+        self.decision_fields(f)?;
+        writeln!(f, "---\n")
+    }
+
+    fn decision_fields(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let (item, dec) = (self.item, self.dec);
+        writeln!(f, "weighin_item: {}", q(item.id.as_str()))?;
+        writeln!(f, "question: {}", q(&item.question))?;
+        writeln!(f, "door: {}", item.door().as_str())?;
+        if let Some(b) = item.blast {
+            writeln!(f, "blast_radius: {}", b.as_str())?;
+        }
+        writeln!(f, "decider: {}", q(&dec.decider))?;
+        writeln!(f, "provenance: {}", dec.provenance.as_str())?;
+        writeln!(f, "decided_at: {}", q(&dec.ts))?;
+        if let Some(t) = &dec.tree_hash {
+            writeln!(f, "tree_hash: {}", q(t))?;
+        }
+        if let Some(r) = self.card.map(|c| &c.recommendation) {
+            writeln!(f, "recommended: {}", q(&r.option))?;
+            if !r.flip.is_empty() {
+                writeln!(f, "flip_condition: {}", q(&r.flip))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn problem(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let item = self.item;
+        writeln!(f, "# {}\n", self.title)?;
+        writeln!(f, "## Context and problem statement\n")?;
+        writeln!(f, "{}\n", item.question)?;
+        if let Some(c) = self.card
+            && !c.why.is_empty()
+        {
+            writeln!(f, "{}\n", c.why)?;
+        }
+        write!(
+            f,
+            "Raised by an agent ({}) as a {} and captured by Weigh-In as `{}`.",
+            item.channel.as_str(),
+            item.kind.as_str(),
+            item.id
+        )?;
+        if let Some(at) = &item.at {
+            write!(f, " Anchor: `{at}`.")?;
+        }
+        writeln!(f, "\n")
+    }
+
+    fn outcome(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let dec = self.dec;
+        writeln!(f, "## Decision outcome\n")?;
+        write!(
+            f,
+            "Chosen option: **{}**",
+            self.chosen
+                .map_or(dec.option.as_str(), |o| o.title.as_str())
+        )?;
+        match dec.matched_recommendation {
+            Some(true) => f.write_str(", the recommended option.")?,
+            Some(false) => write!(
+                f,
+                ", overriding the recommendation ({}).",
+                self.card.map_or("?", |c| c.recommendation.option.as_str())
+            )?,
+            None => f.write_str(".")?,
+        }
+        writeln!(f, "\n")?;
+        if !dec.note.is_empty() {
+            writeln!(f, "Decider's note: {}\n", dec.note)?;
+        }
+        Ok(())
+    }
+
+    fn consequences(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let Some(o) = self.chosen else {
+            return Ok(());
+        };
+        writeln!(f, "### Consequences\n")?;
+        if !o.holds_if.is_empty() {
+            writeln!(
+                f,
+                "- Good, because it holds if {}.",
+                o.holds_if.trim_end_matches('.')
+            )?;
+        }
+        if !o.if_wrong.is_empty() {
+            writeln!(
+                f,
+                "- Bad, because if wrong: {}.",
+                o.if_wrong.trim_end_matches('.')
+            )?;
+        }
+        writeln!(f)
+    }
+
+    fn confirmation(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let Some(c) = self.card else {
+            return Ok(());
+        };
+        writeln!(f, "### Confirmation\n")?;
+        if c.recommendation.flip.is_empty() {
+            writeln!(f, "Revisit if the premises above stop holding.\n")?;
+        } else {
+            writeln!(f, "Revisit when: {}\n", c.recommendation.flip)?;
+        }
+        if !c.recommendation.why_wrong.is_empty() {
+            writeln!(
+                f,
+                "## Why this might be wrong\n\n{}\n",
+                c.recommendation.why_wrong
+            )?;
+        }
+        Ok(())
+    }
+
+    fn provenance(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let (item, dec) = (self.item, self.dec);
+        writeln!(f, "## Provenance\n")?;
+        writeln!(
+            f,
+            "- Decided {} by {} ({}), via {}.",
+            dec.ts,
+            dec.decider,
+            dec.provenance.as_str(),
+            dec.via
+        )?;
+        if let Some(s) = &item.session_id {
+            writeln!(f, "- Raised in session `{s}`.")?;
+        }
+        writeln!(
+            f,
+            "- Verbatim: {}",
+            q(item.quote.lines().next().unwrap_or(""))
+        )
+    }
+}
+
+impl Display for DecisionAtom<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.frontmatter(f)?;
+        self.problem(f)?;
+        if let Some(c) = self.card {
+            write_card_sections(f, c, &self.dec.option)?;
+        }
+        self.outcome(f)?;
+        self.consequences(f)?;
+        self.confirmation(f)?;
+        self.provenance(f)
+    }
+}
+
 /// Render the decision atom for a decided item.
 #[must_use]
 pub fn render_decision(item: &Item, ctx: &RenderContext) -> Option<String> {
     let dec = item.decision.as_ref()?;
-    let card = item.card.as_ref();
-    let chosen = card.and_then(|c| c.option(&dec.option));
-    let title = match chosen {
-        Some(o) => o.title.clone(),
-        None => format!("{}: {}", item.question.trim_end_matches('?'), dec.option),
-    };
-    let mut sources = Vec::new();
-    if let Some(p) = &item.source_path {
-        sources.push(p.clone());
-    }
-    sources.extend(ctx.source_paths.iter().cloned());
-    let related: Vec<String> = item
-        .records
-        .iter()
-        .filter(|r| r.atom_kind == "open_question")
-        .map(|r| r.atom_id.clone())
-        .collect();
-
-    let mut fm = String::from("---\n");
-    fm.push_str(&format!("id: {}\n", q(&decision_atom_id(item))));
-    fm.push_str(&format!("title: {}\n", q(&title)));
-    fm.push_str("kind: decision\nstatus: accepted\nauthority_tier: decision\n");
-    fm.push_str(&format!("summary: {}\n", q(&y_statement(item))));
-    fm.push_str(&format!("depends_on: {}\n", list(&ctx.depends_on)));
-    fm.push_str(&format!("related: {}\n", list(&related)));
-    fm.push_str(&format!("source_paths: {}\n", list(&sources)));
-    fm.push_str(&format!("last_reviewed: {}\n", q(&ctx.date)));
-    fm.push_str(&format!("reversibility: {}\n", reversibility(item.door())));
-    fm.push_str("phase: null\nsupersedes: []\nsuperseded_by: null\n");
-    fm.push_str(&format!("weighin_item: {}\n", q(item.id.as_str())));
-    fm.push_str(&format!("question: {}\n", q(&item.question)));
-    fm.push_str(&format!("door: {}\n", item.door().as_str()));
-    if let Some(b) = item.blast {
-        fm.push_str(&format!("blast_radius: {}\n", b.as_str()));
-    }
-    fm.push_str(&format!("decider: {}\n", q(&dec.decider)));
-    fm.push_str(&format!("provenance: {}\n", dec.provenance.as_str()));
-    fm.push_str(&format!("decided_at: {}\n", q(&dec.ts)));
-    if let Some(t) = &dec.tree_hash {
-        fm.push_str(&format!("tree_hash: {}\n", q(t)));
-    }
-    if let Some(r) = card.map(|c| &c.recommendation) {
-        fm.push_str(&format!("recommended: {}\n", q(&r.option)));
-        if !r.flip.is_empty() {
-            fm.push_str(&format!("flip_condition: {}\n", q(&r.flip)));
-        }
-    }
-    fm.push_str("---\n\n");
-
-    let mut b = String::new();
-    b.push_str(&format!("# {title}\n\n"));
-    b.push_str("## Context and problem statement\n\n");
-    b.push_str(&format!("{}\n\n", item.question));
-    if let Some(c) = card
-        && !c.why.is_empty()
-    {
-        b.push_str(&format!("{}\n\n", c.why));
-    }
-    b.push_str(&format!(
-        "Raised by an agent ({}) as a {} and captured by Weigh-In as `{}`.",
-        item.channel.as_str(),
-        item.kind.as_str(),
-        item.id
-    ));
-    if let Some(at) = &item.at {
-        b.push_str(&format!(" Anchor: `{at}`."));
-    }
-    b.push_str("\n\n");
-    if let Some(c) = card {
-        write_card_sections(&mut b, c, &dec.option);
-    }
-    b.push_str("## Decision outcome\n\n");
-    b.push_str(&format!(
-        "Chosen option: **{}**",
-        chosen.map_or(dec.option.as_str(), |o| o.title.as_str())
-    ));
-    match dec.matched_recommendation {
-        Some(true) => b.push_str(", the recommended option."),
-        Some(false) => b.push_str(&format!(
-            ", overriding the recommendation ({}).",
-            card.map_or("?", |c| c.recommendation.option.as_str())
-        )),
-        None => b.push('.'),
-    }
-    b.push_str("\n\n");
-    if !dec.note.is_empty() {
-        b.push_str(&format!("Decider's note: {}\n\n", dec.note));
-    }
-    if let Some(o) = chosen {
-        b.push_str("### Consequences\n\n");
-        if !o.holds_if.is_empty() {
-            b.push_str(&format!(
-                "- Good, because it holds if {}.\n",
-                o.holds_if.trim_end_matches('.')
-            ));
-        }
-        if !o.if_wrong.is_empty() {
-            b.push_str(&format!(
-                "- Bad, because if wrong: {}.\n",
-                o.if_wrong.trim_end_matches('.')
-            ));
-        }
-        b.push('\n');
-    }
-    if let Some(c) = card {
-        b.push_str("### Confirmation\n\n");
-        if c.recommendation.flip.is_empty() {
-            b.push_str("Revisit if the premises above stop holding.\n\n");
-        } else {
-            b.push_str(&format!("Revisit when: {}\n\n", c.recommendation.flip));
-        }
-        if !c.recommendation.why_wrong.is_empty() {
-            b.push_str(&format!(
-                "## Why this might be wrong\n\n{}\n\n",
-                c.recommendation.why_wrong
-            ));
-        }
-    }
-    b.push_str("## Provenance\n\n");
-    b.push_str(&format!(
-        "- Decided {} by {} ({}), via {}.\n",
-        dec.ts,
-        dec.decider,
-        dec.provenance.as_str(),
-        dec.via
-    ));
-    if let Some(s) = &item.session_id {
-        b.push_str(&format!("- Raised in session `{s}`.\n"));
-    }
-    b.push_str(&format!(
-        "- Verbatim: {}\n",
-        q(item.quote.lines().next().unwrap_or(""))
-    ));
-    Some(fm + &b)
+    // `to_string` panics only when the `Display` impl errs, and this one errs only when its
+    // sink does; a `String` sink never fails.
+    Some(DecisionAtom::new(item, dec, ctx).to_string())
 }
 
-fn write_card_sections(b: &mut String, c: &Card, chosen: &str) {
+/// Document sections shared by both atoms: drivers, every considered option, evidence. `chosen`
+/// is the id of the option to mark, or empty when none is chosen.
+fn write_card_sections(f: &mut Formatter<'_>, c: &Card, chosen: &str) -> fmt::Result {
     if !c.criteria.is_empty() {
-        b.push_str("## Decision drivers\n\n");
+        writeln!(f, "## Decision drivers\n")?;
         for cr in &c.criteria {
-            b.push_str(&format!("- {}\n", cr.name));
+            writeln!(f, "- {}", cr.name)?;
         }
-        b.push('\n');
+        writeln!(f)?;
     }
-    b.push_str("## Considered options\n\n");
+    writeln!(f, "## Considered options\n")?;
     for o in &c.options {
-        let mark = if o.id == chosen { " (chosen)" } else { "" };
-        b.push_str(&format!("### {} · {}{}\n\n", o.id, o.title, mark));
-        if !o.summary.is_empty() {
-            b.push_str(&format!("{}\n\n", o.summary));
-        }
-        if !o.holds_if.is_empty() {
-            b.push_str(&format!(
-                "- Holds if {}.\n",
-                o.holds_if.trim_end_matches('.')
-            ));
-        }
-        if !o.if_wrong.is_empty() {
-            b.push_str(&format!(
-                "- If wrong: {}.\n",
-                o.if_wrong.trim_end_matches('.')
-            ));
-        }
-        if let Some(m) = &o.fails_must {
-            b.push_str(&format!("- Fails a MUST: {m}.\n"));
-        }
-        b.push('\n');
+        write_option(f, o, chosen)?;
     }
     if !c.evidence.is_empty() {
-        b.push_str("## Evidence\n\n");
+        writeln!(f, "## Evidence\n")?;
         for e in &c.evidence {
-            b.push_str(&format!("- `{}`: {}\n", e.src, e.text));
+            writeln!(f, "- `{}`: {}", e.src, e.text)?;
         }
-        b.push('\n');
+        writeln!(f)?;
+    }
+    Ok(())
+}
+
+fn write_option(f: &mut Formatter<'_>, o: &CardOption, chosen: &str) -> fmt::Result {
+    let mark = if o.id == chosen { " (chosen)" } else { "" };
+    writeln!(f, "### {} · {}{}\n", o.id, o.title, mark)?;
+    if !o.summary.is_empty() {
+        writeln!(f, "{}\n", o.summary)?;
+    }
+    if !o.holds_if.is_empty() {
+        writeln!(f, "- Holds if {}.", o.holds_if.trim_end_matches('.'))?;
+    }
+    if !o.if_wrong.is_empty() {
+        writeln!(f, "- If wrong: {}.", o.if_wrong.trim_end_matches('.'))?;
+    }
+    if let Some(m) = &o.fails_must {
+        writeln!(f, "- Fails a MUST: {m}.")?;
+    }
+    writeln!(f)
+}
+
+/// A tracking atom for a deferred item, written by its [`Display`] impl.
+struct OpenQuestionAtom<'a> {
+    item: &'a Item,
+    deferral: &'a Deferred,
+    ctx: &'a RenderContext,
+}
+
+impl OpenQuestionAtom<'_> {
+    fn frontmatter(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let (item, d) = (self.item, self.deferral);
+        writeln!(f, "---")?;
+        writeln!(f, "id: {}", q(&open_question_atom_id(item)))?;
+        writeln!(f, "title: {}", q(&item.question))?;
+        writeln!(
+            f,
+            "kind: open_question\nstatus: proposed\nauthority_tier: note"
+        )?;
+        writeln!(
+            f,
+            "summary: {}",
+            q(&format!(
+                "Open until {}: {}. Default if unresolved: {}.",
+                d.trigger, item.question, d.default_option
+            ))
+        )?;
+        writeln!(f, "depends_on: {}", list(&self.ctx.depends_on))?;
+        writeln!(f, "related: []")?;
+        writeln!(f, "source_paths: {}", list(&source_list(item, self.ctx)))?;
+        writeln!(f, "last_reviewed: {}", q(&self.ctx.date))?;
+        writeln!(f, "tracks: {}", q(item.id.as_str()))?;
+        writeln!(f, "resolve_by: {}", q(&d.resolve_by))?;
+        writeln!(f, "trigger: {}", q(&d.trigger))?;
+        writeln!(f, "default_if_unresolved: {}", q(&d.default_option))?;
+        writeln!(f, "owner: {}", q(&d.owner))?;
+        writeln!(f, "flip_condition: {}", q(&d.flip))?;
+        writeln!(f, "---\n")
+    }
+}
+
+impl Display for OpenQuestionAtom<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let d = self.deferral;
+        self.frontmatter(f)?;
+        writeln!(f, "# {}\n", self.item.question)?;
+        writeln!(
+            f,
+            "Deferred on purpose. Waiting for: {}. Resolve by: {}. If nobody acts, **{}** applies.\n",
+            d.trigger, d.resolve_by, d.default_option
+        )?;
+        if let Some(c) = &self.item.card {
+            write_card_sections(f, c, "")?;
+        }
+        Ok(())
     }
 }
 
 /// Render the tracking atom for a one-way item deferred past its session.
 #[must_use]
 pub fn render_open_question(item: &Item, ctx: &RenderContext) -> Option<String> {
-    let d = item.deferral.as_ref()?;
-    let mut fm = String::from("---\n");
-    fm.push_str(&format!("id: {}\n", q(&open_question_atom_id(item))));
-    fm.push_str(&format!("title: {}\n", q(&item.question)));
-    fm.push_str("kind: open_question\nstatus: proposed\nauthority_tier: note\n");
-    fm.push_str(&format!(
-        "summary: {}\n",
-        q(&format!(
-            "Open until {}: {}. Default if unresolved: {}.",
-            d.trigger, item.question, d.default_option
-        ))
-    ));
-    fm.push_str(&format!("depends_on: {}\n", list(&ctx.depends_on)));
-    fm.push_str("related: []\n");
-    fm.push_str(&format!(
-        "source_paths: {}\n",
-        list(
-            &item
-                .source_path
-                .iter()
-                .cloned()
-                .chain(ctx.source_paths.iter().cloned())
-                .collect::<Vec<_>>()
-        )
-    ));
-    fm.push_str(&format!("last_reviewed: {}\n", q(&ctx.date)));
-    fm.push_str(&format!("tracks: {}\n", q(item.id.as_str())));
-    fm.push_str(&format!("resolve_by: {}\n", q(&d.resolve_by)));
-    fm.push_str(&format!("trigger: {}\n", q(&d.trigger)));
-    fm.push_str(&format!(
-        "default_if_unresolved: {}\n",
-        q(&d.default_option)
-    ));
-    fm.push_str(&format!("owner: {}\n", q(&d.owner)));
-    fm.push_str(&format!("flip_condition: {}\n", q(&d.flip)));
-    fm.push_str("---\n\n");
-    let mut b = format!("# {}\n\n", item.question);
-    b.push_str(&format!(
-        "Deferred on purpose. Waiting for: {}. Resolve by: {}. If nobody acts, **{}** applies.\n\n",
-        d.trigger, d.resolve_by, d.default_option
-    ));
-    if let Some(c) = &item.card {
-        write_card_sections(&mut b, c, "");
-    }
-    Some(fm + &b)
+    let deferral = item.deferral.as_ref()?;
+    // As in `render_decision`: the `String` sink cannot fail, so `to_string` cannot panic.
+    Some(
+        OpenQuestionAtom {
+            item,
+            deferral,
+            ctx,
+        }
+        .to_string(),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::card::{CardOption, Recommendation};
+    use crate::card::Recommendation;
     use crate::event::*;
     use crate::id::ItemId;
     use crate::marker::{Authority, Kind};
     use crate::projection::Ledger;
+
+    const GOLDEN_DECISION: &str = r#"---
+id: "kb-decision-wi-4dfe38"
+title: "Common-dir store"
+kind: decision
+status: accepted
+authority_tier: decision
+summary: "In the context of \"Where should the ledger live?\", facing it fixes the merge story, we decided for Common-dir store and neglected Committed files: with a colon, on the premise that open items can stay local, accepting that if wrong: a lost clone loses open items."
+depends_on: []
+related: []
+source_paths: []
+last_reviewed: "2026-09-26"
+reversibility: high
+phase: null
+supersedes: []
+superseded_by: null
+weighin_item: "wi-4dfe38"
+question: "Where should the ledger live?"
+door: two-way
+decider: "human:ryan"
+provenance: user-approved
+decided_at: "2026-09-26T18:00:00Z"
+tree_hash: "abc"
+recommended: "A"
+flip_condition: "others need open items"
+---
+
+# Common-dir store
+
+## Context and problem statement
+
+Where should the ledger live?
+
+It fixes the merge story.
+
+Raised by an agent (marker) as a question and captured by Weigh-In as `wi-4dfe38`. Anchor: `src/a.rs:3`.
+
+## Considered options
+
+### A · Common-dir store (chosen)
+
+- Holds if open items can stay local.
+- If wrong: a lost clone loses open items.
+
+### B · Committed files: with a colon
+
+
+## Decision outcome
+
+Chosen option: **Common-dir store**, the recommended option.
+
+### Consequences
+
+- Good, because it holds if open items can stay local.
+- Bad, because if wrong: a lost clone loses open items.
+
+### Confirmation
+
+Revisit when: others need open items
+
+## Provenance
+
+- Decided 2026-09-26T18:00:00Z by human:ryan (user-approved), via board.
+- Raised in session `s`.
+- Verbatim: "q: \"Where\" should the ledger live?"
+"#;
+
+    const GOLDEN_DECISION_RICH: &str = r#"---
+id: "kb-decision-wi-4dfe38"
+title: "Committed files: with a colon"
+kind: decision
+status: accepted
+authority_tier: decision
+summary: "In the context of \"Where should the ledger live?\", facing it fixes the merge story, we decided for Committed files: with a colon and neglected Common-dir store, on the premise that files stay small., accepting that if wrong: merges conflict.."
+depends_on: ["kb-decision-z"]
+related: ["kb-open-question-x"]
+source_paths: ["docs/plan.md", "https://example.test/pr/1"]
+last_reviewed: "2026-09-26"
+reversibility: high
+phase: null
+supersedes: []
+superseded_by: null
+weighin_item: "wi-4dfe38"
+question: "Where should the ledger live?"
+door: two-way
+blast_radius: module
+decider: "human:ryan"
+provenance: user-approved
+decided_at: "2026-09-26T18:00:00Z"
+tree_hash: "abc"
+recommended: "A"
+flip_condition: "others need open items"
+---
+
+# Committed files: with a colon
+
+## Context and problem statement
+
+Where should the ledger live?
+
+It fixes the merge story.
+
+Raised by an agent (marker) as a question and captured by Weigh-In as `wi-4dfe38`. Anchor: `src/a.rs:3`.
+
+## Decision drivers
+
+- Merge story
+
+## Considered options
+
+### A · Common-dir store
+
+Keep it beside the repository.
+
+- Holds if open items can stay local.
+- If wrong: a lost clone loses open items.
+- Fails a MUST: must survive a clone.
+
+### B · Committed files: with a colon (chosen)
+
+- Holds if files stay small.
+- If wrong: merges conflict.
+
+## Evidence
+
+- `src/a.rs:3`: the store path is derived here
+
+## Decision outcome
+
+Chosen option: **Committed files: with a colon**, overriding the recommendation (A).
+
+Decider's note: Ship it, then measure.
+
+### Consequences
+
+- Good, because it holds if files stay small.
+- Bad, because if wrong: merges conflict.
+
+### Confirmation
+
+Revisit when: others need open items
+
+## Why this might be wrong
+
+the store may move
+
+## Provenance
+
+- Decided 2026-09-26T18:00:00Z by human:ryan (user-approved), via board.
+- Raised in session `sess-1`.
+- Verbatim: "q: \"Where\" should the ledger live?"
+"#;
+
+    const GOLDEN_DECISION_NO_CARD: &str = r#"---
+id: "kb-decision-wi-4dfe38"
+title: "Where should the ledger live: Z"
+kind: decision
+status: accepted
+authority_tier: decision
+summary: "In the context of \"Where should the ledger live?\", facing the question an agent raised, we decided for Z."
+depends_on: []
+related: []
+source_paths: []
+last_reviewed: "2026-09-26"
+reversibility: high
+phase: null
+supersedes: []
+superseded_by: null
+weighin_item: "wi-4dfe38"
+question: "Where should the ledger live?"
+door: two-way
+decider: "human:ryan"
+provenance: user-approved
+decided_at: "2026-09-26T18:00:00Z"
+tree_hash: "abc"
+---
+
+# Where should the ledger live: Z
+
+## Context and problem statement
+
+Where should the ledger live?
+
+Raised by an agent (marker) as a question and captured by Weigh-In as `wi-4dfe38`. Anchor: `src/a.rs:3`.
+
+## Decision outcome
+
+Chosen option: **Z**.
+
+## Provenance
+
+- Decided 2026-09-26T18:00:00Z by human:ryan (user-approved), via board.
+- Raised in session `s`.
+- Verbatim: "q: \"Where\" should the ledger live?"
+"#;
+
+    const GOLDEN_DECISION_OVERRIDE_NO_CARD: &str = r#"---
+id: "kb-decision-wi-4dfe38"
+title: "Where should the ledger live: A"
+kind: decision
+status: accepted
+authority_tier: decision
+summary: "In the context of \"Where should the ledger live?\", facing the question an agent raised, we decided for A."
+depends_on: []
+related: []
+source_paths: []
+last_reviewed: "2026-09-26"
+reversibility: high
+phase: null
+supersedes: []
+superseded_by: null
+weighin_item: "wi-4dfe38"
+question: "Where should the ledger live?"
+door: two-way
+decider: "human:ryan"
+provenance: user-approved
+decided_at: "2026-09-26T18:00:00Z"
+tree_hash: "abc"
+---
+
+# Where should the ledger live: A
+
+## Context and problem statement
+
+Where should the ledger live?
+
+Raised by an agent (marker) as a question and captured by Weigh-In as `wi-4dfe38`. Anchor: `src/a.rs:3`.
+
+## Decision outcome
+
+Chosen option: **A**, overriding the recommendation (?).
+
+## Provenance
+
+- Decided 2026-09-26T18:00:00Z by human:ryan (user-approved), via board.
+- Raised in session `s`.
+- Verbatim: "q: \"Where\" should the ledger live?"
+"#;
+
+    const GOLDEN_OPEN_QUESTION: &str = r#"---
+id: "kb-open-question-wi-4dfe38"
+title: "Where should the ledger live?"
+kind: open_question
+status: proposed
+authority_tier: note
+summary: "Open until the pilot ends: Where should the ledger live?. Default if unresolved: A."
+depends_on: []
+related: []
+source_paths: ["docs/plan.md"]
+last_reviewed: "2026-09-26"
+tracks: "wi-4dfe38"
+resolve_by: "before-release"
+trigger: "the pilot ends"
+default_if_unresolved: "A"
+owner: "human:ryan"
+flip_condition: "a tenant needs per-record legal hold"
+---
+
+# Where should the ledger live?
+
+Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If nobody acts, **A** applies.
+
+## Considered options
+
+### A · Common-dir store
+
+- Holds if open items can stay local.
+- If wrong: a lost clone loses open items.
+
+### B · Committed files: with a colon
+
+
+"#;
+
+    const GOLDEN_OPEN_QUESTION_NO_CARD: &str = r#"---
+id: "kb-open-question-wi-4dfe38"
+title: "Where should the ledger live?"
+kind: open_question
+status: proposed
+authority_tier: note
+summary: "Open until the pilot ends: Where should the ledger live?. Default if unresolved: A."
+depends_on: ["kb-decision-z"]
+related: []
+source_paths: ["docs/plan.md", "https://example.test/pr/1"]
+last_reviewed: "2026-09-26"
+tracks: "wi-4dfe38"
+resolve_by: "before-release"
+trigger: "the pilot ends"
+default_if_unresolved: "A"
+owner: "human:ryan"
+flip_condition: "a tenant needs per-record legal hold"
+---
+
+# Where should the ledger live?
+
+Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If nobody acts, **A** applies.
+
+"#;
+
+    fn raised_event(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::ItemRaised(Raised {
+            item_id: id.clone(),
+            kind: Kind::Question,
+            question: "Where should the ledger live?".into(),
+            did: None,
+            flip: None,
+            at: Some("src/a.rs:3".into()),
+            sym: None,
+            blocks: None,
+            door_hint: Door::TwoWay,
+            authority_hint: Authority::Authority,
+            channel: Channel::Marker,
+            quote: "q: \"Where\" should the ledger live?".into(),
+            source_path: None,
+            source_line: None,
+        })
+    }
+
+    fn grounded_event(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::ItemGrounded(Grounded {
+            item_id: id.clone(),
+            card: Card {
+                why: "It fixes the merge story.".into(),
+                options: vec![
+                    CardOption {
+                        id: "A".into(),
+                        title: "Common-dir store".into(),
+                        holds_if: "open items can stay local".into(),
+                        if_wrong: "a lost clone loses open items".into(),
+                        ..Default::default()
+                    },
+                    CardOption {
+                        id: "B".into(),
+                        title: "Committed files: with a colon".into(),
+                        ..Default::default()
+                    },
+                ],
+                recommendation: Recommendation {
+                    option: "A".into(),
+                    flip: "others need open items".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            reason: "grounded".into(),
+        })
+    }
+
+    fn decided_event(id: &ItemId) -> LedgerEvent {
+        LedgerEvent::ItemDecided(Decided {
+            item_id: id.clone(),
+            option: "A".into(),
+            decider: "human:ryan".into(),
+            provenance: Provenance::UserApproved,
+            note: String::new(),
+            tree_hash: Some("abc".into()),
+            matched_recommendation: Some(true),
+            via: "board".into(),
+            seconds_to_decide: Some(29),
+            reason: "chose".into(),
+        })
+    }
 
     fn decided_item() -> Item {
         let id = ItemId::mint("s", "Where should the ledger live?");
@@ -420,70 +905,9 @@ mod tests {
             ts: "2026-09-26T18:00:00Z".into(),
         };
         let mut l = Ledger::default();
-        l.apply(
-            1,
-            &env(LedgerEvent::ItemRaised(Raised {
-                item_id: id.clone(),
-                kind: Kind::Question,
-                question: "Where should the ledger live?".into(),
-                did: None,
-                flip: None,
-                at: Some("src/a.rs:3".into()),
-                sym: None,
-                blocks: None,
-                door_hint: Door::TwoWay,
-                authority_hint: Authority::Authority,
-                channel: Channel::Marker,
-                quote: "q: \"Where\" should the ledger live?".into(),
-                source_path: None,
-                source_line: None,
-            })),
-        );
-        l.apply(
-            2,
-            &env(LedgerEvent::ItemGrounded(Grounded {
-                item_id: id.clone(),
-                card: Card {
-                    why: "It fixes the merge story.".into(),
-                    options: vec![
-                        CardOption {
-                            id: "A".into(),
-                            title: "Common-dir store".into(),
-                            holds_if: "open items can stay local".into(),
-                            if_wrong: "a lost clone loses open items".into(),
-                            ..Default::default()
-                        },
-                        CardOption {
-                            id: "B".into(),
-                            title: "Committed files: with a colon".into(),
-                            ..Default::default()
-                        },
-                    ],
-                    recommendation: Recommendation {
-                        option: "A".into(),
-                        flip: "others need open items".into(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
-                reason: "grounded".into(),
-            })),
-        );
-        l.apply(
-            3,
-            &env(LedgerEvent::ItemDecided(Decided {
-                item_id: id.clone(),
-                option: "A".into(),
-                decider: "human:ryan".into(),
-                provenance: Provenance::UserApproved,
-                note: String::new(),
-                tree_hash: Some("abc".into()),
-                matched_recommendation: Some(true),
-                via: "board".into(),
-                seconds_to_decide: Some(29),
-                reason: "chose".into(),
-            })),
-        );
+        l.apply(1, &env(raised_event(&id)));
+        l.apply(2, &env(grounded_event(&id)));
+        l.apply(3, &env(decided_event(&id)));
         l.get(&id).unwrap().clone()
     }
 
@@ -518,6 +942,152 @@ mod tests {
         assert!(text.contains("Revisit when: others need open items"));
         // Quotes inside values are escaped, not breaking the YAML.
         assert!(text.contains("\\\"Where\\\""));
+    }
+
+    fn ctx() -> RenderContext {
+        RenderContext {
+            date: "2026-09-26".into(),
+            ..Default::default()
+        }
+    }
+
+    /// `decided_item` with every optional part of the atom switched on.
+    fn rich_decided_item() -> Item {
+        let mut item = decided_item();
+        item.source_path = Some("docs/plan.md".into());
+        item.blast = Some(Blast::Module);
+        item.session_id = Some("sess-1".into());
+        item.records.push(crate::projection::Record {
+            path: ".kb/_intake/open_questions/x.md".into(),
+            atom_id: "kb-open-question-x".into(),
+            atom_kind: "open_question".into(),
+        });
+        item.records.push(crate::projection::Record {
+            path: ".kb/_intake/decisions/y.md".into(),
+            atom_id: "kb-decision-y".into(),
+            atom_kind: "decision".into(),
+        });
+        if let Some(d) = item.decision.as_mut() {
+            d.note = "Ship it, then measure.".into();
+            d.matched_recommendation = Some(false);
+            d.option = "B".into();
+        }
+        if let Some(c) = item.card.as_mut() {
+            c.criteria.push(crate::card::Criterion {
+                name: "Merge story".into(),
+                ..Default::default()
+            });
+            c.evidence.push(crate::card::Evidence {
+                src: "src/a.rs:3".into(),
+                text: "the store path is derived here".into(),
+            });
+            c.recommendation.why_wrong = "the store may move".into();
+            if let Some(o) = c.options.get_mut(0) {
+                o.summary = "Keep it beside the repository.".into();
+                o.fails_must = Some("must survive a clone".into());
+            }
+            if let Some(o) = c.options.get_mut(1) {
+                o.holds_if = "files stay small.".into();
+                o.if_wrong = "merges conflict.".into();
+            }
+        }
+        item
+    }
+
+    fn deferred_item(with_card: bool) -> Item {
+        let mut item = decided_item();
+        item.decision = None;
+        item.status = crate::projection::Status::Deferred;
+        item.source_path = Some("docs/plan.md".into());
+        if !with_card {
+            item.card = None;
+        }
+        item.deferral = Some(Deferred {
+            item_id: item.id.clone(),
+            flip: "a tenant needs per-record legal hold".into(),
+            trigger: "the pilot ends".into(),
+            resolve_by: "before-release".into(),
+            default_option: "A".into(),
+            owner: "human:ryan".into(),
+            unqualified: false,
+            reason: "deferred".into(),
+        });
+        item
+    }
+
+    #[test]
+    fn decision_atom_is_byte_exact() {
+        let text = render_decision(&decided_item(), &ctx()).unwrap();
+        assert_eq!(text, GOLDEN_DECISION);
+    }
+
+    #[test]
+    fn decision_atom_with_every_optional_part_is_byte_exact() {
+        let mut c = ctx();
+        c.depends_on = vec!["kb-decision-z".into()];
+        c.source_paths = vec!["https://example.test/pr/1".into()];
+        let text = render_decision(&rich_decided_item(), &c).unwrap();
+        assert_eq!(text, GOLDEN_DECISION_RICH);
+    }
+
+    #[test]
+    fn decision_atom_without_a_card_is_byte_exact() {
+        let mut item = decided_item();
+        item.card = None;
+        if let Some(d) = item.decision.as_mut() {
+            d.matched_recommendation = None;
+            d.option = "Z".into();
+        }
+        let text = render_decision(&item, &ctx()).unwrap();
+        assert_eq!(text, GOLDEN_DECISION_NO_CARD);
+    }
+
+    #[test]
+    fn decision_atom_overriding_without_a_card_names_a_question_mark() {
+        let mut item = decided_item();
+        item.card = None;
+        if let Some(d) = item.decision.as_mut() {
+            d.matched_recommendation = Some(false);
+        }
+        let text = render_decision(&item, &ctx()).unwrap();
+        assert_eq!(text, GOLDEN_DECISION_OVERRIDE_NO_CARD);
+    }
+
+    #[test]
+    fn a_decision_atom_needs_a_decision() {
+        assert_eq!(render_decision(&deferred_item(true), &ctx()), None);
+    }
+
+    #[test]
+    fn open_question_atom_is_byte_exact() {
+        let text = render_open_question(&deferred_item(true), &ctx()).unwrap();
+        assert_eq!(text, GOLDEN_OPEN_QUESTION);
+    }
+
+    #[test]
+    fn open_question_atom_without_a_card_is_byte_exact() {
+        let mut c = ctx();
+        c.depends_on = vec!["kb-decision-z".into()];
+        c.source_paths = vec!["https://example.test/pr/1".into()];
+        let text = render_open_question(&deferred_item(false), &c).unwrap();
+        assert_eq!(text, GOLDEN_OPEN_QUESTION_NO_CARD);
+    }
+
+    #[test]
+    fn an_open_question_atom_needs_a_deferral() {
+        assert_eq!(render_open_question(&decided_item(), &ctx()), None);
+    }
+
+    #[test]
+    fn y_statement_is_byte_exact() {
+        assert_eq!(
+            y_statement(&decided_item()),
+            r#"In the context of "Where should the ledger live?", facing it fixes the merge story, we decided for Common-dir store and neglected Committed files: with a colon, on the premise that open items can stay local, accepting that if wrong: a lost clone loses open items."#
+        );
+        assert_eq!(
+            y_statement(&rich_decided_item()),
+            r#"In the context of "Where should the ledger live?", facing it fixes the merge story, we decided for Committed files: with a colon and neglected Common-dir store, on the premise that files stay small., accepting that if wrong: merges conflict.."#
+        );
     }
 
     #[test]
