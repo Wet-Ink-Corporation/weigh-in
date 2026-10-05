@@ -406,3 +406,16 @@ there fail with `EACCES`, and Cowork loses its SessionStart convention. To check
 shells exist; one shell-form string for both shells, which neither parses; `commandWindows`, which
 Claude Code ignores.
 
+
+## B-17
+
+**V2, ArtifactData from Cowork, is deferred to slice 2.** 2026-10-05 · Ryan's call, two-way ·
+defers [#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17) past 1.0.
+
+V2 asks whether the board's data store can be reached from a Cowork chat, including setting the
+board state from a file that `board export` writes on the computer, behind the device shell. In
+v1 the board does not run from Cowork: the skill's Cowork route uses in-chat cards ("Board: not
+from Cowork yet", `SKILL.md`), and the board from Cowork is slice 2
+([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)). V2 tests a path v1 does not
+take, so it moves with that slice; the v1 exit criterion "every V-item is closed or has a
+recorded decision to defer it past 1.0" is met for V2 by this record.

@@ -30,7 +30,7 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 | Id | What | Issue |
 |---|---|---|
 | V1 | Session identity in Cowork: whether `${CLAUDE_SESSION_ID}` is substituted in a synced skill | [#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16) |
-| V2 | ArtifactData reads and writes from Cowork | [#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17) |
+| V2 | ArtifactData reads and writes from Cowork. **Deferred to slice 2** on 2026-10-05 ([B-17](decisions/build-decisions.md#b-17)): the board does not run from Cowork in v1 | [#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17) |
 | V4 | Editor links (`vscode://file/…`) opened from inside an Artifact | [#18](https://github.com/Wet-Ink-Corporation/weigh-in/issues/18) |
 | V5 | Quotas of the board's `db` store. One document holds at most 256 KiB, which about 700 defaults overflowed; 0.5.1 caps the board at 200 ([#61](https://github.com/Wet-Ink-Corporation/weigh-in/pull/61)). The run that confirms the limit and the count caps is still to do | [#19](https://github.com/Wet-Ink-Corporation/weigh-in/issues/19) |
 | V6 | Previews in the desktop Code tab and the Cowork question card | [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20) |

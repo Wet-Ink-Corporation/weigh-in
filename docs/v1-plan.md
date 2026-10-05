@@ -293,6 +293,10 @@ B-14), and only the tag is pushed, since the workflow creates the release.
   3); recall is 1 of 7 before 0.5.2 and 2 of 2 after, both hits being messages about the seed
   itself. Labels still wait on Ryan's review, and the 80% bar on 10 captured items (wi-a9df17).
 - **Step 3:** no week posted on #23, so #25 is not triggered.
+- **V-items, walked through with Ryan on 2026-10-05:** V2 deferred to slice 2
+  ([B-17](decisions/build-decisions.md#b-17)). V1, V4 and V7's last check are Ryan's runs, V5 is
+  run from a cloud session, and V6 is checked in the desktop app and, with V1, in Cowork. Weeks
+  on #23 count from 2026-10-05.
 
 Exit criteria. These are the design's slice 1 exit criteria (two weeks or 30 presented items,
 whichever comes later), the same targets `weighin stats` prints, plus the release checks:
