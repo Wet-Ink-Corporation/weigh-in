@@ -121,6 +121,9 @@ branch (D-0009); Cowork uses the uploaded zip and a connected checkout of that b
 Cowork download ([D-0003](#d-0003)) stays dormant. Going public is after v1, by cleaning up the
 research and making this repository public; there is still one repository.
 
+Amended 2026-10-05 by [B-19](#b-19): releases are also published to a release-only repository,
+`Wet-Ink-Corporation/weigh-in-plugin`, which the organization sync reads. Assets stay internal.
+
 ## D-0013
 
 **No slice 2 work in v1, unless the not-useful rate misses.** 2026-10-02 · provenance: Ryan,
@@ -419,3 +422,35 @@ from Cowork yet", `SKILL.md`), and the board from Cowork is slice 2
 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)). V2 tests a path v1 does not
 take, so it moves with that slice; the v1 exit criterion "every V-item is closed or has a
 recorded decision to defer it past 1.0" is met for V2 by this record.
+
+## B-19
+
+**Releases are published to a release-only repository that claude.ai's organization sync reads.**
+2026-10-05 · Ryan's call, two-way (wi-1ec680, decided A; enacted under wi-dba31a) · amends
+[D-0012](#d-0012) ("no second repository") and [D-0009](#d-0009) · replaces the proposal in
+[#79](https://github.com/Wet-Ink-Corporation/weigh-in/pull/79).
+
+claude.ai's organization sync reads only a repository's default branch, and with **Sync
+automatically** on it syncs on each push to that branch
+([docs](https://claude.com/docs/plugins/org-sync)). `main` here is the development tree (skill
+stamped `V=dev`, no binaries), so a sync of this repository delivers an unreleased copy (B-18),
+and a release that moves only the `marketplace` branch never reaches anyone without a manual
+**Sync now** or zip upload. `main` cannot carry the build instead: about 13 MB of binaries per
+release would stay in its history, every merge would ship before a release, and the release
+workflow cannot merge to `main` past its ruleset.
+
+So `release.yml` pushes the same one-commit tree that `scripts/marketplace-branch.sh` builds
+([B-14](#b-14)) to the default branch (`main`) of `Wet-Ink-Corporation/weigh-in-plugin`, a
+private repository holding nothing else. The push uses a write deploy key of that repository,
+saved here as the secret `WEIGH_IN_PLUGIN_DEPLOY_KEY`, over SSH with GitHub's published host
+key; the workflow refuses to publish anything when the secret is missing. The organization
+syncs that repository, with Weigh-In set to installed by default, so a tag reaches Cowork and
+the Claude Code sessions that load claude.ai plugins with no step of anyone's. The `marketplace`
+branch here is still published, for existing `#marketplace` installs and the Cowork connected
+checkout, until the Cowork binary copy (wi-bb6e2a) lands.
+
+Rejected: #79's `git-subdir` pointer at `ref: marketplace`, because it is unverified whether the
+sync follows a ref, and a release would still need **Sync now**; making `marketplace` the
+default branch, which pull requests, Dependabot and CI follow. Unverified: the first sync of the
+new repository, and that a force-pushed default branch re-syncs as cleanly as the
+`marketplace` branch re-clones (B-14).
