@@ -6,6 +6,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 0.5.3 — 2026-10-05
+
 - Each release is also published to `Wet-Ink-Corporation/weigh-in-plugin`, a release-only
   repository whose push starts claude.ai's organization sync, so a release reaches Cowork and
   Claude Code with no zip to upload (B-19). The release needs the secret
