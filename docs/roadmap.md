@@ -8,7 +8,7 @@ and 0.5.1 caps the board's defaults below the Artifact store's document limit an
 commands from creating a ledger. 0.5.2 tells agents to write one block per call when they list
 calls for the user ([#68](https://github.com/Wet-Ink-Corporation/weigh-in/issues/68), wi-357345).
 The sitting cost is recorded as a formula ([D-0016](decisions/build-decisions.md#d-0016)). The
-eval seed holds 28 items, its labels waiting on Ryan's review. The V-item checklists are posted on
+eval seed holds 32 items, its labels waiting on Ryan's review. The V-item checklists are posted on
 their issues, but none has been run, and no week of stats is in yet. The path from here to v1 is
 in [`v1-plan.md`](v1-plan.md).
 
@@ -52,10 +52,10 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 - **Sitting cost follows session length:** about 3 × the context at the cache-read price plus
   about 5,600 output tokens, recorded as the v1 figure ([D-0016](decisions/build-decisions.md#d-0016), [#24](https://github.com/Wet-Ink-Corporation/weigh-in/issues/24)).
 - **Agents rarely mark their own calls.** Since 0.5.0, 1 of 51 end-of-turn messages carried a
-  block; the draft seed (28 items) has 7 items that should have been captured, and capture gets 1 of them
-  (precision 100% on 1 item, recall 14%; [#66](https://github.com/Wet-Ink-Corporation/weigh-in/pull/66), [#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)).
+  block; the draft seed (32 items) has 8 items that should have been captured, and capture gets 2 of them
+  (precision 100% on 2 items, recall 25%; [#66](https://github.com/Wet-Ink-Corporation/weigh-in/pull/66), [#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)).
   The sitting's sweep is what catches the rest. 0.5.2 sharpens the convention (one block per call
-  in a list for the user); no session had run with it by 2026-10-05, so its effect is not yet measured.
+  in a list for the user); its first session captured its one call (1 of 1), too few to judge.
 - **Open from wi-4d8b6a:** which provider the separately held model key is for; slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 
 ## Slice 2
