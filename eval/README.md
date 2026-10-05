@@ -74,3 +74,10 @@ One JSON object per line:
   could be read again. The seed is now 33 items, 9 labelled `capture`, 3 captured (precision 100%,
   recall 33%). Before 0.5.2 recall is 1 of 7; after it, 2 of 2 (s8, s9). Both are
   messages that report on the seed itself, so they say little about the line on ordinary work.
+
+  After the sitting, the session added its other five end-of-turn messages (`rs9-02` to
+  `rs9-06`), parsed from its transcript, and checked `rs9-01` against it (word for word). One
+  carries two blocks and is captured as a logged default; four are true negatives. Messages
+  written mid-turn, before a tool call or a worker restart, are not end-of-turn messages and are
+  left out. The seed is now 38 items, 10 labelled `capture`, 4 captured (precision 100%, recall
+  40%). After 0.5.2, recall is 3 of 3 across s8 and s9.
