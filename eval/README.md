@@ -81,3 +81,7 @@ One JSON object per line:
   written mid-turn, before a tool call or a worker restart, are not end-of-turn messages and are
   left out. The seed is now 38 items, 10 labelled `capture`, 4 captured (precision 100%, recall
   40%). After 0.5.2, recall is 3 of 3 across s8 and s9.
+
+  Later the same day: six more end-of-turn messages from s9 (`rs9-07` to `rs9-12`), all true
+  negatives (the sitting's close, CI and merge notices, a check result). The seed is 44 items, 10
+  labelled `capture`, 4 captured (precision 100%, recall 40%).

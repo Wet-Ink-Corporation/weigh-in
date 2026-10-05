@@ -296,6 +296,12 @@ B-14), and only the tag is pushed, since the workflow creates the release.
   ([B-17](decisions/build-decisions.md#b-17)). V1, V4 and V7's last check are Ryan's runs, V5 is
   run from a cloud session, and V6 is checked in the desktop app and, with V1, in Cowork. Weeks
   on #23 count from 2026-10-05.
+- **V-items, results the same day:** V5 ran from the cloud session and closed (the document
+  limit is exactly 262,144 bytes, and the capped board is 59,678 bytes at 1,000 defaults). V4 closed as
+  not supported: an Artifact does not hand `vscode://` links to the OS. V6 passed in the desktop
+  Code tab; its Cowork half comes with V1. A Windows install showed the `marketplace` branch's
+  launcher checked out with CRLF line endings, the likely cause of `/weigh-in` failing there
+  (a trace from that machine is pending).
 
 Exit criteria. These are the design's slice 1 exit criteria (two weeks or 30 presented items,
 whichever comes later), the same targets `weighin stats` prints, plus the release checks:
