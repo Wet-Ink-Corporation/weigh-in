@@ -42,7 +42,7 @@ use weighin_core::event::{EVENT_TYPES, EventEnvelope};
 use weighin_core::{ItemId, Ledger};
 
 /// The journal mode every ledger connection runs under, as `PRAGMA journal_mode` reports it.
-pub const JOURNAL_MODE: &str = "truncate";
+pub(crate) const JOURNAL_MODE: &str = "truncate";
 
 /// The ledger schema this build reads and writes, kept in `PRAGMA user_version`.
 ///
@@ -53,14 +53,14 @@ pub(crate) const LEDGER_SCHEMA: i64 = 1;
 /// How long a connection waits for a lock, and for a WAL ledger to be released to TRUNCATE.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub struct Store {
+pub(crate) struct Store {
     inner: SqliteEventStore,
     rt: tokio::runtime::Runtime,
 }
 
 /// What a conditioned append must not find.
 #[derive(Debug, Clone)]
-pub enum Guard {
+pub(crate) enum Guard {
     /// Fail if `item_raised` for this item exists.
     NotYetRaised(ItemId),
     /// Fail if any event for this item was appended after `position`.
@@ -68,7 +68,7 @@ pub enum Guard {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Appended {
+pub(crate) enum Appended {
     At(u64),
     /// The guard matched: someone else wrote first.
     Conflict,
@@ -96,7 +96,7 @@ impl Store {
     ///
     /// # Errors
     /// Fails when the file cannot be opened or migrated.
-    pub fn open(path: &Path) -> Result<Self> {
+    pub(crate) fn open(path: &Path) -> Result<Self> {
         if let Some(d) = path.parent()
             && !d.as_os_str().is_empty()
         {
@@ -122,7 +122,7 @@ impl Store {
     ///
     /// # Errors
     /// Fails on a store error or an undecodable payload.
-    pub fn read_all(&self) -> Result<Vec<(u64, EventEnvelope)>> {
+    pub(crate) fn read_all(&self) -> Result<Vec<(u64, EventEnvelope)>> {
         let query = Query::from_item(
             QueryItem::of_types(EVENT_TYPES.iter().copied()).map_err(|e| anyhow!("{e}"))?,
         );
@@ -142,7 +142,7 @@ impl Store {
 
     /// # Errors
     /// See [`Store::read_all`].
-    pub fn ledger(&self) -> Result<Ledger> {
+    pub(crate) fn ledger(&self) -> Result<Ledger> {
         let events = self.read_all()?;
         Ok(Ledger::fold(events.iter().map(|(p, e)| (*p, e))))
     }
@@ -151,7 +151,7 @@ impl Store {
     ///
     /// # Errors
     /// Fails on a store error (a guard match is [`Appended::Conflict`], not an error).
-    pub fn append(&self, envs: &[EventEnvelope], guard: &Guard) -> Result<Appended> {
+    pub(crate) fn append(&self, envs: &[EventEnvelope], guard: &Guard) -> Result<Appended> {
         let mut events = Vec::with_capacity(envs.len());
         for env in envs {
             let tags: Vec<Tag> = env.tags().iter().filter_map(|(k, v)| tag(k, v)).collect();
@@ -273,8 +273,13 @@ fn ensure_schema(conn: &Connection) -> Result<()> {
         [template.to_string_lossy().as_ref()],
     )?;
     let copied = copy_schema(conn);
-    let _ = conn.execute_batch("DETACH DATABASE tpl");
-    copied
+    let detached = conn.execute_batch("DETACH DATABASE tpl");
+    match (copied, detached) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(e), Ok(())) => Err(e),
+        (Err(e), Err(d)) => Err(e.context(format!("detaching the template also failed: {d}"))),
+        (Ok(()), Err(d)) => Err(anyhow::Error::from(d).context("detaching the template database")),
+    }
 }
 
 fn copy_schema(conn: &Connection) -> Result<()> {
@@ -312,12 +317,12 @@ fn copy_schema(conn: &Connection) -> Result<()> {
         set_user_version(conn, LEDGER_SCHEMA)
     })();
     match copied {
-        Ok(()) => conn.execute_batch("COMMIT")?,
-        Err(_) => {
-            let _ = conn.execute_batch("ROLLBACK");
-        }
+        Ok(()) => Ok(conn.execute_batch("COMMIT")?),
+        Err(e) => match conn.execute_batch("ROLLBACK") {
+            Ok(()) => Err(e),
+            Err(rb) => Err(e.context(format!("rolling back also failed: {rb}"))),
+        },
     }
-    copied
 }
 
 fn user_version(conn: &Connection) -> Result<i64> {
@@ -574,13 +579,16 @@ mod tests {
         let handles: Vec<_> = (0..6)
             .map(|n| {
                 let path = path.clone();
-                std::thread::spawn(move || {
-                    let store = Store::open(&path).unwrap();
-                    let id = ItemId::mint(&format!("s{n}"), "q?");
-                    store
-                        .append(&[raise(&id)], &Guard::NotYetRaised(id.clone()))
-                        .unwrap()
-                })
+                std::thread::Builder::new()
+                    .name(format!("creator-{n}"))
+                    .spawn(move || {
+                        let store = Store::open(&path).unwrap();
+                        let id = ItemId::mint(&format!("s{n}"), "q?");
+                        store
+                            .append(&[raise(&id)], &Guard::NotYetRaised(id.clone()))
+                            .unwrap()
+                    })
+                    .unwrap()
             })
             .collect();
         for h in handles {
