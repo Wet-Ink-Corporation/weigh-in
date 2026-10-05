@@ -6,6 +6,12 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- A closed stdout (`weighin open | head`) now ends the command silently with exit 0; before, it
+  panicked with exit 101. A hook whose output or input cannot be written or read now logs it to
+  `hook-errors.log` and still exits 0.
+- A failed `DETACH` of the template database when opening the store is now reported as an
+  error; before, it was ignored.
+
 ## 0.5.3 — 2026-10-05
 
 - Each release is also published to `Wet-Ink-Corporation/weigh-in-plugin`, a release-only

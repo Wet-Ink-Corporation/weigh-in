@@ -27,7 +27,7 @@ None. This is a binary crate; its modules are private (`context`, `env`, `git`, 
 - **Context packs stay bounded** by `caps.context_chars`, about 600 tokens (`context.rs`).
 
 ## Errors
-`anyhow` throughout, with `Context` on I/O, store and git failures. Domain rejections from `weighin-core` (`CardError`, `AnswerError`) are reported to the caller as they are. Exit codes: 0 on success; any error prints `weighin: <error chain>` to stderr and exits 1; `weighin hook` always exits 0, even on a panic (`main.rs`).
+`anyhow` throughout, with `Context` on I/O, store and git failures. Domain rejections from `weighin-core` (`CardError`, `AnswerError`) are reported to the caller as they are. Exit codes: 0 on success; any error prints `weighin: <error chain>` to stderr and exits 1, except a broken pipe anywhere in the chain (a closed stdout, as in `weighin open | head`), which exits 0 with nothing on stderr; `weighin hook` always exits 0, even on a panic, and logs its own input and output failures to `hook-errors.log` (`main.rs`, `hooks.rs`).
 
 ## Test strategy
 Unit tests sit beside the code in `env`, `store`, `context` and `git`. End-to-end tests in `tests/cli.rs` cover:

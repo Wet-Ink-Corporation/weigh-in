@@ -13,9 +13,10 @@ mod ops;
 mod store;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use clap::{Parser, Subcommand};
-use std::io::{Read as _, Write as _};
+use clap::{Args, Parser, Subcommand};
+use std::io::{self, Read as _, Write};
 use std::path::PathBuf;
+use std::process::ExitCode;
 use weighin_core::board::{self, Answer, Scope, ValidAnswer};
 use weighin_core::marker::{Door, parse_markers};
 use weighin_core::projection::Health;
@@ -24,17 +25,25 @@ use weighin_core::{Item, Ledger, Status};
 use crate::env::{Config, Env};
 use crate::ops::{Op, RaiseInput, Session, read_ledger};
 
+// `help` and `about` attributes, not doc comments, carry text that names environment variables
+// or tools: clap prints them verbatim, so they cannot take rustdoc's backticks.
 #[derive(Parser)]
 #[command(name = "weighin", version, about = "Weigh-In decision ledger")]
 struct Cli {
-    /// Session key (defaults to $WEIGHIN_SESSION, $CLAUDE_SESSION_ID, $CLAUDE_CODE_SESSION_ID).
-    #[arg(long, global = true)]
+    #[arg(
+        long,
+        global = true,
+        help = "Session key (defaults to $WEIGHIN_SESSION, $CLAUDE_SESSION_ID, $CLAUDE_CODE_SESSION_ID)"
+    )]
     session: Option<String>,
     /// Work as if run from this directory.
     #[arg(long, global = true)]
     dir: Option<PathBuf>,
-    /// Use this ledger file (wins over $WEIGHIN_STORE and the config's `store`).
-    #[arg(long, global = true)]
+    #[arg(
+        long,
+        global = true,
+        help = "Use this ledger file (wins over $WEIGHIN_STORE and the config's `store`)"
+    )]
     store: Option<PathBuf>,
     #[command(subcommand)]
     cmd: Cmd,
@@ -48,127 +57,43 @@ enum Cmd {
         #[arg(hide = true)]
         _event: Option<String>,
     },
+    #[command(flatten)]
+    Ledger(LedgerCmd),
+}
+
+/// Every command but `hook`: these report their errors and exit 1 on failure.
+#[derive(Subcommand)]
+enum LedgerCmd {
     /// Print the marker convention and open counts.
     Prime,
     /// Create .kb/_ledger/config.json.
-    Init {
-        /// `own` or `client` (client repos default to a local board).
-        #[arg(long, default_value = "own")]
-        class: String,
-        /// `artifact`, `local` or `off`.
-        #[arg(long)]
-        board: Option<String>,
-        #[arg(long)]
-        board_url: Option<String>,
-        #[arg(long)]
-        owner: Option<String>,
-        /// Keep the ledger here instead of the default (relative to the folder, or absolute).
-        #[arg(long = "ledger")]
-        ledger: Option<String>,
-    },
+    Init(InitArgs),
     /// List open items (this session by default when a session is known).
-    Open {
-        #[arg(long)]
-        repo: bool,
-        #[arg(long)]
-        all: bool,
-        #[arg(long, default_value_t = 12)]
-        top: usize,
-        /// Append a context pack for each listed item that has a path anchor.
-        #[arg(long)]
-        with_context: bool,
-        #[arg(long)]
-        json: bool,
-    },
+    Open(OpenArgs),
     /// Show one item in full.
-    Show {
-        id: String,
-        #[arg(long)]
-        json: bool,
-    },
+    Show(ItemArgs),
     /// Script-built evidence for one item (about 600 tokens at most).
-    Context {
-        id: String,
-        #[arg(long)]
-        json: bool,
-    },
+    Context(ItemArgs),
     /// Raise a question by hand, or every `weigh-in` block on stdin with --markers.
-    Raise {
-        #[arg(long)]
-        q: Option<String>,
-        #[arg(long)]
-        kind: Option<String>,
-        #[arg(long)]
-        door: Option<String>,
-        #[arg(long)]
-        authority: Option<String>,
-        #[arg(long)]
-        did: Option<String>,
-        #[arg(long)]
-        flip: Option<String>,
-        #[arg(long)]
-        at: Option<String>,
-        /// Read `weigh-in` blocks from stdin (the in-sitting sweep).
-        #[arg(long)]
-        markers: bool,
-        #[arg(long, default_value = "manual")]
-        channel: String,
-    },
+    Raise(RaiseArgs),
     /// Apply a JSON array of operations from stdin (or --file) in one call.
-    Batch {
-        #[arg(long)]
-        file: Option<PathBuf>,
-    },
+    Batch(BatchArgs),
     /// Record a decision.
-    Decide {
-        id: String,
-        option: String,
-        #[arg(long)]
-        note: Option<String>,
-        #[arg(long, default_value = "cli")]
-        via: String,
-    },
+    Decide(DecideArgs),
     /// Defer with a named fact, a trigger, a resolve-by and a default.
-    Defer {
-        id: String,
-        #[arg(long)]
-        flip: String,
-        #[arg(long)]
-        trigger: String,
-        #[arg(long = "by")]
-        resolve_by: String,
-        #[arg(long)]
-        default: String,
-        #[arg(long)]
-        reason: Option<String>,
-    },
+    Defer(DeferArgs),
     /// Dismiss: `not-useful`, `recoverable`, `moot`, `already-decided:<ref>`, `duplicate-of:<id>`, `not-my-call:<who>`.
-    Dismiss {
-        id: String,
-        why: String,
-        #[arg(long)]
-        note: Option<String>,
-    },
+    Dismiss(DismissArgs),
     /// Reopen a decided, defaulted or dismissed item.
-    Reopen {
-        id: String,
-        #[arg(long)]
-        note: Option<String>,
-    },
+    Reopen(ReopenArgs),
     /// Defaults taken without you, and unattended items not yet triaged.
-    Digest {
-        #[arg(long)]
-        json: bool,
-    },
+    Digest(JsonArgs),
     /// Action rate, not-useful rate, overrides, time to decide.
-    Stats {
-        #[arg(long)]
-        json: bool,
-    },
+    Stats(JsonArgs),
     /// The commit trailer for a decided item.
-    Trailer { id: String },
+    Trailer(TrailerArgs),
     /// Raise every open question and new TODO in a document or source file (backfill).
-    Scan { paths: Vec<PathBuf> },
+    Scan(ScanArgs),
     /// Exchange with the Artifact board.
     Board {
         #[command(subcommand)]
@@ -176,543 +101,789 @@ enum Cmd {
     },
 }
 
-#[derive(Subcommand)]
-enum BoardCmd {
-    /// Write the board state document (push it with ArtifactData set, file_path).
-    Export {
-        #[arg(long)]
-        out: Option<PathBuf>,
-    },
-    /// Apply answers read back from the board (a JSON file, an array, or a directory of documents).
-    Apply { path: PathBuf },
+#[derive(Args)]
+struct InitArgs {
+    /// `own` or `client` (client repos default to a local board).
+    #[arg(long, default_value = "own")]
+    class: String,
+    /// `artifact`, `local` or `off`.
+    #[arg(long)]
+    board: Option<String>,
+    #[arg(long)]
+    board_url: Option<String>,
+    #[arg(long)]
+    owner: Option<String>,
+    /// Keep the ledger here instead of the default (relative to the folder, or absolute).
+    #[arg(long = "ledger")]
+    ledger: Option<String>,
 }
 
-fn main() {
-    let cli = Cli::parse();
-    if matches!(cli.cmd, Cmd::Hook { .. }) {
-        let mut input = String::new();
-        let _ = std::io::stdin().read_to_string(&mut input);
-        // A hook never fails a session, not even on a bug: a panic prints nothing and exits 0.
-        std::panic::set_hook(Box::new(|_| {}));
-        if let Ok(out) = std::panic::catch_unwind(|| hooks::run(&input)) {
-            print!("{out}");
-        }
-        return;
+#[derive(Args)]
+struct OpenArgs {
+    #[command(flatten)]
+    scope: OpenScope,
+    #[arg(long, default_value_t = 12)]
+    top: usize,
+    /// Append a context pack for each listed item that has a path anchor.
+    #[arg(long)]
+    with_context: bool,
+    #[arg(long)]
+    json: bool,
+}
+
+/// Which items `open` lists: this session's by default.
+#[derive(Args)]
+struct OpenScope {
+    #[arg(long)]
+    repo: bool,
+    #[arg(long)]
+    all: bool,
+}
+
+#[derive(Args)]
+struct ItemArgs {
+    id: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct RaiseArgs {
+    #[arg(long)]
+    q: Option<String>,
+    #[arg(long)]
+    kind: Option<String>,
+    #[arg(long)]
+    door: Option<String>,
+    #[arg(long)]
+    authority: Option<String>,
+    #[arg(long)]
+    did: Option<String>,
+    #[arg(long)]
+    flip: Option<String>,
+    #[arg(long)]
+    at: Option<String>,
+    /// Read `weigh-in` blocks from stdin (the in-sitting sweep).
+    #[arg(long)]
+    markers: bool,
+    #[arg(long, default_value = "manual")]
+    channel: String,
+}
+
+#[derive(Args)]
+struct BatchArgs {
+    #[arg(long)]
+    file: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct DecideArgs {
+    id: String,
+    option: String,
+    #[arg(long)]
+    note: Option<String>,
+    #[arg(long, default_value = "cli")]
+    via: String,
+}
+
+#[derive(Args)]
+struct DeferArgs {
+    id: String,
+    #[arg(long)]
+    flip: String,
+    #[arg(long)]
+    trigger: String,
+    #[arg(long = "by")]
+    resolve_by: String,
+    #[arg(long)]
+    default: String,
+    #[arg(long)]
+    reason: Option<String>,
+}
+
+#[derive(Args)]
+struct DismissArgs {
+    id: String,
+    why: String,
+    #[arg(long)]
+    note: Option<String>,
+}
+
+#[derive(Args)]
+struct ReopenArgs {
+    id: String,
+    #[arg(long)]
+    note: Option<String>,
+}
+
+#[derive(Args)]
+struct JsonArgs {
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct TrailerArgs {
+    id: String,
+}
+
+#[derive(Args)]
+struct ScanArgs {
+    paths: Vec<PathBuf>,
+}
+
+#[derive(Subcommand)]
+enum BoardCmd {
+    #[command(about = "Write the board state document (push it with ArtifactData set, file_path)")]
+    Export(ExportArgs),
+    /// Apply answers read back from the board (a JSON file, an array, or a directory of documents).
+    Apply(ApplyArgs),
+}
+
+#[derive(Args)]
+struct ExportArgs {
+    #[arg(long)]
+    out: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct ApplyArgs {
+    path: PathBuf,
+}
+
+fn main() -> ExitCode {
+    let Cli {
+        session,
+        dir,
+        store,
+        cmd,
+    } = Cli::parse();
+    let cmd = match cmd {
+        Cmd::Hook { .. } => return run_hook_guarded(),
+        Cmd::Ledger(cmd) => cmd,
+    };
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let globals = Globals {
+        session,
+        dir,
+        store,
+    };
+    match run(globals, cmd, &mut out).and_then(|()| out.flush().map_err(anyhow::Error::from)) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => report(&e),
     }
-    if let Err(e) = run(cli) {
-        eprintln!("weighin: {e:#}");
-        std::process::exit(1);
+}
+
+/// The options every command takes.
+struct Globals {
+    session: Option<String>,
+    dir: Option<PathBuf>,
+    store: Option<PathBuf>,
+}
+
+/// `weighin: <error chain>` on stderr and exit 1; a closed stdout (`weighin open | head`) is
+/// not a failure, so it exits 0 without a word.
+fn report(e: &anyhow::Error) -> ExitCode {
+    if is_broken_pipe(e) {
+        return ExitCode::SUCCESS;
+    }
+    match writeln!(io::stderr().lock(), "weighin: {e:#}") {
+        // With stderr gone as well, the exit code is the only report left.
+        Ok(()) | Err(_) => ExitCode::FAILURE,
+    }
+}
+
+fn is_broken_pipe(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        c.downcast_ref::<io::Error>()
+            .is_some_and(|io| io.kind() == io::ErrorKind::BrokenPipe)
+    })
+}
+
+/// A hook never fails a session, not even on a bug: a panic prints nothing and exits 0.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "process-boundary fault barrier: a hook never fails a session, even on a panic (AGENTS.md)"
+)]
+fn run_hook_guarded() -> ExitCode {
+    std::panic::set_hook(Box::new(|_| {}));
+    let outcome = std::panic::catch_unwind(|| {
+        hooks::entry(&mut io::stdin().lock(), &mut io::stdout().lock());
+    });
+    match outcome {
+        // `hooks::entry` logs its own failures; a panic went to the silent panic hook above.
+        // Either way the session goes on.
+        Ok(()) | Err(_) => ExitCode::SUCCESS,
     }
 }
 
 fn stdin() -> Result<String> {
     let mut s = String::new();
-    std::io::stdin().read_to_string(&mut s)?;
+    io::stdin().read_to_string(&mut s)?;
     Ok(s)
 }
 
-fn run(cli: Cli) -> Result<()> {
-    let cwd = match cli.dir {
+fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
+    let cwd = match g.dir {
         Some(d) => d,
         None => std::env::current_dir()?,
     };
-    let env = Env::discover(&cwd, cli.session.clone()).with_store(cli.store.clone());
-    match cli.cmd {
-        // `main` answers hooks before this, so a hook never exits non-zero; this arm keeps the
-        // match whole without a panic.
-        Cmd::Hook { .. } => write!(std::io::stdout().lock(), "{}", hooks::run(&stdin()?))?,
-        Cmd::Prime => print!("{}", hooks::prime(&env, "manual")?),
-        Cmd::Init {
-            class,
-            board,
-            board_url,
-            owner,
-            ledger,
-        } => {
-            let mut c = Config::load(&env.root());
-            c.repo_class = class.clone();
-            c.board.mode = board.unwrap_or_else(|| {
-                if class == "client" {
-                    "local".into()
-                } else {
-                    "artifact".into()
-                }
-            });
-            if board_url.is_some() {
-                c.board.url = board_url;
-            }
-            if let Some(o) = owner {
-                c.owner = o;
-            }
-            if let Some(l) = ledger {
-                c.store = Some(l).filter(|l| !l.trim().is_empty());
-            }
-            let p = c.save(&env.root())?;
-            let env = Env {
-                config: c.clone(),
-                ..env
-            };
-            println!(
-                "wrote {} · class {} · board {} · ledger {}",
-                env.relative(&p.to_string_lossy()),
-                c.repo_class,
-                c.board.mode,
-                env.store_path().display()
-            );
-        }
-        Cmd::Open {
-            repo,
-            all,
-            top,
-            with_context,
-            json,
-        } => {
-            let ledger = read_ledger(&env)?;
-            let scope_session = if repo || all {
-                None
-            } else {
-                env.session.clone()
-            };
-            let items: Vec<&Item> = if all {
-                ledger.items.values().collect()
-            } else {
-                match &scope_session {
-                    Some(id) => ledger.open_in_session(id),
-                    None => ledger.open(),
-                }
-            };
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string(&items.iter().take(top).collect::<Vec<_>>())?
-                );
-                return Ok(());
-            }
-            let repo_open = ledger.open();
-            let one_way = repo_open
-                .iter()
-                .filter(|i| i.door() == Door::OneWay)
-                .count();
-            let defaults = ledger.unacknowledged_defaults().len();
-            let here = scope_session.as_deref().map_or_else(String::new, |id| {
-                format!(
-                    "{} open in this session · ",
-                    ledger.open_in_session(id).len()
-                )
-            });
-            println!(
-                "{here}{} open in repo ({one_way} one-way) · {defaults} default(s) to review",
-                repo_open.len()
-            );
-            if items.is_empty() {
-                println!("No decisions need you.");
-            }
-            for i in items.iter().take(top) {
-                print!("{}", line(i));
-            }
-            if items.len() > top {
-                println!("… {} more (--top)", items.len() - top);
-            }
-            if with_context {
-                for i in items
-                    .iter()
-                    .take(top)
-                    .filter(|i| i.needs_attention() && i.at.is_some())
-                {
-                    println!(
-                        "{}",
-                        context::render(&context::build(&env, i), env.config.caps.context_chars)
-                    );
-                }
-            }
-        }
-        Cmd::Show { id, json } => {
-            let ledger = read_ledger(&env)?;
-            let item = ledger
-                .resolve(&id)
-                .ok_or_else(|| anyhow!("no single item matches `{id}`"))?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(item)?);
-            } else {
-                print!("{}", line(item));
-                if let Some(c) = &item.card {
-                    println!("  card: {}", serde_json::to_string(c)?);
-                }
-                if let Some(d) = &item.decision {
-                    println!(
-                        "  decided {} by {} ({}) via {} · {}",
-                        d.option,
-                        d.decider,
-                        d.provenance.as_str(),
-                        d.via,
-                        d.ts
-                    );
-                }
-                for r in &item.records {
-                    println!("  record: {} ({})", r.path, r.atom_id);
-                }
-            }
-        }
-        Cmd::Context { id, json } => {
-            let ledger = read_ledger(&env)?;
-            let item = ledger
-                .resolve(&id)
-                .ok_or_else(|| anyhow!("no single item matches `{id}`"))?;
-            let pack = context::build(&env, item);
-            if json {
-                println!("{}", serde_json::to_string(&pack)?);
-            } else {
-                println!("{}", context::render(&pack, env.config.caps.context_chars));
-            }
-        }
-        Cmd::Raise {
-            q,
-            kind,
-            door,
-            authority,
-            did,
-            flip,
-            at,
-            markers,
-            channel,
-        } => {
-            let mut s = Session::open(&env, "cli")?;
-            let inputs: Vec<RaiseInput> = if markers {
-                let text = stdin()?;
-                let ch = if channel == "manual" {
-                    "sweep".to_owned()
-                } else {
-                    channel
-                };
-                parse_markers(&text)
-                    .iter()
-                    .map(|m| {
-                        let mut r = RaiseInput::from_marker(m, weighin_core::event::Channel::Sweep);
-                        r.channel = Some(ch.clone());
-                        r
-                    })
-                    .collect()
-            } else {
-                let q = q.ok_or_else(|| {
-                    anyhow!("--q is required (or --markers with blocks on stdin)")
-                })?;
-                vec![RaiseInput {
-                    q,
-                    kind,
-                    door,
-                    authority,
-                    did,
-                    flip,
-                    at,
-                    channel: Some(channel),
-                    ..Default::default()
-                }]
-            };
-            if inputs.is_empty() {
-                bail!("no weigh-in blocks found on stdin");
-            }
-            for r in &inputs {
-                println!("{}", s.apply(&Op::Raise(r.clone()))?);
-            }
-        }
-        Cmd::Batch { file } => {
-            let text = match file {
-                Some(f) => std::fs::read_to_string(&f)
-                    .with_context(|| format!("reading {}", f.display()))?,
-                None => stdin()?,
-            };
-            let ops = ops::parse_ops(&text)?;
-            let mut s = Session::open(&env, "cli")?;
-            let mut failed = 0;
-            for (n, op) in ops.iter().enumerate() {
-                let op = match op {
-                    Ok(op) => op,
-                    Err(e) => {
-                        failed += 1;
-                        println!("✗ op {n}: {e:#}");
-                        continue;
-                    }
-                };
-                match s.apply(op) {
-                    Ok(r) => println!("✓ {r}"),
-                    Err(e) => {
-                        failed += 1;
-                        println!("✗ op {n}: {e:#}");
-                    }
-                }
-            }
-            if failed > 0 {
-                bail!(
-                    "{failed} of {} operations failed; the rest were applied",
-                    ops.len()
-                );
-            }
-        }
-        Cmd::Decide {
-            id,
-            option,
-            note,
-            via,
-        } => {
-            let mut s = Session::open(&env, "cli")?;
-            println!(
-                "{}",
-                s.apply(&Op::Decide {
-                    id,
-                    option,
-                    note,
-                    provenance: None,
-                    via: Some(via),
-                    seconds: None
-                })?
-            );
-        }
-        Cmd::Defer {
-            id,
-            flip,
-            trigger,
-            resolve_by,
-            default,
-            reason,
-        } => {
-            let mut s = Session::open(&env, "cli")?;
-            println!(
-                "{}",
-                s.apply(&Op::Defer {
-                    id,
-                    flip,
-                    trigger,
-                    resolve_by,
-                    default,
-                    owner: None,
-                    unqualified: false,
-                    reason: reason.unwrap_or_else(|| "deferred with a named fact".into())
-                })?
-            );
-        }
-        Cmd::Dismiss { id, why, note } => {
-            let mut s = Session::open(&env, "cli")?;
-            println!(
-                "{}",
-                s.apply(&Op::Dismiss {
-                    id,
-                    why,
-                    note,
-                    reason: "dismissed from the cli".into()
-                })?
-            );
-        }
-        Cmd::Reopen { id, note } => {
-            let mut s = Session::open(&env, "cli")?;
-            println!(
-                "{}",
-                s.apply(&Op::Reopen {
-                    id,
-                    note,
-                    reason: "reopened from the cli".into()
-                })?
-            );
-        }
-        Cmd::Digest { json } => {
-            let ledger = read_ledger(&env)?;
-            let defaults = ledger.unacknowledged_defaults();
-            let untriaged: Vec<&Item> = ledger
-                .open()
-                .into_iter()
-                .filter(|i| {
-                    i.status == Status::Raised && env.session.as_deref() != i.session_id.as_deref()
-                })
-                .collect();
-            if json {
-                println!(
-                    "{}",
-                    serde_json::json!({ "defaults": defaults, "untriaged_from_other_sessions": untriaged })
-                );
-                return Ok(());
-            }
-            println!(
-                "{} default(s) taken without you · {} untriaged item(s) from other sessions",
-                defaults.len(),
-                untriaged.len()
-            );
-            for i in defaults {
-                let d = i.default.as_ref().expect("defaulted");
-                println!(
-                    "{} [{}] {} → took: {}",
-                    i.id,
-                    d.cause.as_str(),
-                    clip(&i.question, 90),
-                    clip(&d.option, 80)
-                );
-            }
-            for i in untriaged {
-                print!("{}", line(i));
-            }
-        }
-        Cmd::Stats { json } => {
-            let ledger = read_ledger(&env)?;
-            let h = Health::of(&ledger);
-            if json {
-                println!("{}", serde_json::to_string(&h)?);
-            } else {
-                let pct = |n: usize, d: usize| {
-                    if d == 0 {
-                        "—".to_owned()
-                    } else {
-                        format!("{:.0}%", 100.0 * n as f64 / d as f64)
-                    }
-                };
-                println!(
-                    "presented {} · action rate {} (target ≥60%) · not useful {} (target ≤10%) · overrides {} of {} · median time to decide {} · unqualified deferrals {} · unreviewed defaults {}",
-                    h.presented,
-                    pct(h.acted, h.presented),
-                    pct(h.not_useful, h.presented),
-                    h.chosen_against_recommendation,
-                    h.chosen_with_recommendation_known,
-                    h.median_seconds_to_decide
-                        .map_or("—".into(), |s| format!("{s}s")),
-                    h.deferred_unqualified,
-                    h.defaults_unacknowledged
-                );
-                if !ledger.orphans.is_empty() {
-                    writeln!(
-                        std::io::stdout().lock(),
-                        "warning: {} event(s) for unknown items",
-                        ledger.orphans.len()
-                    )?;
-                }
-            }
-        }
-        Cmd::Scan { paths } => {
-            let mut total = 0;
-            for p in paths {
-                let text = std::fs::read_to_string(&p)
-                    .with_context(|| format!("reading {}", p.display()))?;
-                let abs = if p.is_absolute() {
-                    p.clone()
-                } else {
-                    env.cwd.join(&p)
-                };
-                for o in hooks::scan_text(&env, &abs.to_string_lossy(), &[text], "cli")? {
-                    total += 1;
-                    println!(
-                        "{}",
-                        match o {
-                            ops::RaiseOutcome::New(id) => format!("raised {id}"),
-                            ops::RaiseOutcome::Existing(id) => format!("{id} already raised"),
-                            ops::RaiseOutcome::Duplicate(id) => format!("linked to open {id}"),
-                        }
-                    );
-                }
-            }
-            if total == 0 {
-                println!("nothing to raise");
-            }
-        }
-        Cmd::Trailer { id } => {
-            let ledger = read_ledger(&env)?;
-            let item = ledger
-                .resolve(&id)
-                .ok_or_else(|| anyhow!("no single item matches `{id}`"))?;
-            let d = item
-                .decision
-                .as_ref()
-                .ok_or_else(|| anyhow!("{} is not decided", item.id))?;
-            println!("Weigh-In: {} decided {}", item.id, d.option);
-        }
-        Cmd::Board { cmd } => match cmd {
-            BoardCmd::Export { out } => {
-                // The default state file sits beside the ledger; writing it would create the
-                // ledger's directory where no item was ever raised.
-                let ledger = match (ops::stored_ledger(&env)?, &out) {
-                    (Some(ledger), _) => ledger,
-                    (None, Some(_)) => Ledger::default(),
-                    (None, None) => {
-                        writeln!(
-                            std::io::stdout().lock(),
-                            "no ledger at {} yet: nothing to export",
-                            env.store_path().display()
-                        )?;
-                        return Ok(());
-                    }
-                };
-                let scope = Scope {
-                    repo: env.worktree.clone().unwrap_or_else(|| {
-                        env.cwd
-                            .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_default()
-                    }),
-                    session: env
-                        .session
-                        .clone()
-                        .map_or_else(|| "all sessions".into(), |s| format!("session {s}")),
-                    source: env.branch.clone().unwrap_or_default(),
-                    generated_at: String::new(),
-                    board_mode: env.config.board.mode.clone(),
-                };
-                if env.config.board.mode != "artifact" {
-                    eprintln!(
-                        "note: this repo's board mode is `{}`; do not publish its items to claude.ai",
-                        env.config.board.mode
-                    );
-                }
-                let state = board::export(&ledger, scope, env.config.caps.board_focus, &env::now());
-                let out = out.unwrap_or_else(|| env.state_dir().join("board-state.json"));
-                if let Some(d) = out.parent() {
-                    std::fs::create_dir_all(d)?;
-                }
-                std::fs::write(&out, serde_json::to_string_pretty(&state)?)?;
-                let waiting = ledger
-                    .open()
-                    .iter()
-                    .filter(|i| i.needs_attention() && i.card.is_none())
-                    .count();
-                println!(
-                    "wrote {} · {} card(s) · {} decided · {} default(s){}",
-                    out.display(),
-                    state.items.len(),
-                    state.decided.len(),
-                    state.defaults.len(),
-                    if waiting > 0 {
-                        format!(" · {waiting} open item(s) need grounding before they can be shown")
-                    } else {
-                        String::new()
-                    }
-                );
-            }
-            BoardCmd::Apply { path } => {
-                let answers = read_answers(&path)?;
-                let mut s = Session::open(&env, "cli")?;
-                let mut applied = Vec::new();
-                for (doc_id, a) in answers {
-                    let op = match board::validate_answer(&s.ledger, &a) {
-                        Ok(v) => to_op(&a.item_id, v),
-                        Err(board::AnswerError::AlreadyApplied) => continue,
-                        Err(e) => {
-                            println!("✗ {doc_id}: {e}");
-                            continue;
-                        }
-                    };
-                    match s.apply(&op) {
-                        Ok(r) => {
-                            println!("✓ {r}");
-                            applied.push(doc_id);
-                        }
-                        Err(e) => println!("✗ {doc_id}: {e:#}"),
-                    }
-                }
-                println!(
-                    "applied: {}",
-                    if applied.is_empty() {
-                        "none".into()
-                    } else {
-                        applied.join(" ")
-                    }
-                );
-            }
-        },
+    let env = Env::discover(&cwd, g.session).with_store(g.store);
+    match cmd {
+        LedgerCmd::Prime => Ok(write!(out, "{}", hooks::prime(&env, "manual")?)?),
+        LedgerCmd::Init(a) => init(env, a, out),
+        LedgerCmd::Open(a) => open(&env, &a, out),
+        LedgerCmd::Show(a) => show(&env, &a, out),
+        LedgerCmd::Context(a) => context_pack(&env, &a, out),
+        LedgerCmd::Raise(a) => raise(&env, a, out),
+        LedgerCmd::Batch(a) => batch(&env, a, out),
+        LedgerCmd::Decide(a) => apply_one(&env, &a.into_op(), out),
+        LedgerCmd::Defer(a) => apply_one(&env, &a.into_op(), out),
+        LedgerCmd::Dismiss(a) => apply_one(&env, &a.into_op(), out),
+        LedgerCmd::Reopen(a) => apply_one(&env, &a.into_op(), out),
+        LedgerCmd::Digest(a) => digest(&env, &a, out),
+        LedgerCmd::Stats(a) => stats(&env, &a, out),
+        LedgerCmd::Trailer(a) => trailer(&env, &a, out),
+        LedgerCmd::Scan(a) => scan(&env, a, out),
+        LedgerCmd::Board {
+            cmd: BoardCmd::Export(a),
+        } => board_export(&env, a, out),
+        LedgerCmd::Board {
+            cmd: BoardCmd::Apply(a),
+        } => board_apply(&env, &a, out),
     }
+}
+
+fn init(env: Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
+    let mut c = Config::load(&env.root());
+    c.board.mode = a.board.unwrap_or_else(|| {
+        if a.class == "client" {
+            "local".into()
+        } else {
+            "artifact".into()
+        }
+    });
+    c.repo_class = a.class;
+    if a.board_url.is_some() {
+        c.board.url = a.board_url;
+    }
+    if let Some(o) = a.owner {
+        c.owner = o;
+    }
+    if let Some(l) = a.ledger {
+        c.store = Some(l).filter(|l| !l.trim().is_empty());
+    }
+    let p = c.save(&env.root())?;
+    let env = Env { config: c, ..env };
+    writeln!(
+        out,
+        "wrote {} · class {} · board {} · ledger {}",
+        env.relative(&p.to_string_lossy()),
+        env.config.repo_class,
+        env.config.board.mode,
+        env.store_path().display()
+    )?;
+    Ok(())
+}
+
+fn open(env: &Env, a: &OpenArgs, out: &mut impl Write) -> Result<()> {
+    let ledger = read_ledger(env)?;
+    let scope_session = if a.scope.repo || a.scope.all {
+        None
+    } else {
+        env.session.as_deref()
+    };
+    let items: Vec<&Item> = if a.scope.all {
+        ledger.items.values().collect()
+    } else {
+        match scope_session {
+            Some(id) => ledger.open_in_session(id),
+            None => ledger.open(),
+        }
+    };
+    if a.json {
+        writeln!(
+            out,
+            "{}",
+            serde_json::to_string(&items.iter().take(a.top).collect::<Vec<_>>())?
+        )?;
+        return Ok(());
+    }
+    open_summary(&ledger, scope_session, out)?;
+    if items.is_empty() {
+        writeln!(out, "No decisions need you.")?;
+    }
+    for i in items.iter().take(a.top) {
+        write_line(out, i)?;
+    }
+    if items.len() > a.top {
+        writeln!(out, "… {} more (--top)", items.len() - a.top)?;
+    }
+    if a.with_context {
+        for i in items
+            .iter()
+            .take(a.top)
+            .filter(|i| i.needs_attention() && i.at.is_some())
+        {
+            writeln!(
+                out,
+                "{}",
+                context::render(&context::build(env, i), env.config.caps.context_chars)
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// The counts line `open` starts with.
+fn open_summary(ledger: &Ledger, session: Option<&str>, out: &mut impl Write) -> Result<()> {
+    let repo_open = ledger.open();
+    let one_way = repo_open
+        .iter()
+        .filter(|i| i.door() == Door::OneWay)
+        .count();
+    let defaults = ledger.unacknowledged_defaults().len();
+    let here = session.map_or_else(String::new, |id| {
+        format!(
+            "{} open in this session · ",
+            ledger.open_in_session(id).len()
+        )
+    });
+    writeln!(
+        out,
+        "{here}{} open in repo ({one_way} one-way) · {defaults} default(s) to review",
+        repo_open.len()
+    )?;
+    Ok(())
+}
+
+fn show(env: &Env, a: &ItemArgs, out: &mut impl Write) -> Result<()> {
+    let ledger = read_ledger(env)?;
+    let item = ledger
+        .resolve(&a.id)
+        .ok_or_else(|| anyhow!("no single item matches `{}`", a.id))?;
+    if a.json {
+        writeln!(out, "{}", serde_json::to_string_pretty(item)?)?;
+        return Ok(());
+    }
+    write_line(out, item)?;
+    if let Some(c) = &item.card {
+        writeln!(out, "  card: {}", serde_json::to_string(c)?)?;
+    }
+    if let Some(d) = &item.decision {
+        writeln!(
+            out,
+            "  decided {} by {} ({}) via {} · {}",
+            d.option,
+            d.decider,
+            d.provenance.as_str(),
+            d.via,
+            d.ts
+        )?;
+    }
+    for r in &item.records {
+        writeln!(out, "  record: {} ({})", r.path, r.atom_id)?;
+    }
+    Ok(())
+}
+
+fn context_pack(env: &Env, a: &ItemArgs, out: &mut impl Write) -> Result<()> {
+    let ledger = read_ledger(env)?;
+    let item = ledger
+        .resolve(&a.id)
+        .ok_or_else(|| anyhow!("no single item matches `{}`", a.id))?;
+    let pack = context::build(env, item);
+    if a.json {
+        writeln!(out, "{}", serde_json::to_string(&pack)?)?;
+    } else {
+        writeln!(
+            out,
+            "{}",
+            context::render(&pack, env.config.caps.context_chars)
+        )?;
+    }
+    Ok(())
+}
+
+fn raise(env: &Env, a: RaiseArgs, out: &mut impl Write) -> Result<()> {
+    let mut s = Session::open(env, "cli")?;
+    let inputs = raise_inputs(a)?;
+    if inputs.is_empty() {
+        bail!("no weigh-in blocks found on stdin");
+    }
+    for r in inputs {
+        writeln!(out, "{}", s.apply(&Op::Raise(r))?)?;
+    }
+    Ok(())
+}
+
+/// What `raise` raises: every `weigh-in` block on stdin with `--markers`, else the one question.
+fn raise_inputs(a: RaiseArgs) -> Result<Vec<RaiseInput>> {
+    if a.markers {
+        let text = stdin()?;
+        let ch = if a.channel == "manual" {
+            "sweep".to_owned()
+        } else {
+            a.channel
+        };
+        return Ok(parse_markers(&text)
+            .iter()
+            .map(|m| {
+                let mut r = RaiseInput::from_marker(m, weighin_core::event::Channel::Sweep);
+                // Each input owns its channel.
+                r.channel = Some(ch.clone());
+                r
+            })
+            .collect());
+    }
+    let q =
+        a.q.ok_or_else(|| anyhow!("--q is required (or --markers with blocks on stdin)"))?;
+    Ok(vec![RaiseInput {
+        q,
+        kind: a.kind,
+        door: a.door,
+        authority: a.authority,
+        did: a.did,
+        flip: a.flip,
+        at: a.at,
+        channel: Some(a.channel),
+        ..Default::default()
+    }])
+}
+
+fn batch(env: &Env, a: BatchArgs, out: &mut impl Write) -> Result<()> {
+    let text = match a.file {
+        Some(f) => {
+            std::fs::read_to_string(&f).with_context(|| format!("reading {}", f.display()))?
+        }
+        None => stdin()?,
+    };
+    let ops = ops::parse_ops(&text)?;
+    let mut s = Session::open(env, "cli")?;
+    let mut failed = 0;
+    for (n, op) in ops.iter().enumerate() {
+        let applied = match op {
+            Ok(op) => s.apply(op),
+            Err(e) => {
+                failed += 1;
+                writeln!(out, "✗ op {n}: {e:#}")?;
+                continue;
+            }
+        };
+        match applied {
+            Ok(r) => writeln!(out, "✓ {r}")?,
+            Err(e) => {
+                failed += 1;
+                writeln!(out, "✗ op {n}: {e:#}")?;
+            }
+        }
+    }
+    if failed > 0 {
+        bail!(
+            "{failed} of {} operations failed; the rest were applied",
+            ops.len()
+        );
+    }
+    Ok(())
+}
+
+/// One operation through the write path, and its receipt.
+fn apply_one(env: &Env, op: &Op, out: &mut impl Write) -> Result<()> {
+    let mut s = Session::open(env, "cli")?;
+    writeln!(out, "{}", s.apply(op)?)?;
+    Ok(())
+}
+
+impl DecideArgs {
+    fn into_op(self) -> Op {
+        Op::Decide {
+            id: self.id,
+            option: self.option,
+            note: self.note,
+            provenance: None,
+            via: Some(self.via),
+            seconds: None,
+        }
+    }
+}
+
+impl DeferArgs {
+    fn into_op(self) -> Op {
+        Op::Defer {
+            id: self.id,
+            flip: self.flip,
+            trigger: self.trigger,
+            resolve_by: self.resolve_by,
+            default: self.default,
+            owner: None,
+            unqualified: false,
+            reason: self
+                .reason
+                .unwrap_or_else(|| "deferred with a named fact".into()),
+        }
+    }
+}
+
+impl DismissArgs {
+    fn into_op(self) -> Op {
+        Op::Dismiss {
+            id: self.id,
+            why: self.why,
+            note: self.note,
+            reason: "dismissed from the cli".into(),
+        }
+    }
+}
+
+impl ReopenArgs {
+    fn into_op(self) -> Op {
+        Op::Reopen {
+            id: self.id,
+            note: self.note,
+            reason: "reopened from the cli".into(),
+        }
+    }
+}
+
+/// `digest --json`: the defaults and the untriaged items, keys in the order printed before.
+#[derive(serde::Serialize)]
+struct DigestJson<'l> {
+    defaults: &'l [&'l Item],
+    untriaged_from_other_sessions: &'l [&'l Item],
+}
+
+fn digest(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()> {
+    let ledger = read_ledger(env)?;
+    let defaults = ledger.unacknowledged_defaults();
+    let untriaged: Vec<&Item> = ledger
+        .open()
+        .into_iter()
+        .filter(|i| i.status == Status::Raised && env.session.as_deref() != i.session_id.as_deref())
+        .collect();
+    if a.json {
+        let doc = DigestJson {
+            defaults: &defaults,
+            untriaged_from_other_sessions: &untriaged,
+        };
+        writeln!(out, "{}", serde_json::to_string(&doc)?)?;
+        return Ok(());
+    }
+    writeln!(
+        out,
+        "{} default(s) taken without you · {} untriaged item(s) from other sessions",
+        defaults.len(),
+        untriaged.len()
+    )?;
+    for i in defaults {
+        // `unacknowledged_defaults` only returns items with a default.
+        let Some(d) = i.default.as_ref() else {
+            continue;
+        };
+        writeln!(
+            out,
+            "{} [{}] {} → took: {}",
+            i.id,
+            d.cause.as_str(),
+            clip(&i.question, 90),
+            clip(&d.option, 80)
+        )?;
+    }
+    for i in untriaged {
+        write_line(out, i)?;
+    }
+    Ok(())
+}
+
+fn stats(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()> {
+    let ledger = read_ledger(env)?;
+    let h = Health::of(&ledger);
+    if a.json {
+        writeln!(out, "{}", serde_json::to_string(&h)?)?;
+        return Ok(());
+    }
+    writeln!(
+        out,
+        "presented {} · action rate {} (target ≥60%) · not useful {} (target ≤10%) · overrides {} of {} · median time to decide {} · unqualified deferrals {} · unreviewed defaults {}",
+        h.presented,
+        percent(h.acted, h.presented),
+        percent(h.not_useful, h.presented),
+        h.chosen_against_recommendation,
+        h.chosen_with_recommendation_known,
+        h.median_seconds_to_decide
+            .map_or_else(|| "—".to_owned(), |s| format!("{s}s")),
+        h.deferred_unqualified,
+        h.defaults_unacknowledged
+    )?;
+    if !ledger.orphans.is_empty() {
+        writeln!(
+            out,
+            "warning: {} event(s) for unknown items",
+            ledger.orphans.len()
+        )?;
+    }
+    Ok(())
+}
+
+/// `n` of `d` as a whole percentage, rounded half to even as `{:.0}` rounds a float, or `—`
+/// when there is nothing to divide by.
+fn percent(n: usize, d: usize) -> String {
+    rounded_percent(n, d).map_or_else(|| "—".to_owned(), |p| format!("{p}%"))
+}
+
+fn rounded_percent(n: usize, d: usize) -> Option<usize> {
+    let scaled = n.checked_mul(100)?;
+    let quotient = scaled.checked_div(d)?;
+    let remainder = scaled.checked_rem(d)?;
+    // `remainder < d`, so `d - remainder` cannot underflow; compare halves without doubling.
+    let rest = d.checked_sub(remainder)?;
+    let up = remainder > rest || (remainder == rest && quotient % 2 == 1);
+    quotient.checked_add(usize::from(up))
+}
+
+fn scan(env: &Env, a: ScanArgs, out: &mut impl Write) -> Result<()> {
+    let mut total = 0;
+    for p in a.paths {
+        let text =
+            std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
+        let abs = if p.is_absolute() { p } else { env.cwd.join(&p) };
+        for o in hooks::scan_text(env, &abs.to_string_lossy(), &[text], "cli")? {
+            total += 1;
+            writeln!(
+                out,
+                "{}",
+                match o {
+                    ops::RaiseOutcome::New(id) => format!("raised {id}"),
+                    ops::RaiseOutcome::Existing(id) => format!("{id} already raised"),
+                    ops::RaiseOutcome::Duplicate(id) => format!("linked to open {id}"),
+                }
+            )?;
+        }
+    }
+    if total == 0 {
+        writeln!(out, "nothing to raise")?;
+    }
+    Ok(())
+}
+
+fn trailer(env: &Env, a: &TrailerArgs, out: &mut impl Write) -> Result<()> {
+    let ledger = read_ledger(env)?;
+    let item = ledger
+        .resolve(&a.id)
+        .ok_or_else(|| anyhow!("no single item matches `{}`", a.id))?;
+    let d = item
+        .decision
+        .as_ref()
+        .ok_or_else(|| anyhow!("{} is not decided", item.id))?;
+    writeln!(out, "Weigh-In: {} decided {}", item.id, d.option)?;
+    Ok(())
+}
+
+fn board_export(env: &Env, a: ExportArgs, out: &mut impl Write) -> Result<()> {
+    // The default state file sits beside the ledger; writing it would create the ledger's
+    // directory where no item was ever raised.
+    let ledger = match (ops::stored_ledger(env)?, &a.out) {
+        (Some(ledger), _) => ledger,
+        (None, Some(_)) => Ledger::default(),
+        (None, None) => {
+            writeln!(
+                out,
+                "no ledger at {} yet: nothing to export",
+                env.store_path().display()
+            )?;
+            return Ok(());
+        }
+    };
+    if env.config.board.mode != "artifact" {
+        writeln!(
+            io::stderr().lock(),
+            "note: this repo's board mode is `{}`; do not publish its items to claude.ai",
+            env.config.board.mode
+        )?;
+    }
+    let state = board::export(
+        &ledger,
+        board_scope(env),
+        env.config.caps.board_focus,
+        &env::now(),
+    );
+    let path = a
+        .out
+        .unwrap_or_else(|| env.state_dir().join("board-state.json"));
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&state)?)?;
+    let waiting = ledger
+        .open()
+        .iter()
+        .filter(|i| i.needs_attention() && i.card.is_none())
+        .count();
+    writeln!(
+        out,
+        "wrote {} · {} card(s) · {} decided · {} default(s){}",
+        path.display(),
+        state.items.len(),
+        state.decided.len(),
+        state.defaults.len(),
+        if waiting > 0 {
+            format!(" · {waiting} open item(s) need grounding before they can be shown")
+        } else {
+            String::new()
+        }
+    )?;
+    Ok(())
+}
+
+/// Where the board's items come from, as the board shows it.
+fn board_scope(env: &Env) -> Scope {
+    Scope {
+        repo: env.worktree.clone().unwrap_or_else(|| {
+            env.cwd
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        }),
+        session: env
+            .session
+            .as_deref()
+            .map_or_else(|| "all sessions".into(), |s| format!("session {s}")),
+        source: env.branch.clone().unwrap_or_default(),
+        generated_at: String::new(),
+        board_mode: env.config.board.mode.clone(),
+    }
+}
+
+fn board_apply(env: &Env, a: &ApplyArgs, out: &mut impl Write) -> Result<()> {
+    let answers = read_answers(&a.path)?;
+    let mut s = Session::open(env, "cli")?;
+    let mut applied = Vec::new();
+    for (doc_id, answer) in answers {
+        let op = match board::validate_answer(&s.ledger, &answer) {
+            Ok(v) => to_op(&answer.item_id, v),
+            Err(board::AnswerError::AlreadyApplied) => continue,
+            Err(e) => {
+                writeln!(out, "✗ {doc_id}: {e}")?;
+                continue;
+            }
+        };
+        match s.apply(&op) {
+            Ok(r) => {
+                writeln!(out, "✓ {r}")?;
+                applied.push(doc_id);
+            }
+            Err(e) => writeln!(out, "✗ {doc_id}: {e:#}")?,
+        }
+    }
+    writeln!(
+        out,
+        "applied: {}",
+        if applied.is_empty() {
+            "none".into()
+        } else {
+            applied.join(" ")
+        }
+    )?;
     Ok(())
 }
 
@@ -777,7 +948,7 @@ fn to_op(id: &str, v: ValidAnswer) -> Op {
 }
 
 /// Answers as `(document id, answer)`. Accepts one document, an array, `{ "id", "data" }` wrappers
-/// as ArtifactData prints them, or a directory of such files.
+/// as `ArtifactData` prints them, or a directory of such files.
 fn read_answers(path: &std::path::Path) -> Result<Vec<(String, Answer)>> {
     let mut files = Vec::new();
     if path.is_dir() {
@@ -829,12 +1000,12 @@ fn clip(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         s
     } else {
-        s.chars().take(n - 1).collect::<String>() + "…"
+        s.chars().take(n.saturating_sub(1)).collect::<String>() + "…"
     }
 }
 
 /// Two lines per item, about 60 tokens.
-fn line(i: &Item) -> String {
+fn write_line(out: &mut impl Write, i: &Item) -> io::Result<()> {
     let mut meta = vec![
         i.door().as_str().to_owned(),
         i.authority().as_str().to_owned(),
@@ -850,12 +1021,13 @@ fn line(i: &Item) -> String {
     if i.card.is_some() {
         meta.push("card".into());
     }
-    let mut s = format!(
-        "{} [{}] {}\n",
+    writeln!(
+        out,
+        "{} [{}] {}",
         i.id,
         meta.join(" · "),
         clip(&i.question, 140)
-    );
+    )?;
     let mut detail = Vec::new();
     if let Some(d) = &i.did {
         detail.push(format!("did: {}", clip(d, 70)));
@@ -878,7 +1050,58 @@ fn line(i: &Item) -> String {
         detail.push(format!("took: {}", clip(&d.option, 60)));
     }
     if !detail.is_empty() {
-        s.push_str(&format!("  {}\n", detail.join(" · ")));
+        writeln!(out, "  {}", detail.join(" · "))?;
     }
-    s
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clip, is_broken_pipe, percent};
+    use anyhow::Context as _;
+    use std::io;
+
+    #[test]
+    fn percent_rounds_half_to_even_like_float_formatting() {
+        assert_eq!(percent(1, 8), "12%");
+        assert_eq!(percent(3, 8), "38%");
+        assert_eq!(percent(1, 3), "33%");
+        assert_eq!(percent(2, 3), "67%");
+        assert_eq!(percent(5, 5), "100%");
+        assert_eq!(percent(0, 4), "0%");
+    }
+
+    #[test]
+    fn percent_of_nothing_is_a_dash() {
+        assert_eq!(percent(0, 0), "—");
+        assert_eq!(percent(3, 0), "—");
+    }
+
+    #[test]
+    fn percent_matches_zero_decimal_float_formatting_for_small_ratios() {
+        for d in 1..=400_u32 {
+            for n in 0..=d {
+                let float = format!("{:.0}%", 100.0 * f64::from(n) / f64::from(d));
+                let n = usize::try_from(n).unwrap();
+                let d = usize::try_from(d).unwrap();
+                assert_eq!(percent(n, d), float, "{n}/{d}");
+            }
+        }
+    }
+
+    #[test]
+    fn clip_keeps_short_text_and_ellipsizes_long_text() {
+        assert_eq!(clip("a\nb", 3), "a b");
+        assert_eq!(clip("abcdef", 4), "abc…");
+        assert_eq!(clip("abc", 0), "…");
+    }
+
+    #[test]
+    fn a_broken_pipe_anywhere_in_the_chain_is_recognised() {
+        let pipe: anyhow::Result<()> = Err(io::Error::from(io::ErrorKind::BrokenPipe).into());
+        let wrapped = pipe.context("writing the list").unwrap_err();
+        assert!(is_broken_pipe(&wrapped));
+        let other = anyhow::Error::from(io::Error::from(io::ErrorKind::NotFound));
+        assert!(!is_broken_pipe(&other));
+    }
 }
