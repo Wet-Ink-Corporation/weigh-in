@@ -263,7 +263,7 @@ fn main() -> ExitCode {
         Cmd::Ledger(cmd) => cmd,
     };
     let stdout = io::stdout();
-    let mut out = stdout.lock();
+    let mut out = Stdout(stdout.lock());
     let globals = Globals {
         session,
         dir,
@@ -285,7 +285,7 @@ struct Globals {
 /// `weighin: <error chain>` on stderr and exit 1; a closed stdout (`weighin open | head`) is
 /// not a failure, so it exits 0 without a word.
 fn report(e: &anyhow::Error) -> ExitCode {
-    if is_broken_pipe(e) {
+    if is_closed_stdout(e) {
         return ExitCode::SUCCESS;
     }
     match writeln!(io::stderr().lock(), "weighin: {e:#}") {
@@ -294,10 +294,51 @@ fn report(e: &anyhow::Error) -> ExitCode {
     }
 }
 
-fn is_broken_pipe(e: &anyhow::Error) -> bool {
+/// The command's standard output. A broken pipe on it is tagged [`StdoutClosed`], so `report`
+/// tells a reader that stopped reading from any other broken pipe (stderr, a child process).
+struct Stdout<W>(W);
+
+impl<W: Write> Write for Stdout<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.write(buf).map_err(StdoutClosed::tag)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush().map_err(StdoutClosed::tag)
+    }
+}
+
+/// A broken pipe on standard output: whoever read it has stopped reading.
+#[derive(Debug)]
+struct StdoutClosed(io::Error);
+
+impl StdoutClosed {
+    fn tag(e: io::Error) -> io::Error {
+        if e.kind() == io::ErrorKind::BrokenPipe {
+            io::Error::new(io::ErrorKind::BrokenPipe, Self(e))
+        } else {
+            e
+        }
+    }
+}
+
+impl std::fmt::Display for StdoutClosed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "writing standard output: {}", self.0)
+    }
+}
+
+impl std::error::Error for StdoutClosed {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+fn is_closed_stdout(e: &anyhow::Error) -> bool {
     e.chain().any(|c| {
         c.downcast_ref::<io::Error>()
-            .is_some_and(|io| io.kind() == io::ErrorKind::BrokenPipe)
+            .and_then(io::Error::get_ref)
+            .is_some_and(<dyn std::error::Error + Send + Sync>::is::<StdoutClosed>)
     })
 }
 
@@ -646,11 +687,21 @@ impl ReopenArgs {
     }
 }
 
-/// `digest --json`: the defaults and the untriaged items, keys in the order printed before.
+/// `digest --json`: the defaults and the untriaged items.
 #[derive(serde::Serialize)]
 struct DigestJson<'l> {
     defaults: &'l [&'l Item],
     untriaged_from_other_sessions: &'l [&'l Item],
+}
+
+/// The `digest --json` line. It goes through `serde_json::Value`, whose maps are sorted, so
+/// the keys at every level, items included, come out in alphabetical order.
+fn digest_json(defaults: &[&Item], untriaged: &[&Item]) -> serde_json::Result<String> {
+    let doc = DigestJson {
+        defaults,
+        untriaged_from_other_sessions: untriaged,
+    };
+    serde_json::to_string(&serde_json::to_value(&doc)?)
 }
 
 fn digest(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()> {
@@ -662,11 +713,7 @@ fn digest(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()> {
         .filter(|i| i.status == Status::Raised && env.session.as_deref() != i.session_id.as_deref())
         .collect();
     if a.json {
-        let doc = DigestJson {
-            defaults: &defaults,
-            untriaged_from_other_sessions: &untriaged,
-        };
-        writeln!(out, "{}", serde_json::to_string(&doc)?)?;
+        writeln!(out, "{}", digest_json(&defaults, &untriaged)?)?;
         return Ok(());
     }
     writeln!(
@@ -1057,9 +1104,63 @@ fn write_line(out: &mut impl Write, i: &Item) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{clip, is_broken_pipe, percent};
+    use super::{Stdout, clip, digest_json, is_closed_stdout, percent};
     use anyhow::Context as _;
-    use std::io;
+    use std::io::{self, Write as _};
+    use weighin_core::event::{Channel, Raised};
+    use weighin_core::marker::{Authority, Door, Kind};
+    use weighin_core::{EventEnvelope, ItemId, Ledger, LedgerEvent};
+
+    fn raised_ledger() -> Ledger {
+        let id = ItemId::mint("s1", "Where should the ledger live?");
+        let mut l = Ledger::default();
+        l.apply(
+            1,
+            &EventEnvelope {
+                event: LedgerEvent::ItemRaised(Raised {
+                    item_id: id,
+                    kind: Kind::Question,
+                    question: "Where should the ledger live?".into(),
+                    did: None,
+                    flip: None,
+                    at: None,
+                    sym: None,
+                    blocks: None,
+                    door_hint: Door::TwoWay,
+                    authority_hint: Authority::Authority,
+                    channel: Channel::Marker,
+                    quote: "Where should the ledger live?".into(),
+                    source_path: None,
+                    source_line: None,
+                }),
+                actor: "test".into(),
+                session_id: Some("s1".into()),
+                worktree: None,
+                branch: None,
+                head: None,
+                ts: "2026-09-26T00:00:00Z".into(),
+            },
+        );
+        l
+    }
+
+    #[test]
+    fn digest_json_prints_every_key_sorted_as_a_json_value_does() {
+        let ledger = raised_ledger();
+        let untriaged = ledger.open();
+        assert_eq!(untriaged.len(), 1);
+        let printed = digest_json(&[], &untriaged).unwrap();
+        let expected =
+            serde_json::json!({ "defaults": [], "untriaged_from_other_sessions": untriaged })
+                .to_string();
+        assert_eq!(printed, expected);
+        assert!(
+            printed.starts_with(
+                r#"{"defaults":[],"untriaged_from_other_sessions":[{"also_raised_in":[],"at":null,"#
+            ),
+            "{printed}"
+        );
+    }
 
     #[test]
     fn percent_rounds_half_to_even_like_float_formatting() {
@@ -1096,12 +1197,34 @@ mod tests {
         assert_eq!(clip("abc", 0), "…");
     }
 
+    /// A writer whose reader has gone.
+    struct Gone;
+
+    impl io::Write for Gone {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+    }
+
     #[test]
-    fn a_broken_pipe_anywhere_in_the_chain_is_recognised() {
-        let pipe: anyhow::Result<()> = Err(io::Error::from(io::ErrorKind::BrokenPipe).into());
-        let wrapped = pipe.context("writing the list").unwrap_err();
-        assert!(is_broken_pipe(&wrapped));
+    fn a_closed_stdout_anywhere_in_the_chain_is_recognised() {
+        let written: anyhow::Result<()> = writeln!(Stdout(Gone), "an item").map_err(Into::into);
+        let wrapped = written.context("writing the list").unwrap_err();
+        assert!(is_closed_stdout(&wrapped));
+        let flushed: anyhow::Result<()> = Stdout(Gone).flush().map_err(Into::into);
+        assert!(is_closed_stdout(&flushed.unwrap_err()));
+    }
+
+    #[test]
+    fn a_broken_pipe_elsewhere_is_a_failure() {
+        let stderr: anyhow::Result<()> = writeln!(Gone, "note").map_err(Into::into);
+        let wrapped = stderr.context("writing the note").unwrap_err();
+        assert!(!is_closed_stdout(&wrapped));
         let other = anyhow::Error::from(io::Error::from(io::ErrorKind::NotFound));
-        assert!(!is_broken_pipe(&other));
+        assert!(!is_closed_stdout(&other));
     }
 }
