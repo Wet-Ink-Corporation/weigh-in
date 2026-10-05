@@ -165,18 +165,32 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The MSRV is read from the manifest, so it never drifts from rust-version: the first
+      # rust-version in the root Cargo.toml (workspace.package's, or package's in a single crate).
+      - name: MSRV
+        id: msrv
+        shell: bash
+        run: |
+          v=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)
+          if [ -z "$v" ]; then
+            echo "::error file=Cargo.toml::no rust-version in the root Cargo.toml: set workspace.package.rust-version"
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       # Cargo 1.97+ honours build.warnings, so this job needs the gate job's baseline mode too.
       - name: Baseline mode
         if: hashFiles('.claude/temper-baseline.json') != ''
         run: echo "CARGO_BUILD_WARNINGS=warn" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-28
         with:
-          toolchain: "1.98.1"  # keep in sync with workspace.package.rust-version
+          toolchain: ${{ steps.msrv.outputs.version }}
       # rust-version equals the pin here (rust-toolchain.toml), so this job checks the pinned
       # compiler with the lockfile; it becomes a real MSRV check if rust-version is ever lowered.
-      # With a baseline, legacy warnings are the gate job's Lint (temper) step's business.
-      - run: cargo +1.98.1 check --locked --workspace --all-targets --all-features
+      # `+$MSRV` overrides rust-toolchain.toml. With a baseline, legacy warnings are the gate
+      # job's Lint (temper) step's business.
+      - run: cargo "+$MSRV" check --locked --workspace --all-targets --all-features
         env:
+          MSRV: ${{ steps.msrv.outputs.version }}
           RUSTFLAGS: ${{ hashFiles('.claude/temper-baseline.json') == '' && '-D warnings' || '' }}
 
   latest-deps:
