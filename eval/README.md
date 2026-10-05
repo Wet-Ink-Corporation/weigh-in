@@ -49,3 +49,10 @@ One JSON object per line:
   precision is 100% on one captured item and recall is 14%. The test passes, but the exit
   criterion counts only once the seed holds at least 10 captured items (wi-a9df17): blocks from
   #23's weeks are added here as they come.
+
+  Added 2026-10-05: three end-of-turn messages (`s7`) from the 0.5.2 release session, all true
+  negatives. That session started before the 0.5.2 convention merged, so it counts as before 0.5.2.
+  Only its last page of turns could be read: the session was gone from the API before the rest
+  were fetched. 28 items, 7 labelled `capture`, 1 captured, so recall is still 14%. No
+  session has yet run with the 0.5.2 convention line (one block per call), so recall after 0.5.2
+  is not measured.

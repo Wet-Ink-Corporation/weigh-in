@@ -268,6 +268,19 @@ B-14), and only the tag is pushed, since the workflow creates the release.
   [#62](https://github.com/Wet-Ink-Corporation/weigh-in/pull/62) covered the Windows `ENOENT` hook
   error in the install guide. No 0.9.x candidate yet.
 
+**Progress at 0.5.2 (2026-10-05).**
+- **Step 1:** no V-item results posted on #16–#21 since 0.5.1; #21 still waits on one Windows
+  session with Git Bash hidden.
+- **Step 2:** [#69](https://github.com/Wet-Ink-Corporation/weigh-in/pull/69) added the convention
+  line "a list of calls for the user gets one block per call" (#68, wi-357345), released in
+  [0.5.2](https://github.com/Wet-Ink-Corporation/weigh-in/pull/71). The seed grew to 28 items with
+  three true negatives from the release session, which ran the 0.5.1 convention; recall is still
+  1 of 7. No session had run with the 0.5.2 line yet, so its effect on recall is unmeasured. The
+  80% bar still waits on 10 captured items (wi-a9df17).
+- **Step 3:** no week posted on #23, so #25 is not triggered.
+- **Step 5:** [#70](https://github.com/Wet-Ink-Corporation/weigh-in/pull/70) tightened the temper
+  baseline to 721. No 0.9.x candidate yet.
+
 Exit criteria. These are the design's slice 1 exit criteria (two weeks or 30 presented items,
 whichever comes later), the same targets `weighin stats` prints, plus the release checks:
 
