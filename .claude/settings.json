@@ -73,7 +73,9 @@
       "Bash(node .claude/temper/temper.mjs baseline --check*)",
       "Bash(node .claude/temper/temper.mjs baseline --tighten*)",
       "Bash(node .claude/temper/temper.mjs report*)",
-      "Bash(node .claude/temper/temper.mjs gate*)"
+      "Bash(node .claude/temper/temper.mjs gate*)",
+      "Bash(sh \"/home/user/weigh-in/plugin/libexec/weighin\" *)",
+      "Bash(sh /home/user/weigh-in/plugin/libexec/weighin *)"
     ],
     "ask": [
       "Edit(**/clippy.toml)",

@@ -44,6 +44,10 @@ One JSON object per line:
   (D-0014), the transcript is the only record. `by: claude-draft` until Ryan has reviewed the
   label, then `by: ryan`.
 
+  From 2026-10-05 each session adds its own turns before it ends (wi-48657b, `CLAUDE.md`),
+  parsed from its transcript under `~/.claude/projects/`, because a session can leave the
+  sessions API before a later one reads it back (the 0.5.2 release session did).
+
   Drafted 2026-10-04 from three sessions (`s3`, `s5`, `s6`; 51 turns since 0.5.0): 25 items, 7
   labelled `capture`. Capture raises one of them, the only turn that carried a block, so
   precision is 100% on one captured item and recall is 14%. The test passes, but the exit
@@ -56,3 +60,8 @@ One JSON object per line:
   were fetched. 28 items, 7 labelled `capture`, 1 captured, so recall is still 14%. No
   session has yet run with the 0.5.2 convention line (one block per call), so recall after 0.5.2
   is not measured.
+
+  Added 2026-10-05: four turns (`s8`) from the first session on the 0.5.2 convention, saved by
+  the session itself. One carries a block and is captured; three are true negatives. The seed is now 32 items, 8
+  labelled `capture`, 2 captured (precision 100%, recall 25%). After 0.5.2, recall is 1 of 1 on one
+  session, which is too few to judge the new line.

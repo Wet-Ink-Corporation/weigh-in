@@ -51,6 +51,10 @@ Weigh-In ends up (wi-b4c1d8). Line endings are LF everywhere (`.gitattributes`).
   so settle or defer everything before the session ends. There the plugin is wired through
   `.claude/settings.json` and `.claude/hooks/session-start.sh`, because cloud sessions do not
   install plugins (B-12); on your own machine, install `weigh@weigh-in` as usual.
+- Before a cloud session on this repository ends, add its own end-of-turn messages to
+  `eval/seed.jsonl` (wi-48657b): blocks as capture items, the prose calls they missed, and a
+  share of true negatives. Parse them with a script from the session's transcript under
+  `~/.claude/projects/`; a later session cannot rely on reading them back.
 - Run `git config core.hooksPath .githooks` once per clone: its pre-push hook refuses `archive/*`
   branches, which hold history that must stay local (B-06).
 
