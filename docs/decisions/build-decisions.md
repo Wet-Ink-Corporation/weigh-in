@@ -419,3 +419,25 @@ from Cowork yet", `SKILL.md`), and the board from Cowork is slice 2
 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)). V2 tests a path v1 does not
 take, so it moves with that slice; the v1 exit criterion "every V-item is closed or has a
 recorded decision to defer it past 1.0" is met for V2 by this record.
+
+## B-18
+
+**Cowork names an unreleased copy instead of failing silently.** 2026-10-05 · Claude's call,
+two-way · evidence for [B-16](#b-16).
+
+Found in a Cowork chat on 2026-10-05: the account's `weigh` plugin (marketplace `weigh-in`,
+synced 2026-10-04) was byte-identical to `main`'s `plugin/`, because an organization sync of
+this repository reads the default branch, and `main`'s `marketplace.json` lists `./plugin`. So
+Cowork ran an unstamped skill (`V=dev; S=none;`) with no binaries, and the sitting fell to
+"Without the binary" with nothing saying why; no `marketplace` checkout was connected either.
+Step 1 of the skill's Cowork route now prints `unreleased copy` when the stamp is `dev`, and the
+skill says so once and points to the install guide's new "Cowork finds no binary" section. The
+stamp check in CI is unchanged: the added test does not match `V=…; S=…;`.
+
+For B-16's open question: in that synced copy `libexec/weighin` kept mode 0755, so a claude.ai
+sync keeps the launcher's executable bit. A sync of `main` cannot test the hooks themselves,
+which find no binary there; an uploaded release zip is still unchecked.
+
+How claude.ai should get the plugin, upload per release or a sync that reaches the
+`marketplace` branch, is Ryan's, because it would change the developer route that the v1 plan's
+Phase 2 item 4 keeps on `main`.

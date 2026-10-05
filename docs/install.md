@@ -169,3 +169,27 @@ pwsh scripts/build-plugin-bins.ps1
 
 Or install from the `marketplace` branch (above), which ships `weighin.exe`, and remove the local
 install.
+
+## Cowork finds no binary
+
+> B= (no Weigh-In binary)
+> unreleased copy: this plugin was installed from the repository's main branch, which ships no binaries
+
+`/weigh-in` in Cowork needs a Linux `weighin` on the computer, and while releases are internal it
+gets one only from a connected checkout of the `marketplace` branch (above). Two causes, often
+together:
+
+1. **The account's plugin is `main`, not a release.** An organization sync of this repository
+   (Organization settings > Plugins & skills > Sync from GitHub) reads the default branch, whose
+   `marketplace.json` lists `./plugin`: the development tree, skill unstamped (`V=dev`), no
+   binaries and no `libexec/weighin.exe`. Under Customize > Plugins it shows as coming from the
+   `weigh-in` marketplace; an uploaded release zip shows as `My Uploads`. Because synced plugins
+   also reach Claude Code, the same copy breaks Windows hooks there with the `ENOENT` error below
+   and shows `/weigh-in` twice beside a `marketplace`-branch install. Remove the synced
+   marketplace and upload the release zip instead (Cowork, step 3).
+2. **No `marketplace` checkout is connected to this conversation.** Connect it (Cowork, steps 1
+   and 2). It has to be connected in each conversation that runs `/weigh-in`, alongside the folder
+   you are working in.
+
+Without either, the sitting still runs: it sweeps the conversation, asks, and gives each decision
+as a Y-statement for the folder's own decision log, but nothing reaches a ledger.

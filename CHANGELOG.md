@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- In Cowork, `/weigh-in` now says when the account's plugin is the unreleased tree from `main`
+  (for example an organization sync of this repository), which ships no binaries, instead of
+  falling back to an in-chat sitting with no reason given. The install guide has a new "Cowork
+  finds no binary" section (B-18).
+
 ## 0.5.2 — 2026-10-04
 
 - The marker convention SessionStart gives agents now says that a list of calls for the user
