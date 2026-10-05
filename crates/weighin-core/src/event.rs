@@ -48,13 +48,13 @@ impl Channel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Blast {
-    /// Contained in one file.
+    /// Confined to one file.
     File,
-    /// Contained in one module or crate.
+    /// Confined to one module.
     Module,
-    /// Crosses modules: the system as a whole is affected.
+    /// Spans modules within the system.
     System,
-    /// Reaches past the repository: users, tenants, other services or stored data.
+    /// Reaches outside the system.
     External,
 }
 
@@ -134,7 +134,8 @@ pub struct Timing {
 pub enum DismissReason {
     /// Not worth anyone's attention; counted against the action rate.
     NotUseful,
-    /// Cheap to undo whichever way it goes, so nobody needs to decide it.
+    /// The repository already answers it (code, tests, docs or git history); the agent answered
+    /// it and put the evidence in the dismissal's reason.
     Recoverable,
     /// Already settled; the payload cites where (a `kb-…` atom id, or `chat:"<the user's words>"`).
     AlreadyDecided(String),
