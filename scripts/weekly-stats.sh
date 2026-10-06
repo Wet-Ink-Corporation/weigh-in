@@ -18,10 +18,13 @@ fi
 
 launcher=""
 if [ -z "${WEIGHIN:-}" ]; then
-  # The newest installed version, by version order (0.10.0 after 0.9.0); set WEIGHIN to choose.
+  # The newest installed version, compared field by field (0.10.0 after 0.9.0), with no
+  # `sort -V`, which not every sort has; set WEIGHIN to choose.
   launcher=$(for l in "$HOME"/.claude/plugins/cache/weigh-in/weigh/*/libexec/weighin; do
-    [ -f "$l" ] && printf '%s\n' "$l"
-  done | sort -V | tail -n 1)
+    [ -f "$l" ] || continue
+    v=$(basename "$(dirname "$(dirname "$l")")")
+    printf '%s\t%s\n' "$v" "$l"
+  done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f2-)
 fi
 w() {
   if [ -n "${WEIGHIN:-}" ]; then "$WEIGHIN" "$@"

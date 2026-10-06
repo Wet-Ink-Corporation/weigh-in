@@ -32,6 +32,8 @@ if cargo build -p weighin --locked >&2; then
   mkdir -p "plugin/libexec/$target"
   cp target/debug/weighin "plugin/libexec/$target/weighin"
 else
+  # A build kept from an earlier session in this container would still capture, with old code.
+  rm -f "plugin/libexec/$target/weighin"
   echo "session-start: weighin does not build, so capture is off this session" >&2
 fi
 
