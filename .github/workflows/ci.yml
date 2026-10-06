@@ -25,16 +25,25 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
+      # On a pull request rust.yml's gate already runs fmt, the tests and the docs on Linux, so
+      # the Linux leg only reports, keeping the ruleset's required `check (ubuntu-latest)`
+      # (wi-218cc3). Pushes to main and the release's call run it in full.
+      SKIP_LINUX_DUPLICATE: ${{ matrix.os == 'ubuntu-latest' && github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v7
+        if: env.SKIP_LINUX_DUPLICATE != 'true'
       - name: toolchain (pinned by rust-toolchain.toml)
+        if: env.SKIP_LINUX_DUPLICATE != 'true'
         run: rustup toolchain install
       - run: cargo fmt --all --check
+        if: env.SKIP_LINUX_DUPLICATE != 'true'
       # Clippy and rustdoc lints are checked once, by rust.yml's `Lint (temper)` step on Linux,
       # against the committed baseline (.claude/temper-baseline.json): only new findings fail.
       # A `-D warnings` run here would fail on the recorded legacy findings.
       - run: cargo test --workspace
+        if: env.SKIP_LINUX_DUPLICATE != 'true'
       - run: cargo doc --workspace --no-deps
+        if: env.SKIP_LINUX_DUPLICATE != 'true'
   plugin:
     # The plugin as shipped: manifests valid, the skill's one stamp intact, versions and changelog
     # in step, package-plugin.sh producing a zip whose skill is stamped and launcher runs, and the
@@ -96,7 +105,9 @@ jobs:
           git -C "$mp" checkout -q -- . && "$mp/plugin/libexec/weighin" --version
 
   deny:
-    # Advisories, licences and sources of every dependency (deny.toml).
+    # Advisories, licences and sources of every dependency (deny.toml). On a pull request
+    # rust.yml's gate runs `cargo deny` already (wi-218cc3); pushes and the release still run it.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
