@@ -211,9 +211,12 @@ fn new_errors(env: &Env) -> Option<String> {
     let dir = env.state_dir();
     let log_path = dir.join("hook-errors.log");
     let log = std::fs::read(&log_path).ok()?;
-    // The length reported so far, then the log's first line at that time. A different first line
-    // means the log was truncated since, so all of it is new. A record with no first line
-    // (before 0.5.4) is taken as it stands.
+    // The length reported so far, then the start of the log's first line at that time. A
+    // different start means the log was truncated since, so all of it is new. Lines begin with a
+    // timestamp, so this assumes a truncation removes the first line; a log trimmed only at its
+    // end is not detected. A record with no first line, from an older build, is taken as it
+    // stands; an older build reading this record reports the whole log once, then records a
+    // bare length again.
     let head = String::from_utf8_lossy(first_line(&log));
     let recorded = std::fs::read_to_string(dir.join(ERRORS_SEEN)).unwrap_or_default();
     let (offset, recorded_head) = match recorded.split_once('\n') {
@@ -244,9 +247,13 @@ fn new_errors(env: &Env) -> Option<String> {
     ))
 }
 
-/// The bytes of `log` before its first newline.
+/// How much of the log's first line `hook-errors.seen` keeps: the timestamp and event, and more.
+const SEEN_HEAD_BYTES: usize = 80;
+
+/// The bytes of `log` before its first newline, at most [`SEEN_HEAD_BYTES`] of them.
 fn first_line(log: &[u8]) -> &[u8] {
-    log.split(|&b| b == b'\n').next().unwrap_or_default()
+    let line = log.split(|&b| b == b'\n').next().unwrap_or_default();
+    line.get(..SEEN_HEAD_BYTES).unwrap_or(line)
 }
 
 /// The convention, the session key and the counts, in at most ~150 tokens.
@@ -518,6 +525,31 @@ mod tests {
             },
             unread,
             output,
+        );
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads and writes the error log through the file system"
+    )]
+    fn a_seen_record_from_an_older_build_still_counts_from_its_length() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let state = tmp.path().join(".weighin");
+        std::fs::create_dir_all(&state).expect("state dir");
+        let env = Env::discover(tmp.path(), None).with_store(Some(state.join("ledger.sqlite3")));
+        let old = "2026-10-01T00:00:00Z Stop: reported before\n";
+        let added = "2026-10-02T00:00:00Z Stop: logged since\n";
+        std::fs::write(state.join("hook-errors.log"), format!("{old}{added}")).expect("log");
+        // Older builds recorded the length alone.
+        std::fs::write(state.join("hook-errors.seen"), old.len().to_string()).expect("seen");
+
+        let report = new_errors(&env).expect("the added error is reported");
+
+        assert!(
+            report.starts_with("Weigh-In: 1 hook error(s) since the last session")
+                && report.contains("Last: 2026-10-02T00:00:00Z Stop: logged since"),
+            "{report}"
         );
     }
 

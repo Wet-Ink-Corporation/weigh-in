@@ -10,7 +10,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   no longer leaves an empty ledger in a folder that had none (B-01).
 - After `hook-errors.log` is truncated, SessionStart reports every error logged since; before,
   once the log grew past its old length, it skipped the errors before that length and could
-  quote a line from the middle.
+  quote a line from the middle. An older build sharing the ledger reads the new record once as
+  unreadable and reports the whole log one more time.
 - A closed stdout (`weighin open | head`) now ends the command silently with exit 0; before, it
   panicked with exit 101. A broken pipe anywhere else (a closed stderr) is reported as an error
   with exit 1.
