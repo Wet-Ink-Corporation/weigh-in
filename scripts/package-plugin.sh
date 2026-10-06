@@ -45,13 +45,19 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 cp -R plugin/. "$stage/"
 # Hooks start libexec/weighin with no shell (exec form, B-16); on Windows that path resolves to
-# libexec/weighin.exe, so the Windows build goes there too: msvc, which the release ships, else gnu.
+# libexec/weighin.exe, so the Windows build goes there too: msvc, which the release ships, unless
+# the gnu build is newer, the same choice the launchers make (B-05).
+win=""
 for t in x86_64-pc-windows-msvc x86_64-pc-windows-gnu; do
-  if [ -f "$stage/libexec/$t/weighin.exe" ]; then
-    cp "$stage/libexec/$t/weighin.exe" "$stage/libexec/weighin.exe"
-    break
+  b="plugin/libexec/$t/weighin.exe"
+  [ -f "$b" ] || continue
+  if [ -z "$win" ] || [ "$b" -nt "$win" ]; then
+    win=$b
   fi
 done
+if [ -n "$win" ]; then
+  cp "$win" "$stage/libexec/weighin.exe"
+fi
 skill="$stage/skills/weigh-in/SKILL.md"
 [ "$(grep -c 'V=[^;]*; S=[^;]*;' "$skill")" = 1 ] || { echo "SKILL.md must hold exactly one 'V=…; S=…;' stamp" >&2; exit 1; }
 sed "s/V=[^;]*; S=[^;]*;/V=$version; S=$sha;/" "$skill" > "$skill.new" && mv "$skill.new" "$skill"
