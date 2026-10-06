@@ -335,6 +335,11 @@ fn finish_transaction(conn: &Connection, body: Result<()>, committing: &str) -> 
         },
         Err(e) => e,
     };
+    // SQLite ends the transaction itself on some errors (SQLITE_FULL, IOERR, NOMEM); a ROLLBACK
+    // then would only add a misleading "no transaction is active".
+    if conn.is_autocommit() {
+        return Err(failure);
+    }
     match conn.execute_batch("ROLLBACK") {
         Ok(()) => Err(failure),
         Err(rollback) => Err(failure.context(format!("rolling back also failed: {rollback}"))),
@@ -659,6 +664,10 @@ mod tests {
         let err = finish_transaction(&conn, Ok(()), "committing the test").unwrap_err();
 
         assert_eq!(err.to_string(), "committing the test");
+        assert!(
+            format!("{err:#}").contains("FOREIGN KEY"),
+            "the cause is the deferred foreign key: {err:#}"
+        );
         assert!(
             conn.is_autocommit(),
             "the failed commit's transaction is rolled back"
