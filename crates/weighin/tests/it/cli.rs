@@ -695,23 +695,30 @@ const READ_ONLY_BY_ID: &[&[&str]] = &[
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn raise_with_no_blocks_leaves_no_ledger_behind() {
+fn raise_with_no_blocks_leaves_no_ledger_behind() -> Result<(), Box<dyn std::error::Error>> {
     // Cowork's sweep pipes a conversation to `raise --markers`; with no blocks in it, a folder
     // that refuses deletes must not be left an empty ledger (B-01).
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = tempfile::tempdir()?;
     let folder = tmp.path().join("empty");
-    std::fs::create_dir_all(&folder).unwrap();
-    let dir = folder.to_str().unwrap();
+    std::fs::create_dir_all(&folder)?;
+    let dir = folder.to_str().ok_or("temp path is not UTF-8")?;
 
-    let (ok, out) = weighin(
+    let run = weighin(
         tmp.path(),
         "s1",
         &["--dir", dir, "raise", "--markers"],
         Some("No decisions in this conversation.\n"),
     );
 
-    assert!(!ok && out.contains("no weigh-in blocks found"), "{out}");
+    assert_eq!(
+        run,
+        (
+            false,
+            "weighin: no weigh-in blocks found on stdin\n".to_owned()
+        )
+    );
     assert!(!folder.join(".weighin").exists(), "raise created .weighin/");
+    Ok(())
 }
 
 #[test]
