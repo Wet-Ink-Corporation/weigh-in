@@ -289,8 +289,8 @@ B-14), and only the tag is pushed, since the workflow creates the release.
   sitting decisions: each cloud session saves its own end-of-turn messages to the seed before it
   ends (wi-48657b), and `.claude/settings.json` allows the launcher so the skill's injected ledger
   command runs in auto mode (wi-6b2fa5); it added s8, the first session on the 0.5.2 line. The
-  next session added s9. The seed holds 53 items, 5 of 11 `capture` items captured (precision 5 of
-  5); recall is 1 of 7 before 0.5.2 and 4 of 4 after (s8, s9). Labels still wait on Ryan's review, and the 80% bar on 10 captured items (wi-a9df17).
+  next session added s9. The seed holds 59 items, 8 of 14 `capture` items captured (precision 8 of
+  8); recall is 1 of 7 before 0.5.2 and 7 of 7 after (s8, s9, s10). Labels still wait on Ryan's review, and the 80% bar on 10 captured items (wi-a9df17).
 - **Step 3:** no week posted on #23, so #25 is not triggered.
 - **V-items, walked through with Ryan on 2026-10-05:** V2 deferred to slice 2
   ([B-17](decisions/build-decisions.md#b-17)). V1, V4 and V7's last check are Ryan's runs, V5 is

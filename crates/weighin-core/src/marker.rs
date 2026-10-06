@@ -20,17 +20,24 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// What the agent is telling the owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
+    /// The agent could not decide and asks. The default for an unrecognised value.
     #[default]
     Question,
+    /// The agent proceeded on an assumption the owner should confirm.
     Assumption,
+    /// The agent left something undone on purpose, or a `TODO`-style deferral.
     Deferral,
+    /// The agent made an unexamined call and logs it.
     Call,
 }
 
 impl Kind {
+    /// Read a `kind:` value, ignoring case and surrounding space. Infallible: anything
+    /// unrecognised is [`Kind::Question`].
     #[must_use]
     pub fn parse(v: &str) -> Self {
         match v.trim().to_ascii_lowercase().as_str() {
@@ -40,6 +47,8 @@ impl Kind {
             _ => Self::Question,
         }
     }
+
+    /// The kebab-case name used in the marker block and in the ledger.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -51,16 +60,22 @@ impl Kind {
     }
 }
 
+/// How reversible the choice is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum Door {
+    /// Hard or impossible to undo.
     OneWay,
+    /// Cheap to undo.
     TwoWay,
+    /// The agent could not say. The default for an unrecognised value.
     #[default]
     Unsure,
 }
 
 impl Door {
+    /// Read a `door:` value, ignoring case and treating `_` and spaces as `-`. Infallible:
+    /// anything unrecognised is [`Door::Unsure`].
     #[must_use]
     pub fn parse(v: &str) -> Self {
         let v = v.trim().to_ascii_lowercase().replace(['_', ' '], "-");
@@ -70,6 +85,8 @@ impl Door {
             _ => Self::Unsure,
         }
     }
+
+    /// The kebab-case name used in the marker block and in the ledger.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -80,6 +97,7 @@ impl Door {
     }
 }
 
+/// Whose call the question is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum Authority {
@@ -92,6 +110,8 @@ pub enum Authority {
 }
 
 impl Authority {
+    /// Read an `authority:` value, ignoring case and surrounding space. Infallible: anything
+    /// unrecognised is [`Authority::Authority`], erring towards asking the owner.
     #[must_use]
     pub fn parse(v: &str) -> Self {
         match v.trim().to_ascii_lowercase().as_str() {
@@ -99,6 +119,8 @@ impl Authority {
             _ => Self::Authority,
         }
     }
+
+    /// The kebab-case name used in the marker block and in the ledger.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -111,14 +133,23 @@ impl Authority {
 /// One parsed `weigh-in` block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Marker {
+    /// The `kind:` field.
     pub kind: Kind,
+    /// The `door:` field.
     pub door: Door,
+    /// The `authority:` field.
     pub authority: Authority,
+    /// The `q:` (or `question:`) field, never empty.
     pub question: String,
+    /// What the agent did meanwhile (`did:`); absent when empty, `none` or `-`.
     pub did: Option<String>,
+    /// The fact that would change the answer (`flip:`); absent when empty, `none` or `-`.
     pub flip: Option<String>,
+    /// Where in the code the question arose (`at:`), as `path:line`.
     pub at: Option<String>,
+    /// The symbol the question concerns (`sym:` or `symbol:`).
     pub sym: Option<String>,
+    /// What the open question blocks (`blocks:`); absent when `none`.
     pub blocks: Option<String>,
     /// Keys this parser does not know, kept verbatim.
     pub extra: BTreeMap<String, String>,
@@ -137,6 +168,38 @@ impl Marker {
 }
 
 /// Parse every `weigh-in` (or `weighin`) fenced block in `text`.
+///
+/// A block without a `q:` field is not an item and is skipped.
+///
+/// # Examples
+///
+/// ````
+/// use weighin_core::marker::{Authority, Door, Kind, parse_markers};
+///
+/// let reply = r#"Migration done.
+///
+/// ```weigh-in
+/// kind: assumption
+/// door: one-way
+/// authority: authority
+/// q: Should retention overrides attach per record or per series?
+/// did: per-series, matching RetentionPolicy
+/// flip: a tenant needs per-record legal hold   # why it might be wrong
+/// at: src/Retention/RetentionPolicy.cs:88
+/// blocks: none
+/// ```
+/// "#;
+///
+/// let markers = parse_markers(reply);
+/// assert_eq!(markers.len(), 1);
+/// let marker = markers.first().ok_or("one block was written")?;
+/// assert_eq!(marker.kind, Kind::Assumption);
+/// assert_eq!(marker.door, Door::OneWay);
+/// assert_eq!(marker.authority, Authority::Authority);
+/// assert_eq!(marker.flip.as_deref(), Some("a tenant needs per-record legal hold"));
+/// assert_eq!(marker.blocks, None, "`none` reads as absent");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ````
 #[must_use]
 pub fn parse_markers(text: &str) -> Vec<Marker> {
     let mut out = Vec::new();
@@ -181,19 +244,23 @@ fn opening_fence(line: &str) -> Option<(String, String)> {
         return None;
     }
     let fence: String = std::iter::repeat_n(ch, n).collect();
-    let info = line[n..].split_whitespace().next().unwrap_or("").to_owned();
+    // The fence marks are one byte each, so trimming them leaves what `line[n..]` would.
+    let info = line
+        .trim_start_matches(ch)
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_owned();
     Some((fence, info))
 }
 
 fn strip_comment(v: &str) -> &str {
     // A comment is ` #` preceded by whitespace; a `#` inside a value (C#, #123) is kept.
-    match v.find(" #") {
-        Some(i) => v[..i].trim_end(),
-        None => v.trim_end(),
-    }
+    v.split_once(" #").map_or(v, |(head, _)| head).trim_end()
 }
 
-fn parse_body(body: &[&str]) -> Option<Marker> {
+/// Collect `key: value` lines into a map; an indented or key-less line continues the value above.
+fn collect_fields(body: &[&str]) -> BTreeMap<String, String> {
     let mut fields: BTreeMap<String, String> = BTreeMap::new();
     let mut last_key: Option<String> = None;
     for raw in body {
@@ -221,6 +288,11 @@ fn parse_body(body: &[&str]) -> Option<Marker> {
             v.push_str(raw.trim());
         }
     }
+    fields
+}
+
+fn parse_body(body: &[&str]) -> Option<Marker> {
+    let mut fields = collect_fields(body);
     let question = fields
         .remove("q")
         .or_else(|| fields.remove("question"))?
@@ -318,15 +390,47 @@ mod tests {
     }
 
     #[test]
+    fn fences_need_three_marks_and_a_matching_close() {
+        assert!(parse_markers("``weigh-in\nq: two ticks?\n``").is_empty());
+        let m = parse_markers("  ```weigh-in extra words\nq: indented?\n```");
+        assert_eq!(m.len(), 1);
+        let m = parse_markers("~~~~ weigh_in\nq: tilde?\n```\nstill inside\n~~~~~\nafter");
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].question, "tilde? ``` still inside");
+        assert!(parse_markers("```\nq: no info string?\n```").is_empty());
+        assert!(parse_markers("```rust\nq: wrong language?\n```").is_empty());
+    }
+
+    #[test]
+    fn comments_are_stripped_only_after_whitespace() {
+        let m = &parse_markers(
+            "```weigh-in\nq: Port C# or Rust?   # why not\ndid: done # note\nflip:   #\nat: a#b\n```",
+        )[0];
+        assert_eq!(m.question, "Port C# or Rust?");
+        assert_eq!(m.did.as_deref(), Some("done"));
+        assert_eq!(m.flip.as_deref(), Some("#"));
+        assert_eq!(m.at.as_deref(), Some("a#b"));
+    }
+
+    #[test]
+    fn unterminated_blocks_run_to_the_end() {
+        let m = parse_markers("```weigh-in\nq: open ended?\nkind: call");
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].kind, Kind::Call);
+        assert_eq!(m[0].raw, "q: open ended?\nkind: call");
+    }
+
+    #[test]
     fn blocked_is_recognised() {
         let m = &parse_markers("```weigh-in\nq: Drop the column?\ndid: blocked\n```")[0];
         assert!(m.is_blocked());
     }
 }
 
-/// Words that mark a question as authority-bound whatever the agent classified it as. A hit keeps
-/// a "two-way, judgment" marker open for the sitting instead of logging it as a default: the cheap
-/// deterministic half of a two-key rule, erring towards asking.
+/// Words that mark a question as authority-bound whatever the agent classified it as.
+///
+/// A hit keeps a "two-way, judgment" marker open for the sitting instead of logging it as a
+/// default: the cheap deterministic half of a two-key rule, erring towards asking.
 pub const AUTHORITY_WORDS: &[&str] = &[
     "compliance",
     "compliant",
@@ -368,14 +472,16 @@ pub const AUTHORITY_WORDS: &[&str] = &[
     "customer data",
 ];
 
-/// The first authority word found in `text`, if any.
+/// The first authority word found in `text`, if any, matched at the start of a word.
 #[must_use]
 pub fn authority_tripwire(text: &str) -> Option<&'static str> {
     let lower = text.to_lowercase();
     AUTHORITY_WORDS.iter().copied().find(|w| {
-        lower
-            .match_indices(w)
-            .any(|(i, _)| i == 0 || !lower.as_bytes()[i - 1].is_ascii_alphanumeric())
+        lower.match_indices(w).any(|(i, _)| {
+            i.checked_sub(1)
+                .and_then(|before| lower.as_bytes().get(before))
+                .is_none_or(|b| !b.is_ascii_alphanumeric())
+        })
     })
 }
 
@@ -399,5 +505,16 @@ mod tripwire_tests {
             None,
             "`production` must start a word"
         );
+    }
+
+    #[test]
+    fn the_character_before_a_match_decides_whether_it_starts_a_word() {
+        assert_eq!(authority_tripwire("privacy first"), Some("privacy"));
+        assert_eq!(authority_tripwire("x-privacy"), Some("privacy"));
+        assert_eq!(authority_tripwire("éprivacy"), Some("privacy"));
+        assert_eq!(authority_tripwire("xprivacy"), None);
+        assert_eq!(authority_tripwire("9privacy"), None);
+        assert_eq!(authority_tripwire("a legal and an xlegal"), Some("legal"));
+        assert_eq!(authority_tripwire(""), None);
     }
 }

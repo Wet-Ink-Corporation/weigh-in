@@ -42,7 +42,7 @@ use weighin_core::event::{EVENT_TYPES, EventEnvelope};
 use weighin_core::{ItemId, Ledger};
 
 /// The journal mode every ledger connection runs under, as `PRAGMA journal_mode` reports it.
-pub const JOURNAL_MODE: &str = "truncate";
+pub(crate) const JOURNAL_MODE: &str = "truncate";
 
 /// The ledger schema this build reads and writes, kept in `PRAGMA user_version`.
 ///
@@ -53,14 +53,14 @@ pub(crate) const LEDGER_SCHEMA: i64 = 1;
 /// How long a connection waits for a lock, and for a WAL ledger to be released to TRUNCATE.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub struct Store {
+pub(crate) struct Store {
     inner: SqliteEventStore,
     rt: tokio::runtime::Runtime,
 }
 
 /// What a conditioned append must not find.
 #[derive(Debug, Clone)]
-pub enum Guard {
+pub(crate) enum Guard {
     /// Fail if `item_raised` for this item exists.
     NotYetRaised(ItemId),
     /// Fail if any event for this item was appended after `position`.
@@ -68,7 +68,7 @@ pub enum Guard {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Appended {
+pub(crate) enum Appended {
     At(u64),
     /// The guard matched: someone else wrote first.
     Conflict,
@@ -96,7 +96,7 @@ impl Store {
     ///
     /// # Errors
     /// Fails when the file cannot be opened or migrated.
-    pub fn open(path: &Path) -> Result<Self> {
+    pub(crate) fn open(path: &Path) -> Result<Self> {
         if let Some(d) = path.parent()
             && !d.as_os_str().is_empty()
         {
@@ -122,7 +122,7 @@ impl Store {
     ///
     /// # Errors
     /// Fails on a store error or an undecodable payload.
-    pub fn read_all(&self) -> Result<Vec<(u64, EventEnvelope)>> {
+    pub(crate) fn read_all(&self) -> Result<Vec<(u64, EventEnvelope)>> {
         let query = Query::from_item(
             QueryItem::of_types(EVENT_TYPES.iter().copied()).map_err(|e| anyhow!("{e}"))?,
         );
@@ -142,7 +142,7 @@ impl Store {
 
     /// # Errors
     /// See [`Store::read_all`].
-    pub fn ledger(&self) -> Result<Ledger> {
+    pub(crate) fn ledger(&self) -> Result<Ledger> {
         let events = self.read_all()?;
         Ok(Ledger::fold(events.iter().map(|(p, e)| (*p, e))))
     }
@@ -151,7 +151,7 @@ impl Store {
     ///
     /// # Errors
     /// Fails on a store error (a guard match is [`Appended::Conflict`], not an error).
-    pub fn append(&self, envs: &[EventEnvelope], guard: &Guard) -> Result<Appended> {
+    pub(crate) fn append(&self, envs: &[EventEnvelope], guard: &Guard) -> Result<Appended> {
         let mut events = Vec::with_capacity(envs.len());
         for env in envs {
             let tags: Vec<Tag> = env.tags().iter().filter_map(|(k, v)| tag(k, v)).collect();
@@ -273,8 +273,13 @@ fn ensure_schema(conn: &Connection) -> Result<()> {
         [template.to_string_lossy().as_ref()],
     )?;
     let copied = copy_schema(conn);
-    let _ = conn.execute_batch("DETACH DATABASE tpl");
-    copied
+    let detached = conn.execute_batch("DETACH DATABASE tpl");
+    match (copied, detached) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(e), Ok(())) => Err(e),
+        (Err(e), Err(d)) => Err(e.context(format!("detaching the template also failed: {d}"))),
+        (Ok(()), Err(d)) => Err(anyhow::Error::from(d).context("detaching the template database")),
+    }
 }
 
 fn copy_schema(conn: &Connection) -> Result<()> {
@@ -311,13 +316,34 @@ fn copy_schema(conn: &Connection) -> Result<()> {
         }
         set_user_version(conn, LEDGER_SCHEMA)
     })();
-    match copied {
-        Ok(()) => conn.execute_batch("COMMIT")?,
-        Err(_) => {
-            let _ = conn.execute_batch("ROLLBACK");
-        }
+    finish_transaction(conn, copied, "committing the ledger schema")
+}
+
+/// End the transaction a `BEGIN IMMEDIATE` opened: commit when `body` succeeded, and roll back
+/// when it failed or when the commit itself failed, since a failed `COMMIT` (a deferred
+/// constraint, a busy lock) leaves the transaction open on the connection.
+///
+/// # Errors
+///
+/// The failure of `body`, or of the commit with `committing` as its context; a rollback that
+/// also fails is added to that error as context.
+fn finish_transaction(conn: &Connection, body: Result<()>, committing: &str) -> Result<()> {
+    let failure = match body {
+        Ok(()) => match conn.execute_batch("COMMIT") {
+            Ok(()) => return Ok(()),
+            Err(e) => anyhow::Error::from(e).context(committing.to_owned()),
+        },
+        Err(e) => e,
+    };
+    // SQLite ends the transaction itself on some errors (SQLITE_FULL, IOERR, NOMEM); a ROLLBACK
+    // then would only add a misleading "no transaction is active".
+    if conn.is_autocommit() {
+        return Err(failure);
     }
-    copied
+    match conn.execute_batch("ROLLBACK") {
+        Ok(()) => Err(failure),
+        Err(rollback) => Err(failure.context(format!("rolling back also failed: {rollback}"))),
+    }
 }
 
 fn user_version(conn: &Connection) -> Result<i64> {
@@ -360,18 +386,11 @@ fn migrate(conn: &Connection) -> Result<()> {
         }
         set_user_version(conn, LEDGER_SCHEMA)
     })();
-    match migrated {
-        Ok(()) => conn
-            .execute_batch("COMMIT")
-            .context("committing the ledger schema migration"),
-        Err(e) => {
-            let e = match conn.execute_batch("ROLLBACK") {
-                Ok(()) => e,
-                Err(rollback) => e.context(format!("rolling back also failed: {rollback}")),
-            };
-            Err(e.context("migrating the ledger schema"))
-        }
-    }
+    finish_transaction(
+        conn,
+        migrated.context("migrating the ledger schema"),
+        "committing the ledger schema migration",
+    )
 }
 
 #[cfg(test)]
@@ -412,6 +431,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn guards_make_writes_idempotent_and_detect_races() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("weighin/ledger.sqlite3")).unwrap();
@@ -473,6 +493,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn ledger_runs_under_truncate_and_never_leaves_wal_files() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".weighin/ledger.sqlite3");
@@ -498,6 +519,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn empty_leftovers_from_a_failed_creation_are_recovered() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.sqlite3");
@@ -522,6 +544,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn a_stale_wal_beside_a_truncate_ledger_is_set_aside() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.sqlite3");
@@ -540,6 +563,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn a_wal_ledger_from_an_older_build_converts_and_keeps_its_events() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.sqlite3");
@@ -568,19 +592,23 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn concurrent_creators_share_one_schema_and_identity() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.sqlite3");
         let handles: Vec<_> = (0..6)
             .map(|n| {
                 let path = path.clone();
-                std::thread::spawn(move || {
-                    let store = Store::open(&path).unwrap();
-                    let id = ItemId::mint(&format!("s{n}"), "q?");
-                    store
-                        .append(&[raise(&id)], &Guard::NotYetRaised(id.clone()))
-                        .unwrap()
-                })
+                std::thread::Builder::new()
+                    .name(format!("creator-{n}"))
+                    .spawn(move || {
+                        let store = Store::open(&path).unwrap();
+                        let id = ItemId::mint(&format!("s{n}"), "q?");
+                        store
+                            .append(&[raise(&id)], &Guard::NotYetRaised(id.clone()))
+                            .unwrap()
+                    })
+                    .unwrap()
             })
             .collect();
         for h in handles {
@@ -613,7 +641,57 @@ mod tests {
         std::fs::read(path).unwrap()[24..28].try_into().unwrap()
     }
 
+    /// A connection inside a transaction holding a row that breaks a deferred foreign key, so
+    /// its `COMMIT` fails and leaves the transaction open.
+    fn transaction_whose_commit_fails() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE parent (id INTEGER PRIMARY KEY);
+             CREATE TABLE child (parent INTEGER REFERENCES parent (id) DEFERRABLE INITIALLY DEFERRED);
+             BEGIN IMMEDIATE;
+             INSERT INTO child (parent) VALUES (1);",
+        )
+        .unwrap();
+        conn
+    }
+
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn a_failed_commit_is_rolled_back_and_reported() {
+        let conn = transaction_whose_commit_fails();
+
+        let err = finish_transaction(&conn, Ok(()), "committing the test").unwrap_err();
+
+        assert_eq!(err.to_string(), "committing the test");
+        assert!(
+            format!("{err:#}").contains("FOREIGN KEY"),
+            "the cause is the deferred foreign key: {err:#}"
+        );
+        assert!(
+            conn.is_autocommit(),
+            "the failed commit's transaction is rolled back"
+        );
+        let children: i64 = conn
+            .query_row("SELECT count(*) FROM child", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(children, 0, "the rolled-back row is gone");
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn a_failed_body_is_rolled_back_and_its_error_returned() {
+        let conn = transaction_whose_commit_fails();
+
+        let err = finish_transaction(&conn, Err(anyhow!("body failed")), "committing the test")
+            .unwrap_err();
+
+        assert_eq!(err.to_string(), "body failed");
+        assert!(conn.is_autocommit(), "the transaction is rolled back");
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn a_new_ledger_is_stamped_and_reopening_writes_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.sqlite3");
@@ -630,6 +708,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn a_wal_ledger_from_0_1_is_stamped_and_reads_back() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.sqlite3");
@@ -723,6 +802,7 @@ mod tests {
     ];
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn a_truncate_ledger_from_0_2_2_is_stamped_and_reads_back() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.sqlite3");
@@ -772,6 +852,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn a_ledger_from_a_newer_build_is_refused_untouched() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.sqlite3");
