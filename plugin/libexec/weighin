@@ -44,14 +44,31 @@ if [ -z "${WEIGHIN_LAUNCHER:-}" ]; then
     WEIGHIN_LAUNCHER=1 exec "$found" "$@"
   fi
 fi
+# No build for any platform beside this launcher: the development tree, which carries no
+# binaries, synced (a claude.ai organization sync of the weigh-in repository) or checked out
+# without a build (B-18). Releases ship the builds.
+why="this plugin has no weighin binary for $(uname -s 2>/dev/null)-$(uname -m 2>/dev/null); build one with scripts/build-plugin-bins.sh or install a release that ships it."
+nobuild=1
+for b in "$dir"/*/weighin "$dir"/*/weighin.exe "$dir/weighin.exe"; do
+  if [ -f "$b" ]; then
+    nobuild=""
+    break
+  fi
+done
+if [ -n "$nobuild" ]; then
+  why="this copy has no binaries: it is the development tree, synced or checked out without a build. Install from the marketplace branch or the weigh-in-plugin release repo, or build with scripts/build-plugin-bins.sh."
+fi
 if [ "${1:-}" = "hook" ]; then
   # Hooks never fail a session. SessionStart says why capture is off, as a message shown to the
   # user; Cowork captures through the sitting's sweep, not hooks, so it says nothing there (B-04).
   if [ "$event" = "SessionStart" ] && [ "${CLAUDE_CODE_ENTRYPOINT:-}" != "remote_cowork" ]; then
-    printf '{"systemMessage":"Weigh-In: capture is off. This plugin has no weighin binary for %s; build one with scripts/build-plugin-bins.sh or install a release that ships it."}\n' \
-      "$(uname -s 2>/dev/null)-$(uname -m 2>/dev/null)"
+    printf '{"systemMessage":"Weigh-In: capture is off: %s"}\n' "$why"
   fi
   exit 0
 fi
-echo "weighin: no binary for $(uname -s)-$(uname -m) under $dir; build one with scripts/build-plugin-bins.sh or cargo install --path crates/weighin" >&2
+if [ -n "$nobuild" ]; then
+  echo "weighin: $why ($dir)" >&2
+else
+  echo "weighin: no binary for $(uname -s)-$(uname -m) under $dir; build one with scripts/build-plugin-bins.sh or cargo install --path crates/weighin" >&2
+fi
 exit 127
