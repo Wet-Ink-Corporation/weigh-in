@@ -133,26 +133,49 @@ weighin hook                             hook entry point (reads the hook JSON o
 
 ## Measured in this build
 
-- 57 tests on Linux, 55 on Windows (31 core; 18 store, git and paths, two of them Unix-only
-  symlink cases; 8 end to end), clippy and rustdoc clean, run by CI on both. Atoms pass Redkiln's
-  `validate --kb` (with a rejected negative control). An independent review found eleven
-  defects (a hook panic on non-ASCII text, stale board answers, batch parsing, id collisions,
-  re-raised settled questions, out-of-repo scans, CRLF rewrites, stray stores, a launcher loop,
-  the `.cmd` exit code, YAML escaping); all are fixed and each has a regression test.
-- Live Claude Code sessions (Sonnet, `--plugin-dir`): the agent emitted a `weigh-in` block
-  unprompted from the SessionStart convention; hooks captured markers and document questions;
-  a sitting took 3–4 requests and cost $0.42–0.57, against the design's $0.28
-  estimate. Re-measured on 0.5.0 (D-0016): the cost is mostly the three requests re-reading the
-  session's context; the cards themselves are about 5,600 output tokens. So a sitting costs about
-  3 × the context at the cache-read price plus that output: about $0.10–0.15 on Sonnet 5.5 after a
-  short session, about $0.47 after a 585k-token one.
-- Cowork's refused deletes, reproduced with a shim that refuses `unlink`: 0.1.1 fails with
-  `SQLITE_IOERR_DELETE` (2570) exactly as reported; 0.1.2 creates, raises and decides with no
-  delete or rename in the folder (strace), recovers the files 0.1.1 left behind, and converts a
-  0.1.1 WAL ledger even where deletes are refused (its checkpointed `-wal` is renamed aside).
-- A static Linux (musl) binary runs from a local plugin folder in a Claude Code cloud session.
-  Binaries are not committed (`plugin/libexec/*/` is ignored): a git or marketplace install needs
-  the release workflow's zip, or `scripts/build-plugin-bins.*` run once after cloning.
+Measured on 0.5.3 (2026-10-06). Items marked **pending** are v1 exit criteria
+([v1 plan](docs/v1-plan.md), Phase 3) that have not been measured yet.
+
+- **Tests and lints.** 174 tests on `main` (85 core unit tests, 7 core doctests, 56 CLI unit
+  tests, 26 end to end). CI runs them on Linux, Windows and macOS, along with fmt, rustdoc,
+  `cargo deny`, the plugin package and temper's lint ratchet. The temper baseline is 0 findings
+  (721 remediated in #82). Atoms pass Redkiln's `validate --kb`, with a rejected negative
+  control.
+- **Reviews.** An independent review at 0.1 found eleven defects; all are fixed, each with a
+  regression test. The `/code-review` of everything since 0.2.2 (#26) found 14 candidates.
+  Seven were verified and fixed: two in the CLI, five in scripts and workflows. One was refuted
+  by the B-16 spike, and six were left with reasons on #26.
+- **Upgrades.** A 0.1.x WAL ledger and a 0.2.2 TRUNCATE ledger open, are stamped with the schema
+  version and read back (fixture tests, B-10). Cowork's refused deletes, reproduced with a shim
+  that refuses `unlink`, break 0.1.1 with `SQLITE_IOERR_DELETE` (2570). From 0.1.2 the store
+  creates, raises and decides with no delete or rename in the folder.
+- **Capture precision** (eval seed, #22): 59 real end-of-turn messages from cloud sessions on this
+  repository, 14 labelled `capture`, 8 captured. Precision is 8 of 8 (100%, bar 80%). Recall is
+  1 of 7 before the 0.5.2 convention line and 7 of 7 after it.
+  - **Pending:** the 80% bar counts once 10 items are captured (wi-a9df17), and the labels await
+    Ryan's review (#22).
+- **Sitting cost** (D-0016): about 3 × the session's context at the cache-read price, plus about
+  5,600 output tokens of cards. That is about $0.10–0.15 on Sonnet 5.5 after a short session and
+  about $0.47 after a 585k-token one. Earlier live runs (`--plugin-dir`) cost $0.42–0.57, against
+  the design's $0.28.
+- **Surfaces.**
+  - Windows: installed from the `marketplace` branch with no toolchain, hooks fired and a sitting
+    decided an item (V7, #13). Exec-form hooks run with or without Git Bash (B-16, spiked on all
+    three platforms).
+  - Board: in the desktop Code tab (V6). The `db` store's document limit is 262,144 bytes, and a
+    board capped at 200 defaults measures 59,678 bytes at 1,000 (V5). Editor links from the
+    board are not supported (V4).
+  - Cowork: the zip-synced plugin keeps the launcher's executable bit and shows the SessionStart
+    line.
+  - Releases: 0.5.3 reaches claude.ai's organization sync through `weigh-in-plugin` (B-19), with
+    Linux musl, Windows msvc and macOS arm64 binaries. A copy synced from the development tree
+    has none, and from 0.5.4 the launcher says so (B-18).
+  - **Pending:** the Cowork session id and the Cowork half of V6 (V1, #16); a marker captured on
+    Windows without Git Bash (V7, #21).
+- **Use.** **Pending:** two weeks or 30 presented items of real sittings (#23, from 2026-10-05).
+  These give the action rate (target at least 60%), the not-useful rate (at most 10%, or
+  per-category suppression comes into v1, #25), overrides and time to decide. `weighin stats`
+  and `scripts/weekly-stats.sh` produce them.
 
 ## Open items
 
