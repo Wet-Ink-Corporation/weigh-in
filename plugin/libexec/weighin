@@ -67,7 +67,7 @@ if [ "${1:-}" = "hook" ]; then
   exit 0
 fi
 if [ -n "$nobuild" ]; then
-  echo "weighin: this copy has no binaries under $dir: it is the development tree, synced or checked out without a build. Install from the marketplace branch or the weigh-in-plugin release repo, or build with scripts/build-plugin-bins.sh." >&2
+  echo "weighin: $why ($dir)" >&2
 else
   echo "weighin: no binary for $(uname -s)-$(uname -m) under $dir; build one with scripts/build-plugin-bins.sh or cargo install --path crates/weighin" >&2
 fi

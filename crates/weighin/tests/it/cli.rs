@@ -457,9 +457,10 @@ fn launcher_session_start_without_a_binary_says_capture_is_off() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn launcher_names_a_copy_with_no_binaries() {
-    let (_tmp, launcher, path) = isolated_launcher();
+fn launcher_command_names_a_copy_with_no_binaries() {
     // No build for any platform: the development tree, synced or copied as is (B-18).
+    let (_tmp, launcher, path) = isolated_launcher();
+
     let run = run_within(
         Command::new("sh")
             .arg(&launcher)
@@ -467,9 +468,21 @@ fn launcher_names_a_copy_with_no_binaries() {
             .env("PATH", &path),
         LAUNCHER_LIMIT,
     );
+
     assert_eq!(run.status.code(), Some(127));
     let err = String::from_utf8_lossy(&run.stderr);
-    assert!(err.contains("this copy has no binaries"), "{err}");
+    assert!(
+        err.starts_with("weighin: this copy has no binaries:"),
+        "{err}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn launcher_session_start_names_a_copy_with_no_binaries() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_tmp, launcher, path) = isolated_launcher();
+
     let start = run_within(
         Command::new("sh")
             .arg(&launcher)
@@ -478,23 +491,27 @@ fn launcher_names_a_copy_with_no_binaries() {
             .env_remove("CLAUDE_CODE_ENTRYPOINT"),
         LAUNCHER_LIMIT,
     );
+
     assert_eq!(start.status.code(), Some(0));
-    let out: Value = serde_json::from_slice(&start.stdout).unwrap();
-    let message = out["systemMessage"].as_str().unwrap();
+    let out: Value = serde_json::from_slice(&start.stdout)?;
+    let message = out["systemMessage"].as_str().ok_or("no systemMessage")?;
     assert!(
-        message.contains("capture is off") && message.contains("this copy has no binaries"),
+        message.starts_with("Weigh-In: capture is off: this copy has no binaries:"),
         "{out}"
     );
+    Ok(())
 }
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn launcher_with_only_another_platforms_build_names_the_platform() {
-    let (tmp, launcher, path) = isolated_launcher();
+fn launcher_with_only_another_platforms_build_names_the_platform()
+-> Result<(), Box<dyn std::error::Error>> {
     // A build for some other platform only: the copy has binaries, just not this one's.
+    let (tmp, launcher, path) = isolated_launcher();
     let other = tmp.path().join("bin/riscv64gc-unknown-linux-gnu");
-    std::fs::create_dir_all(&other).unwrap();
-    std::fs::write(other.join("weighin"), "not run").unwrap();
+    std::fs::create_dir_all(&other)?;
+    std::fs::write(other.join("weighin"), "not run")?;
+
     let run = run_within(
         Command::new("sh")
             .arg(&launcher)
@@ -502,12 +519,11 @@ fn launcher_with_only_another_platforms_build_names_the_platform() {
             .env("PATH", &path),
         LAUNCHER_LIMIT,
     );
+
     assert_eq!(run.status.code(), Some(127));
     let err = String::from_utf8_lossy(&run.stderr);
-    assert!(
-        err.contains("no binary for") && !err.contains("has no binaries"),
-        "{err}"
-    );
+    assert!(err.starts_with("weighin: no binary for "), "{err}");
+    Ok(())
 }
 
 #[test]
