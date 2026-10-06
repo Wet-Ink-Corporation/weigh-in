@@ -657,15 +657,6 @@ impl Health {
             .filter(|_| !secs.is_empty());
         h
     }
-
-    /// The share of presented items acted on (`acted / presented`).
-    ///
-    /// `None` when nothing was presented. A count above `u32::MAX` is read as `u32::MAX`.
-    #[must_use]
-    pub fn action_rate(&self) -> Option<f64> {
-        let as_f64 = |n| f64::from(u32::try_from(n).unwrap_or(u32::MAX));
-        (self.presented > 0).then(|| as_f64(self.acted) / as_f64(self.presented))
-    }
 }
 
 #[cfg(test)]
