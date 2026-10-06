@@ -99,3 +99,11 @@ One JSON object per line:
 
   Together, s9's and s10's items make the seed 59 items, 14 labelled `capture`, 8 captured
   (precision 100%, recall 57%). After 0.5.2, recall is 7 of 7 across s8, s9 and s10.
+
+  Added 2026-10-06: one turn (`s11`, `rs11-01`), the hand-off message of the session that ran
+  #26's code review and opened #84 to #87. The session had no finished turns before it, so, as
+  s9 did, it wrote the message into the seed before sending it, word for word. The message
+  carries four blocks: two authority questions, a call and a deferral. It is captured, and its
+  first item stays raised. The seed is 60 items, 15 labelled `capture`, 9 captured (precision
+  100%, recall 60%). After 0.5.2, recall is 8 of 8 across s8 to s11. One more captured item
+  brings the 80% bar into force (wi-a9df17).
