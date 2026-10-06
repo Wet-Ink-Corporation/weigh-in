@@ -423,6 +423,40 @@ from Cowork yet", `SKILL.md`), and the board from Cowork is slice 2
 take, so it moves with that slice; the v1 exit criterion "every V-item is closed or has a
 recorded decision to defer it past 1.0" is met for V2 by this record.
 
+## B-18
+
+**A copy synced from the development tree has no binaries; only the release repository is
+synced, and the launcher names the case.** 2026-10-06 · Ryan's call, two-way (sync and
+launcher message), recorded from
+[#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76) · cited by [B-19](#b-19).
+
+On 2026-10-05 `/weigh:weigh-in board` failed on Windows with "no binary for MINGW64…" from a
+plugin copy under `…/rpm/plugin_…/libexec` at 0.5.2 that held only `weighin` and `weighin.cmd`.
+That copy was claude.ai's organization sync of this repository. The sync reads the default
+branch, `main`, which is the development tree: the skill is stamped `V=dev`, and the binaries are
+git-ignored and never committed. On such a copy, the exec-form hooks ([B-16](#b-16)) fail on
+Windows with `ENOENT`, because no `libexec/weighin.exe` exists, so the launcher never runs. On
+Linux and macOS they reach the launcher, which says capture is off. The 2026-10-06 check that
+recorded the failure as "did not reproduce" ([B-20](#b-20), #83) ran on a different install,
+from the `marketplace` branch.
+
+Decided:
+- **Sync only the release repository.** The organization syncs `weigh-in-plugin`
+  ([B-19](#b-19)) and not this repository; Ryan removes `weigh-in` from the sync.
+- **The launcher names the case.** When `libexec/` holds no build for any platform (no
+  `<target>/weighin`, `<target>/weighin.exe` or `weighin.exe`) and none is on `PATH`, the
+  launcher says "this copy has no binaries", and points to the marketplace branch, the release
+  repository or the build script. The skill's error and SessionStart's capture-off message
+  (Linux and macOS) carry it. On Windows the hooks still fail with `ENOENT`, which
+  `docs/install.md` explains.
+
+Checked 2026-10-06: `weigh-in-plugin` at 0.5.3 holds `libexec/weighin.exe`,
+`libexec/x86_64-pc-windows-msvc/weighin.exe`, `libexec/x86_64-unknown-linux-musl/weighin` and
+`libexec/aarch64-apple-darwin/weighin`, all 100755, with the skill stamped `V=0.5.3`.
+Rejected: committing binaries to `main` (B-19's reasons); renaming the development plugin so
+that a stray sync shows up separately, which would change the development route
+([D-0009](#d-0009)) for a case that the sync setting already prevents.
+
 ## B-19
 
 **Releases are published to a release-only repository that claude.ai's organization sync reads.**
@@ -471,4 +505,8 @@ needs its own board.
 Found on 2026-10-06, when `/weigh:weigh-in board` published the first board from a local
 Windows session (0.5.1); the same run showed the earlier "no binary" failure on Windows does
 not reproduce.
+
+Corrected 2026-10-06 by [B-18](#b-18): that run was on a different install (the `marketplace`
+branch). The earlier failure came from a claude.ai-synced copy of `main`, which has no binaries,
+so not reproducing it on another install showed nothing about it.
 

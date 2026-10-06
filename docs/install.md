@@ -156,13 +156,16 @@ been reported. The log is never cleared by Weigh-In; truncate it yourself when y
 
 ## "Capture is off"
 
-> Weigh-In: capture is off. This plugin has no weighin binary for Linux-aarch64; build one with
+> Weigh-In: capture is off: this plugin has no weighin binary for Linux-aarch64; build one with
 > scripts/build-plugin-bins.sh or install a release that ships it.
 
 The launcher found no binary for this computer, so no hook records anything. In order:
 
-1. Installed from `main`, or a local checkout without a build? Install from the `marketplace`
-   branch instead (above); `main` holds no binaries.
+1. "This copy has no binaries"? The plugin is the development tree: installed from `main`, a
+   local checkout without a build, or a claude.ai organization sync of the `weigh-in`
+   repository, whose default branch is `main` (B-18). Install from the `marketplace` branch
+   (above), or let the organization sync `weigh-in-plugin` instead, which holds the releases
+   (B-19); `main` holds no binaries.
 2. A platform the release does not ship (Intel macOS, Linux on ARM, Windows on ARM)? Build one:
    `cargo install --path crates/weighin` from a checkout puts `weighin` on `PATH`, which the
    launcher falls back to.
@@ -191,3 +194,9 @@ pwsh scripts/build-plugin-bins.ps1
 
 Or install from the `marketplace` branch (above), which ships `weighin.exe`, and remove the local
 install.
+
+A copy synced by claude.ai (its path has `…/rpm/plugin_…/` in it) with only `weighin` and
+`weighin.cmd` in `libexec` came from the `weigh-in` repository's `main`, not from a release
+(B-18): there `/weigh-in` says "this copy has no binaries", and every hook fails this way. Only
+`weigh-in-plugin` should be synced; a copy from it has `libexec/weighin.exe` and
+`libexec/x86_64-pc-windows-msvc/weighin.exe`.

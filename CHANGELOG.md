@@ -6,6 +6,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- On a plugin copy with no build for any platform, such as a claude.ai sync of the development
+  tree, the launcher now says "this copy has no binaries" and points to the marketplace branch or
+  the `weigh-in-plugin` release repository, both in `/weigh-in`'s error and in SessionStart's
+  capture-off message (B-18).
 - `weighin raise --markers` given no `weigh-in` blocks now fails before it opens the ledger, so it
   no longer leaves an empty ledger in a folder that had none (B-01).
 - After `hook-errors.log` is truncated, SessionStart reports every error logged since; before,
