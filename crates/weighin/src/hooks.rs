@@ -200,7 +200,8 @@ fn session_start(env: &Env, source: &str) -> String {
     }
 }
 
-/// How far `hook-errors.log` had been reported, as a byte offset, beside the log.
+/// How far `hook-errors.log` had been reported, as a byte offset and the log's first line then,
+/// beside the log.
 const ERRORS_SEEN: &str = "hook-errors.seen";
 
 /// The lines added to `hook-errors.log` since the last `SessionStart` reported it, as a message;
@@ -210,15 +211,26 @@ fn new_errors(env: &Env) -> Option<String> {
     let dir = env.state_dir();
     let log_path = dir.join("hook-errors.log");
     let log = std::fs::read(&log_path).ok()?;
-    let seen = std::fs::read_to_string(dir.join(ERRORS_SEEN))
+    // The length reported so far, then the log's first line at that time. A different first line
+    // means the log was truncated since, so all of it is new. A record with no first line
+    // (before 0.5.4) is taken as it stands.
+    let head = String::from_utf8_lossy(first_line(&log));
+    let recorded = std::fs::read_to_string(dir.join(ERRORS_SEEN)).unwrap_or_default();
+    let (offset, recorded_head) = match recorded.split_once('\n') {
+        Some((offset, recorded_head)) => (offset, Some(recorded_head)),
+        None => (recorded.as_str(), None),
+    };
+    let seen = offset
+        .trim()
+        .parse::<usize>()
         .ok()
-        .and_then(|s| s.trim().parse::<usize>().ok())
-        .filter(|&n| n <= log.len())
+        .filter(|&n| n <= log.len() && recorded_head.is_none_or(|h| h == head))
         .unwrap_or(0);
     if seen == log.len() {
         return None;
     }
-    let marked = match std::fs::write(dir.join(ERRORS_SEEN), log.len().to_string()) {
+    let record = format!("{}\n{head}", log.len());
+    let marked = match std::fs::write(dir.join(ERRORS_SEEN), record) {
         Ok(()) => String::new(),
         Err(e) => format!(" Could not mark this report as seen, so it will repeat: {e}."),
     };
@@ -230,6 +242,11 @@ fn new_errors(env: &Env) -> Option<String> {
         lines.len(),
         log_path.display()
     ))
+}
+
+/// The bytes of `log` before its first newline.
+fn first_line(log: &[u8]) -> &[u8] {
+    log.split(|&b| b == b'\n').next().unwrap_or_default()
 }
 
 /// The convention, the session key and the counts, in at most ~150 tokens.
@@ -438,7 +455,7 @@ pub(crate) fn scan_text(
 
 #[cfg(test)]
 mod tests {
-    use super::{Hook, read_payload, serve};
+    use super::{Hook, new_errors, read_payload, serve};
     use crate::env::Env;
     use crate::git;
     use std::io::{self, Read, Write};
@@ -502,6 +519,46 @@ mod tests {
             unread,
             output,
         );
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads and writes the error log through the file system"
+    )]
+    fn errors_logged_after_the_log_was_truncated_are_all_reported() {
+        use std::fmt::Write as _;
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let state = tmp.path().join(".weighin");
+        std::fs::create_dir_all(&state).expect("state dir");
+        let log = state.join("hook-errors.log");
+        let env = Env::discover(tmp.path(), None).with_store(Some(state.join("ledger.sqlite3")));
+        let old = "2026-10-01T00:00:00Z Stop: an old failure that was reported\n".repeat(3);
+        std::fs::write(&log, &old).expect("old log");
+        assert!(
+            new_errors(&env).is_some(),
+            "the old errors are reported once"
+        );
+        // The owner truncates the log once read; new errors grow it past the old length.
+        let new = (1..=4).fold(String::new(), |mut acc, n| {
+            writeln!(
+                acc,
+                "2026-10-02T00:00:0{n}Z Stop: new failure number {n} after the log was truncated"
+            )
+            .expect("writing to a String");
+            acc
+        });
+        assert!(new.len() > old.len(), "the new log outgrows the old one");
+        std::fs::write(&log, &new).expect("new log");
+
+        let report = new_errors(&env).expect("the new errors are reported");
+
+        assert!(
+            report.starts_with("Weigh-In: 4 hook error(s) since the last session")
+                && report.contains("Last: 2026-10-02T00:00:04Z Stop: new failure number 4"),
+            "{report}"
+        );
+        assert_eq!(new_errors(&env), None, "reported once");
     }
 
     #[test]

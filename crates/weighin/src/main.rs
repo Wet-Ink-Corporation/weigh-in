@@ -574,11 +574,12 @@ fn context_pack(env: &Env, a: &ItemArgs, out: &mut impl Write) -> Result<()> {
 }
 
 fn raise(env: &Env, a: RaiseArgs, out: &mut impl Write) -> Result<()> {
-    let mut s = Session::open(env, "cli")?;
+    // Parsed before the session opens, so input with no blocks leaves no ledger behind (B-01).
     let inputs = raise_inputs(a)?;
     if inputs.is_empty() {
         bail!("no weigh-in blocks found on stdin");
     }
+    let mut s = Session::open(env, "cli")?;
     let mut receipts = Receipts::new(out);
     let outcome = inputs.into_iter().try_for_each(|r| {
         receipts.line(format_args!("{}", s.apply(&Op::Raise(r))?));
