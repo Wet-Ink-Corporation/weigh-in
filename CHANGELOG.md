@@ -6,6 +6,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 0.5.4 — 2026-10-06
+
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development
   tree, the launcher now says "this copy has no binaries" and points to the marketplace branch or
   the `weigh-in-plugin` release repository, both in `/weigh-in`'s error and in SessionStart's
