@@ -29,7 +29,9 @@ claude plugin validate .                     # marketplace and plugin manifests
 
 `.github/workflows/ci.yml` runs fmt, tests and docs on every push to `main` and every pull request,
 on Linux, Windows and macOS; `.github/workflows/rust.yml` runs temper's lint ratchet (`baseline --check`)
-and the rest of the temper gate on Linux. Legacy findings are recorded in the baseline; only new ones fail. CI also checks the plugin package (stamp, versions,
+and the rest of the temper gate, fmt, tests, docs and `cargo deny` included, on Linux. On a pull
+request ci.yml's Linux leg and its deny job skip what rust.yml runs (wi-218cc3); pushes to `main`
+and the release run them in full. Legacy findings are recorded in the baseline; only new ones fail. CI also checks the plugin package (stamp, versions,
 changelog entry, `claude plugin validate`) and runs `cargo deny check` (`deny.toml`); the release
 workflow runs all of it before it builds. Claude Code cloud sessions run
 `.claude/hooks/session-start.sh`, which installs the toolchain and pre-builds the tests.
