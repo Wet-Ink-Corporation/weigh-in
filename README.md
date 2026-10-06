@@ -137,8 +137,8 @@ Measured on 0.5.3 (2026-10-06). Items marked **pending** are v1 exit criteria
 ([v1 plan](docs/v1-plan.md), Phase 3) that have not been measured yet.
 
 - **Tests and lints.** 174 tests on `main` (85 core unit tests, 7 core doctests, 56 CLI unit
-  tests, 26 end to end). CI runs them on Linux, Windows and macOS, along with fmt, rustdoc,
-  `cargo deny`, the plugin package and temper's lint ratchet. The temper baseline is 0 findings
+  tests, 26 end to end). CI runs them, fmt and rustdoc on Linux, Windows and macOS; `cargo deny`,
+  the plugin package check and temper's lint ratchet run on Linux. The temper baseline is 0 findings
   (721 remediated in #82). Atoms pass Redkiln's `validate --kb`, with a rejected negative
   control.
 - **Reviews.** An independent review at 0.1 found eleven defects; all are fixed, each with a
@@ -169,10 +169,11 @@ Measured on 0.5.3 (2026-10-06). Items marked **pending** are v1 exit criteria
     line.
   - Releases: 0.5.3 reaches claude.ai's organization sync through `weigh-in-plugin` (B-19), with
     Linux musl, Windows msvc and macOS arm64 binaries. A copy synced from the development tree
-    has none, and from 0.5.4 the launcher says so (B-18).
+    has none (#76); not yet released: the launcher naming that case (#84).
   - **Pending:** the Cowork session id and the Cowork half of V6 (V1, #16); a marker captured on
     Windows without Git Bash (V7, #21).
-- **Use.** **Pending:** two weeks or 30 presented items of real sittings (#23, from 2026-10-05).
+- **Use.** **Pending:** two weeks and 30 presented items of real sittings, whichever comes later
+  (#23, from 2026-10-05).
   These give the action rate (target at least 60%), the not-useful rate (at most 10%, or
   per-category suppression comes into v1, #25), overrides and time to decide. `weighin stats`
   and `scripts/weekly-stats.sh` produce them.
