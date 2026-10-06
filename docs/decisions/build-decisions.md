@@ -454,3 +454,21 @@ sync follows a ref, and a release would still need **Sync now**; making `marketp
 default branch, which pull requests, Dependabot and CI follow. Unverified: the first sync of the
 new repository, and that a force-pushed default branch re-syncs as cleanly as the
 `marketplace` branch re-clones (B-14).
+
+## B-20
+
+**The board URL stays out of the tracked config.** 2026-10-06 · Ryan's call, two-way.
+
+Publishing the board for the first time (`/weigh-in board`) writes its URL into
+`.kb/_ledger/config.json`, which this repository tracks. Committed, that URL would point every
+clone's ledger at one board, and every cloud session here has its own short-lived ledger
+([D-0014](#d-0014)), so each `/weigh-in board` would overwrite the board with a different
+ledger's state. The board mirrors one ledger: on Ryan's Windows checkout the change stays local
+(`git update-index --skip-worktree .kb/_ledger/config.json`) and is never committed. Not decided:
+a per-machine place for the URL outside the tracked config, which waits until a second machine
+needs its own board.
+
+Found on 2026-10-06, when `/weigh:weigh-in board` published the first board from a local
+Windows session (0.5.1); the same run showed the earlier "no binary" failure on Windows does
+not reproduce.
+

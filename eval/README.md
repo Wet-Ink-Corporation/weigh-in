@@ -86,8 +86,16 @@ One JSON object per line:
   negatives (the sitting's close, CI and merge notices, a check result). The seed is 44 items, 10
   labelled `capture`, 4 captured (precision 100%, recall 40%).
 
+  Added 2026-10-06: nine more end-of-turn messages from s9 (`rs9-13` to `rs9-21`). One carries a
+  block (dropping a planned fix after a trace) and is captured as a logged default; eight are true
+  negatives. The seed is 53 items, 11 labelled `capture`, 5 captured (precision 100%, recall 45%).
+  After 0.5.2, recall is 4 of 4 across s8 and s9.
+
   Added 2026-10-06: six end-of-turn messages from s10, the temper remediation session (PR #82),
   saved by the session itself (`rs10-01` to `rs10-06`). Three carry blocks: calls the agent acted
   on, plus one deferral, so they are captured as logged defaults. Three are true negatives. The
   seed is 50 items, 13 labelled `capture`, 7 captured (precision 100%, recall 54%). After 0.5.2,
   recall is 6 of 6 across s8, s9 and s10.
+
+  Together, s9's and s10's items make the seed 59 items, 14 labelled `capture`, 8 captured
+  (precision 100%, recall 57%). After 0.5.2, recall is 7 of 7 across s8, s9 and s10.

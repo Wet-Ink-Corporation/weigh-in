@@ -289,8 +289,8 @@ B-14), and only the tag is pushed, since the workflow creates the release.
   sitting decisions: each cloud session saves its own end-of-turn messages to the seed before it
   ends (wi-48657b), and `.claude/settings.json` allows the launcher so the skill's injected ledger
   command runs in auto mode (wi-6b2fa5); it added s8, the first session on the 0.5.2 line. The
-  next session added s9. The seed holds 38 items, 4 of 10 `capture` items captured (precision 4 of
-  4); recall is 1 of 7 before 0.5.2 and 3 of 3 after (s8, s9). Labels still wait on Ryan's review, and the 80% bar on 10 captured items (wi-a9df17).
+  next session added s9. The seed holds 59 items, 8 of 14 `capture` items captured (precision 8 of
+  8); recall is 1 of 7 before 0.5.2 and 7 of 7 after (s8, s9, s10). Labels still wait on Ryan's review, and the 80% bar on 10 captured items (wi-a9df17).
 - **Step 3:** no week posted on #23, so #25 is not triggered.
 - **V-items, walked through with Ryan on 2026-10-05:** V2 deferred to slice 2
   ([B-17](decisions/build-decisions.md#b-17)). V1, V4 and V7's last check are Ryan's runs, V5 is
@@ -300,8 +300,10 @@ B-14), and only the tag is pushed, since the workflow creates the release.
   limit is exactly 262,144 bytes, and the capped board is 59,678 bytes at 1,000 defaults). V4 closed as
   not supported: an Artifact does not hand `vscode://` links to the OS. V6 passed in the desktop
   Code tab; its Cowork half comes with V1. A Windows install showed the `marketplace` branch's
-  launcher checked out with CRLF line endings, the likely cause of `/weigh-in` failing there
-  (a trace from that machine is pending).
+  launcher checked out with CRLF line endings, but a trace on 2026-10-06 showed Git Bash runs it
+  correctly, and `/weigh:weigh-in board` then published a board from a local Windows session on
+  0.5.1. The one earlier "no binary" failure did not reproduce. The board URL stays out of the
+  tracked config ([B-20](decisions/build-decisions.md#b-20)).
 
 Exit criteria. These are the design's slice 1 exit criteria (two weeks or 30 presented items,
 whichever comes later), the same targets `weighin stats` prints, plus the release checks:

@@ -8,7 +8,7 @@ and 0.5.1 caps the board's defaults below the Artifact store's document limit an
 commands from creating a ledger. 0.5.2 tells agents to write one block per call when they list
 calls for the user ([#68](https://github.com/Wet-Ink-Corporation/weigh-in/issues/68), wi-357345).
 The sitting cost is recorded as a formula ([D-0016](decisions/build-decisions.md#d-0016)). The
-eval seed holds 44 items, 4 of its 10 `capture` items captured, its labels waiting on Ryan's review;
+eval seed holds 59 items, 8 of its 14 `capture` items captured, its labels waiting on Ryan's review;
 each cloud session now saves its own turns to it (wi-48657b). As of 2026-10-05 the V-item
 checklists are posted on their issues, but none has been run, and no week of stats is in yet. The path from here to v1 is
 in [`v1-plan.md`](v1-plan.md).
@@ -38,6 +38,10 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 
 ## Known gaps
 
+- **The board URL lands in the tracked config:** publishing the board writes its URL into
+  `.kb/_ledger/config.json`. Keep it local (`git update-index --skip-worktree`), because a
+  committed URL would point every clone's ledger, cloud containers included, at one board
+  ([B-20](decisions/build-decisions.md#b-20)).
 - **No binaries on `main`:** install from the `marketplace` branch instead ([B-14](decisions/build-decisions.md#b-14));
   verified on Windows and in Cowork ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)); macOS and Linux installs are unverified.
   A plugin without a binary says capture is off ([B-11](decisions/build-decisions.md#b-11)).
