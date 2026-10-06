@@ -1,293 +1,31 @@
 //! End to end: a scratch repository, hooks fed the JSON Claude Code sends, a linked worktree, a
 //! sitting done through `batch`, and the board round trip.
 
+use crate::support::{
+    LAUNCHER_LIMIT, MESSAGE, Run, annotate_scanned_and_rescan, bin, capture_both_markers,
+    context_pack_for, hook, isolated_launcher, items_seen_from_a_worktree, launcher_target,
+    reopen_default_from_the_board, run_within, scan_written_plan, settle_crlf_question, setup,
+    sit_and_decide, weighin, weighin_env,
+};
 use serde_json::{Value, json};
 use std::io::Write as _;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-
-fn bin() -> &'static str {
-    env!("CARGO_BIN_EXE_weighin")
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let st = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@t")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@t")
-        .output()
-        .unwrap();
-    assert!(
-        st.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&st.stderr)
-    );
-}
-
-fn weighin(dir: &Path, session: &str, args: &[&str], stdin: Option<&str>) -> (bool, String) {
-    weighin_env(dir, session, args, stdin, &[])
-}
-
-fn weighin_env(
-    dir: &Path,
-    session: &str,
-    args: &[&str],
-    stdin: Option<&str>,
-    vars: &[(&str, &str)],
-) -> (bool, String) {
-    let mut cmd = Command::new(bin());
-    cmd.current_dir(dir)
-        .args(["--session", session])
-        .args(args)
-        .env_remove("WEIGHIN_STORE")
-        .env_remove("CLAUDE_SESSION_ID")
-        .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("CLAUDE_CODE_ENTRYPOINT")
-        .envs(vars.iter().copied())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = cmd.spawn().unwrap();
-    if let Some(s) = stdin {
-        child
-            .stdin
-            .as_mut()
-            .unwrap()
-            .write_all(s.as_bytes())
-            .unwrap();
-    }
-    drop(child.stdin.take());
-    let out = child.wait_with_output().unwrap();
-    let text =
-        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
-    (out.status.success(), text)
-}
-
-fn hook(dir: &Path, payload: &Value) -> String {
-    let (ok, out) = weighin(dir, "unused", &["hook"], Some(&payload.to_string()));
-    assert!(ok, "hook failed: {out}");
-    out
-}
-
-fn setup() -> (tempfile::TempDir, PathBuf) {
-    let tmp = tempfile::tempdir().unwrap();
-    let repo = tmp.path().join("repo");
-    std::fs::create_dir_all(repo.join("src")).unwrap();
-    std::fs::create_dir_all(repo.join("docs")).unwrap();
-    std::fs::write(
-        repo.join("src/retention.rs"),
-        "// Retention rules.\n\npub struct RetentionPolicy;\n\nimpl RetentionPolicy {\n    pub fn series_overrides(&self) -> usize {\n        0\n    }\n}\n\npub fn apply() {\n    let p = RetentionPolicy;\n    let _ = p.series_overrides();\n}\n",
-    )
-    .unwrap();
-    std::fs::write(repo.join("docs/plan.md"), "# Plan\n\nWork.\n").unwrap();
-    git(&repo, &["init", "-q", "-b", "main"]);
-    git(&repo, &["add", "."]);
-    git(&repo, &["commit", "-q", "-m", "init"]);
-    (tmp, repo)
-}
-
-const MESSAGE: &str = "Migration done.\n\n```weigh-in\nkind: assumption\ndoor: one-way\nauthority: authority\nq: Should retention overrides attach per record or per series?\ndid: per-series, matching RetentionPolicy\nflip: a tenant needs per-record legal hold\nat: src/retention.rs:6\n```\n\n```weigh-in\nkind: call\ndoor: two-way\nauthority: judgment\nq: Name the helper apply or run?\ndid: named it apply\n```\n";
+use std::process::Command;
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_session_from_capture_to_record() {
     let (_tmp, repo) = setup();
-    let (ok, out) = weighin(
-        &repo,
-        "s1",
-        &["init", "--class", "own", "--owner", "ryan"],
-        None,
-    );
-    assert!(ok, "{out}");
-
-    // SessionStart primes the convention.
-    let prime = hook(
-        &repo,
-        &json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"}),
-    );
-    assert!(
-        prime.contains("```weigh-in") && prime.contains("session s1"),
-        "{prime}"
-    );
-    assert!(
-        prime.len() < 1100,
-        "prime is ~150 tokens, got {} chars",
-        prime.len()
-    );
-
-    // Stop captures both markers; the one-way one nudges once; the two-way judgment call is defaulted.
-    let stop = json!({"hook_event_name": "Stop", "session_id": "s1", "cwd": repo, "last_assistant_message": MESSAGE});
-    let nudge = hook(&repo, &stop);
-    assert!(
-        nudge.contains("systemMessage") && nudge.contains("one-way"),
-        "{nudge}"
-    );
-    assert_eq!(
-        hook(&repo, &stop),
-        "",
-        "a repeated Stop raises nothing and does not nudge again"
-    );
-
-    // PostToolUse scans only what was written.
-    let plan = "# Plan\n\nWork.\n\n## Open questions\n- Should we shard the ledger by tenant?\n";
-    std::fs::write(repo.join("docs/plan.md"), plan).unwrap();
-    hook(
-        &repo,
-        &json!({"hook_event_name": "PostToolUse", "session_id": "s1", "cwd": repo, "tool_name": "Write", "tool_input": {"file_path": repo.join("docs/plan.md"), "content": plan}}),
-    );
-
-    let (_, open) = weighin(&repo, "s1", &["open"], None);
-    assert!(open.contains("2 open in this session"), "{open}");
-    assert!(open.contains("1 default(s) to review"), "{open}");
-
-    // A linked worktree sees the same ledger (it lives under the common dir).
-    let wt = repo.parent().unwrap().join("wt");
-    git(
-        &repo,
-        &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "feat"],
-    );
-    let (_, from_wt) = weighin(&wt, "s2", &["open", "--repo", "--json"], None);
-    let items: Vec<Value> = serde_json::from_str(from_wt.trim()).unwrap();
-    assert_eq!(items.len(), 2, "{from_wt}");
-    let one_way = items.iter().find(|i| i["door_hint"] == "one-way").unwrap()["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let scanned = items.iter().find(|i| i["channel"] == "scan").unwrap()["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    assert!(
-        !repo.join(".weighin").exists() && !wt.join(".weighin").exists(),
-        "nothing is written into the working trees"
-    );
-
-    // Context pack: excerpt, symbol, call sites.
-    let (_, ctx) = weighin(&repo, "s1", &["context", &one_way], None);
-    assert!(
-        ctx.contains("series_overrides") && ctx.contains("src/retention.rs:13"),
-        "{ctx}"
-    );
-    assert!(ctx.contains("vscode://file/"), "{ctx}");
-
-    // The sitting: triage, ground and present in one call.
-    let card = json!({
-        "why": "It fixes what a tenant can hold.",
-        "timing": "Decide now.",
-        "evidence": [{"src": "src/retention.rs:6", "text": "series_overrides exists; no per-record path"}],
-        "options": [
-            {"id": "A", "title": "Per series", "holds_if": "no tenant needs per-record holds", "if_wrong": "a migration of every override"},
-            {"id": "B", "title": "Per record", "holds_if": "legal hold is per record", "if_wrong": "slower queries"}
-        ],
-        "recommendation": {"option": "A", "flip": "a tenant needs per-record legal hold", "stability": {"agree": 4, "of": 4}}
-    });
-    let batch = json!([
-        {"op": "triage", "id": one_way, "door": "one-way", "blast": "system", "route": "present", "reason": "authority-bound one-way door"},
-        {"op": "ground", "id": one_way, "card": card},
-        {"op": "present", "id": one_way, "surface": "chat"},
-        {"op": "decide", "id": one_way, "option": "Z"}
-    ]);
-    let (ok, out) = weighin(&repo, "s1", &["batch"], Some(&batch.to_string()));
-    assert!(
-        !ok && out.contains("has no option `Z`") && out.contains("✓ presented"),
-        "bad option refused, the rest applied: {out}"
-    );
-
-    let (ok, out) = weighin(
-        &repo,
-        "s1",
-        &[
-            "decide",
-            &one_way,
-            "A",
-            "--note",
-            "series is what the schema has",
-            "--via",
-            "chat",
-        ],
-        None,
-    );
-    assert!(ok && out.contains("atom .kb/_intake/decisions/"), "{out}");
-    let atom_dir = repo.join(".kb/_intake/decisions");
-    let atom = std::fs::read_dir(&atom_dir)
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    let text = std::fs::read_to_string(&atom).unwrap();
-    assert!(
-        text.contains("kind: decision")
-            && text.contains("reversibility: low")
-            && text.contains("provenance: user-approved"),
-        "{text}"
-    );
-    assert!(
-        text.contains("tree_hash: \""),
-        "records the tree the human saw"
-    );
-
-    // Deciding a scanned item annotates its source line.
-    let batch = json!([
-        {"op": "ground", "id": scanned, "card": {"options": [{"id": "A", "title": "Shard"}, {"id": "B", "title": "One store"}], "recommendation": {"option": "B"}}},
-        {"op": "decide", "id": scanned, "option": "B"}
-    ]);
-    let (ok, out) = weighin(&repo, "s1", &["batch"], Some(&batch.to_string()));
-    assert!(ok, "{out}");
-    let plan_after = std::fs::read_to_string(repo.join("docs/plan.md")).unwrap();
-    assert!(
-        plan_after.contains(&format!("→ Weigh-In {scanned}: decided B")),
-        "{plan_after}"
-    );
-
-    // Rescanning the annotated file raises nothing new.
-    hook(
-        &repo,
-        &json!({"hook_event_name": "PostToolUse", "session_id": "s1", "cwd": repo, "tool_name": "Write", "tool_input": {"file_path": repo.join("docs/plan.md"), "content": plan_after}}),
-    );
-    let (_, open) = weighin(&repo, "s1", &["open"], None);
-    assert!(open.contains("No decisions need you."), "{open}");
-
-    // Digest shows the default; the board can reopen it.
-    let (_, digest) = weighin(&repo, "s1", &["digest", "--json"], None);
-    let d: Value = serde_json::from_str(digest.trim()).unwrap();
-    let default_id = d["defaults"][0]["id"].as_str().unwrap().to_owned();
-    let (ok, out) = weighin(
-        &repo,
-        "s1",
-        &["board", "export", "--out", "board.json"],
-        None,
-    );
-    assert!(
-        ok && out.contains("2 decided") && out.contains("1 default(s)"),
-        "{out}"
-    );
-    let answers = repo.join("answers.json");
-    std::fs::write(&answers, json!([
-        {"id": default_id, "data": {"item_id": default_id, "action": "reopen", "note": "prefer run"}},
-        {"id": "wi-000000", "data": {"item_id": "wi-000000", "action": "choose", "option": "A"}}
-    ]).to_string()).unwrap();
-    let (ok, out) = weighin(
-        &repo,
-        "s1",
-        &["board", "apply", answers.to_str().unwrap()],
-        None,
-    );
-    assert!(
-        ok && out.contains(&format!("reopened {default_id}")) && out.contains("✗ wi-000000"),
-        "{out}"
-    );
-
-    let (_, stats) = weighin(&repo, "s1", &["stats", "--json"], None);
-    let h: Value = serde_json::from_str(stats.trim()).unwrap();
-    assert_eq!(h["presented"], 1);
-    assert_eq!(h["acted"], 1);
+    capture_both_markers(&repo);
+    scan_written_plan(&repo);
+    let (one_way, scanned) = items_seen_from_a_worktree(&repo);
+    context_pack_for(&repo, &one_way);
+    sit_and_decide(&repo, &one_way);
+    annotate_scanned_and_rescan(&repo, &scanned);
+    reopen_default_from_the_board(&repo);
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn hooks_never_fail_a_session() {
     let tmp = tempfile::tempdir().unwrap();
     let out = hook(
@@ -303,6 +41,7 @@ fn hooks_never_fail_a_session() {
 /// the event name `hooks.json` passes after `hook` (#21, B-16). The binary takes it and reads the
 /// event from stdin as before.
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn hook_takes_the_event_name_hooks_json_passes() {
     let (_tmp, repo) = setup();
     let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
@@ -322,6 +61,7 @@ fn hook_takes_the_event_name_hooks_json_passes() {
 /// about 700 overflowed it (#19). The export now carries the newest unacknowledged defaults up
 /// to the cap, with the total, and the digest covers the rest (wi-c34fb3).
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn board_export_caps_defaults_at_the_newest_unacknowledged() {
     let (_tmp, repo) = setup();
     let (ok, out) = weighin(&repo, "s1", &["init", "--class", "own"], None);
@@ -386,6 +126,7 @@ fn board_export_caps_defaults_at_the_newest_unacknowledged() {
 /// When the report cannot be marked as seen, the message says it will repeat rather than
 /// dropping that failure (H-10).
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn session_start_says_when_the_error_report_cannot_be_marked_seen() {
     let (_tmp, repo) = setup();
     let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
@@ -408,6 +149,7 @@ fn session_start_says_when_the_error_report_cannot_be_marked_seen() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn session_start_asks_for_one_block_per_call_in_a_list_for_the_user() {
     // Agents list calls for the user in prose ("Decisions for you:") with no block, so capture
     // misses them (eval seed recall 1 of 7, wi-357345); the convention names that case.
@@ -423,6 +165,7 @@ fn session_start_asks_for_one_block_per_call_in_a_list_for_the_user() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn session_start_reports_hook_errors_since_the_last_session() {
     let (_tmp, repo) = setup();
     let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
@@ -494,6 +237,7 @@ fn session_start_reports_hook_errors_since_the_last_session() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn batch_refs_reach_items_raised_in_the_same_call() {
     let (_tmp, repo) = setup();
     let batch = json!([
@@ -513,6 +257,7 @@ fn batch_refs_reach_items_raised_in_the_same_call() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn authority_items_are_not_papered_over() {
     let (_tmp, repo) = setup();
     let batch = json!([
@@ -529,9 +274,9 @@ fn authority_items_are_not_papered_over() {
 }
 
 #[test]
-fn review_regressions() {
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn session_start_in_a_plain_folder_leaves_no_store_behind() {
     let (_tmp, repo) = setup();
-
     // #8: SessionStart in a plain folder leaves nothing behind.
     let plain = repo.parent().unwrap().join("plain");
     std::fs::create_dir_all(&plain).unwrap();
@@ -543,7 +288,12 @@ fn review_regressions() {
         !plain.join(".weighin").exists(),
         "prime must not create a store"
     );
+}
 
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_write_outside_the_repository_is_not_scanned() {
+    let (_tmp, repo) = setup();
     // #6: a Write outside the repository is not scanned.
     let outside = repo.parent().unwrap().join("outside.md");
     let text = "## Open questions\n- Should the outside file be touched?\n";
@@ -554,14 +304,14 @@ fn review_regressions() {
     );
     let (_, open) = weighin(&repo, "s1", &["open", "--repo"], None);
     assert!(open.contains("0 open in repo"), "{open}");
+}
 
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn annotating_a_crlf_file_keeps_it_crlf() {
+    let (_tmp, repo) = setup();
     // #7: annotating a CRLF file keeps it CRLF.
-    let spec = "# Spec\r\n\r\n## Open questions\r\n- Keep the queue durable?\r\n";
-    std::fs::write(repo.join("docs/spec.md"), spec).unwrap();
-    let (_, out) = weighin(&repo, "s1", &["scan", "docs/spec.md"], None);
-    let id = out.split_whitespace().nth(1).unwrap().to_owned();
-    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "yes"], None);
-    assert!(ok, "{out}");
+    settle_crlf_question(&repo);
     let after = std::fs::read_to_string(repo.join("docs/spec.md")).unwrap();
     assert!(
         after.contains("decided yes")
@@ -569,7 +319,13 @@ fn review_regressions() {
             && !after.replace("\r\n", "").contains('\n'),
         "{after:?}"
     );
+}
 
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_settled_question_raised_again_is_not_re_asked() {
+    let (_tmp, repo) = setup();
+    let id = settle_crlf_question(&repo);
     // #5: a settled question raised again (another session) is not re-asked.
     let (_, out) = weighin(
         &repo,
@@ -578,7 +334,12 @@ fn review_regressions() {
         None,
     );
     assert!(out.contains(&format!("{id} already raised")), "{out}");
+}
 
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_bare_defer_next_to_a_decide_in_one_batch_applies_both() {
+    let (_tmp, repo) = setup();
     // #3: a bare defer next to a decide in one batch: both apply.
     let batch = json!([
         {"op": "raise", "q": "Pick A or B for the cache?", "door": "two-way", "channel": "sweep"},
@@ -592,7 +353,12 @@ fn review_regressions() {
         out.contains("✓ decided") && out.contains("✓ deferred") && out.contains("✗ op 4"),
         "{out}"
     );
+}
 
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn an_answer_to_an_older_card_is_refused() {
+    let (_tmp, repo) = setup();
     // #2: an answer to an older card is refused.
     let batch = json!([
         {"op": "raise", "q": "Which store for sessions?", "door": "two-way", "channel": "sweep"},
@@ -624,81 +390,11 @@ fn review_regressions() {
     );
 }
 
-/// Runs `cmd` to completion, killing it and failing the test if it outlives `limit` (a looping
-/// launcher). The deadline is kept here rather than with `timeout(1)`, which on Windows can
-/// resolve to `TIMEOUT.EXE` from System32, a different program.
-fn run_within(cmd: &mut Command, limit: std::time::Duration) -> std::process::Output {
-    use std::io::Read as _;
-    let deadline = std::time::Instant::now() + limit;
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("sh is on PATH");
-    let mut stdout = child.stdout.take().expect("stdout is piped");
-    let mut stderr = child.stderr.take().expect("stderr is piped");
-    let (tx_out, rx) = std::sync::mpsc::sync_channel::<(bool, Vec<u8>)>(2);
-    let tx_err = tx_out.clone();
-    std::thread::scope(|s| {
-        std::thread::Builder::new()
-            .name("launcher-stdout".into())
-            .spawn_scoped(s, move || {
-                let mut buf = Vec::new();
-                stdout.read_to_end(&mut buf).expect("stdout is readable");
-                tx_out
-                    .send((true, buf))
-                    .expect("the test thread is listening");
-            })
-            .expect("the stdout reader starts");
-        std::thread::Builder::new()
-            .name("launcher-stderr".into())
-            .spawn_scoped(s, move || {
-                let mut buf = Vec::new();
-                stderr.read_to_end(&mut buf).expect("stderr is readable");
-                tx_err
-                    .send((false, buf))
-                    .expect("the test thread is listening");
-            })
-            .expect("the stderr reader starts");
-        let (mut out, mut err) = (Vec::new(), Vec::new());
-        for _ in 0..2 {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
-            match rx.recv_timeout(left) {
-                Ok((true, buf)) => out = buf,
-                Ok((false, buf)) => err = buf,
-                Err(_) => {
-                    child.kill().expect("the looping launcher can be killed");
-                    child.wait().expect("the killed launcher is reaped");
-                    panic!("the launcher did not finish within {limit:?}");
-                }
-            }
-        }
-        let status = child.wait().expect("the launcher exits");
-        std::process::Output {
-            status,
-            stdout: out,
-            stderr: err,
-        }
-    })
-}
-
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_does_not_loop_when_no_binary_exists() {
-    let tmp = tempfile::tempdir().unwrap();
-    let bin_dir = tmp.path().join("bin");
-    std::fs::create_dir_all(&bin_dir).unwrap();
-    let launcher = bin_dir.join("weighin");
-    std::fs::copy(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugin/libexec/weighin"),
-        &launcher,
-    )
-    .unwrap();
-    let parent = std::env::var_os("PATH").unwrap_or_default();
-    let path = std::env::join_paths(std::iter::once(bin_dir).chain(std::env::split_paths(&parent)))
-        .unwrap();
-    // Generous for a slow shared CI runner (a normal run takes under a second); a looping
-    // launcher never finishes, so it still fails.
-    let limit = std::time::Duration::from_secs(30);
+    let (_tmp, launcher, path) = isolated_launcher();
+    let limit = LAUNCHER_LIMIT;
     let start = std::time::Instant::now();
     let out = run_within(
         Command::new("sh")
@@ -714,12 +410,18 @@ fn launcher_does_not_loop_when_no_binary_exists() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(start.elapsed() < limit);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn launcher_hook_without_a_binary_never_fails_and_is_silent() {
+    let (_tmp, launcher, path) = isolated_launcher();
     let hook = run_within(
         Command::new("sh")
             .arg(&launcher)
             .arg("hook")
             .env("PATH", &path),
-        limit,
+        LAUNCHER_LIMIT,
     );
     assert_eq!(
         hook.status.code(),
@@ -727,7 +429,12 @@ fn launcher_does_not_loop_when_no_binary_exists() {
         "a missing binary never fails a hook"
     );
     assert!(hook.stdout.is_empty(), "only SessionStart speaks");
+}
 
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn launcher_session_start_without_a_binary_says_capture_is_off() {
+    let (_tmp, launcher, path) = isolated_launcher();
     // SessionStart says capture is off, in a message shown to the user, and still exits 0.
     let start = run_within(
         Command::new("sh")
@@ -735,7 +442,7 @@ fn launcher_does_not_loop_when_no_binary_exists() {
             .args(["hook", "SessionStart"])
             .env("PATH", &path)
             .env_remove("CLAUDE_CODE_ENTRYPOINT"),
-        limit,
+        LAUNCHER_LIMIT,
     );
     assert_eq!(start.status.code(), Some(0));
     let out: Value = serde_json::from_slice(&start.stdout).unwrap();
@@ -746,7 +453,12 @@ fn launcher_does_not_loop_when_no_binary_exists() {
             .contains("capture is off"),
         "{out}"
     );
+}
 
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn launcher_session_start_in_cowork_without_a_binary_is_silent() {
+    let (_tmp, launcher, path) = isolated_launcher();
     // Cowork captures through the sitting, not hooks: nothing is said there (B-04).
     let cowork = run_within(
         Command::new("sh")
@@ -754,26 +466,14 @@ fn launcher_does_not_loop_when_no_binary_exists() {
             .args(["hook", "SessionStart"])
             .env("PATH", &path)
             .env("CLAUDE_CODE_ENTRYPOINT", "remote_cowork"),
-        limit,
+        LAUNCHER_LIMIT,
     );
     assert_eq!(cowork.status.code(), Some(0));
     assert!(cowork.stdout.is_empty());
 }
 
-/// The target directory the `sh` launcher looks in first on this platform.
-fn launcher_target() -> Option<(&'static str, &'static str)> {
-    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        Some(("x86_64-unknown-linux-musl", ""))
-    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some(("aarch64-apple-darwin", ""))
-    } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-        Some(("x86_64-pc-windows-msvc", ".exe"))
-    } else {
-        None
-    }
-}
-
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_passes_session_start_to_the_binary_without_the_event_name() {
     let Some((target, ext)) = launcher_target() else {
         return;
@@ -818,7 +518,9 @@ fn launcher_passes_session_start_to_the_binary_without_the_event_name() {
 /// stderr) and `cmd.exe` exits 7, so the result says which one ran.
 #[cfg(windows)]
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn cmd_launcher_runs_the_newer_build() {
+    use std::path::{Path, PathBuf};
     use std::time::{Duration, SystemTime};
     let tmp = tempfile::tempdir().unwrap();
     let launcher = tmp.path().join("weighin.cmd");
@@ -880,16 +582,19 @@ fn cmd_launcher_runs_the_newer_build() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn cowork_hooks_write_nothing_and_still_nudge() {
     let (_tmp, repo) = setup();
     let cowork = [("CLAUDE_CODE_ENTRYPOINT", "remote_cowork")];
     let run = |payload: &Value| {
         let (ok, out) = weighin_env(
             &repo,
-            "unused",
-            &["hook"],
-            Some(&payload.to_string()),
-            &cowork,
+            &Run {
+                session: "unused",
+                args: &["hook"],
+                stdin: Some(&payload.to_string()),
+                vars: &cowork,
+            },
         );
         assert!(ok, "{out}");
         out
@@ -915,6 +620,7 @@ fn cowork_hooks_write_nothing_and_still_nudge() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn the_ledger_goes_where_the_folder_says() {
     // A non-git folder, as a Cowork connected folder usually is.
     let tmp = tempfile::tempdir().unwrap();
@@ -988,6 +694,7 @@ const READ_ONLY_BY_ID: &[&[&str]] = &[
 ];
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn read_only_commands_leave_no_ledger_behind() {
     // A non-git folder, reached with `--dir` as Cowork does, and a git repository.
     let tmp = tempfile::tempdir().unwrap();

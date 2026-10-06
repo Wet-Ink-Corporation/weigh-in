@@ -1,8 +1,8 @@
 # Eval seed for marker capture (#22)
 
 The design's slice 1 exit criterion is marker capture precision of at least 80% on a labelled
-seed ([v1 plan](../docs/v1-plan.md), Phase 3). `crates/weighin/tests/eval_seed.rs` scores a seed
-by running each item through the real capture path in a scratch repository: a `Stop` hook for
+seed ([v1 plan](../docs/v1-plan.md), Phase 3). `crates/weighin/tests/it/eval_seed.rs` scores a
+seed by running each item through the real capture path in a scratch repository: a `Stop` hook for
 `channel: marker`, a `PostToolUse` Write of a markdown file for `channel: scan`.
 
 - **precision** = captured items labelled `capture` / captured items
@@ -10,7 +10,7 @@ by running each item through the real capture path in a scratch repository: a `S
 - **status** = captured `capture` items whose first ledger item has `expect.status`
 
 ```sh
-cargo test -p weighin --test eval_seed -- --nocapture
+cargo test -p weighin --test it eval_seed -- --nocapture
 ```
 
 ## Format
@@ -85,3 +85,9 @@ One JSON object per line:
   Later the same day: six more end-of-turn messages from s9 (`rs9-07` to `rs9-12`), all true
   negatives (the sitting's close, CI and merge notices, a check result). The seed is 44 items, 10
   labelled `capture`, 4 captured (precision 100%, recall 40%).
+
+  Added 2026-10-06: six end-of-turn messages from s10, the temper remediation session (PR #82),
+  saved by the session itself (`rs10-01` to `rs10-06`). Three carry blocks: calls the agent acted
+  on, plus one deferral, so they are captured as logged defaults. Three are true negatives. The
+  seed is 50 items, 13 labelled `capture`, 7 captured (precision 100%, recall 54%). After 0.5.2,
+  recall is 6 of 6 across s8, s9 and s10.

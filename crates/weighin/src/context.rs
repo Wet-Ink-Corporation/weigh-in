@@ -11,23 +11,24 @@ use std::process::{Command, Stdio};
 use weighin_core::Item;
 
 use crate::env::{self, Env};
-use crate::git;
+use crate::git::{self, LineSpan};
+use crate::text::clip;
 
 #[derive(Debug, Default, Serialize)]
-pub struct Pack {
-    pub item: String,
-    pub anchor: Option<String>,
-    pub excerpt: Option<(usize, Vec<String>)>,
-    pub symbol: Option<String>,
-    pub references: Option<usize>,
-    pub call_sites: Vec<String>,
-    pub tests: Vec<String>,
-    pub history: Option<String>,
-    pub churn: Option<String>,
-    pub atoms: Vec<String>,
-    pub permalink: Option<String>,
-    pub editor: Option<String>,
-    pub notes: Vec<String>,
+pub(crate) struct Pack {
+    pub(crate) item: String,
+    pub(crate) anchor: Option<String>,
+    pub(crate) excerpt: Option<(usize, Vec<String>)>,
+    pub(crate) symbol: Option<String>,
+    pub(crate) references: Option<usize>,
+    pub(crate) call_sites: Vec<String>,
+    pub(crate) tests: Vec<String>,
+    pub(crate) history: Option<String>,
+    pub(crate) churn: Option<String>,
+    pub(crate) atoms: Vec<String>,
+    pub(crate) permalink: Option<String>,
+    pub(crate) editor: Option<String>,
+    pub(crate) notes: Vec<String>,
 }
 
 fn parse_anchor(at: &str) -> (&str, Option<usize>) {
@@ -150,14 +151,6 @@ fn is_test_path(p: &str) -> bool {
         || l.starts_with("test")
 }
 
-fn clip(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        s.to_owned()
-    } else {
-        s.chars().take(n.saturating_sub(1)).collect::<String>() + "…"
-    }
-}
-
 /// Atom ids and titles in `.kb` (outside `_intake` and `_ledger`) that mention any needle.
 fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
     let kb = root.join(".kb");
@@ -179,7 +172,9 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
                 }
                 continue;
             }
-            if !name.ends_with(".md") || name.eq_ignore_ascii_case("readme.md") {
+            if Path::new(&name).extension().is_none_or(|x| x != "md")
+                || name.eq_ignore_ascii_case("readme.md")
+            {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(&p) else {
@@ -192,7 +187,7 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
                             .map(|v| v.trim().trim_matches('"').to_owned())
                     })
                 };
-                let id = field("id:").unwrap_or(name.clone());
+                let id = field("id:").unwrap_or_else(|| name.clone());
                 let status = field("status:").unwrap_or_default();
                 let title = field("title:").unwrap_or_default();
                 hits.push(format!("{id} [{status}] {}", clip(&title, 70)));
@@ -206,7 +201,7 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
 
 /// Build the pack for an item.
 #[must_use]
-pub fn build(env: &Env, item: &Item) -> Pack {
+pub(crate) fn build(env: &Env, item: &Item) -> Pack {
     let root = env.root();
     let mut p = Pack {
         item: item.id.to_string(),
@@ -226,81 +221,32 @@ pub fn build(env: &Env, item: &Item) -> Pack {
     let rel = env.relative(path);
     p.anchor = Some(format!("{rel}:{}", line.unwrap_or(1)));
     let abs = root.join(&rel);
-    let text = std::fs::read_to_string(&abs).ok();
-    if text.is_none() {
-        p.notes.push(format!("{rel} not found in this worktree"));
-    }
+    let text = read_source(&mut p, &rel, &abs);
     let line = line.unwrap_or(1).max(1);
     let mut anchor_line = String::new();
     if let Some(t) = &text {
-        let lines: Vec<&str> = t.lines().collect();
-        let start = line.saturating_sub(3).max(1);
-        let end = (line + 7).min(lines.len()).max(start);
-        let body: Vec<String> = lines
-            .get(start - 1..end)
-            .unwrap_or_default()
-            .iter()
-            .map(|l| clip(l, 140))
-            .collect();
-        anchor_line = lines.get(line - 1).copied().unwrap_or_default().to_owned();
+        let (start, body, at_line) = excerpt(t, line);
+        anchor_line = at_line;
         p.excerpt = Some((start, body));
     }
     p.symbol = item.sym.clone().or_else(|| symbol_on(&anchor_line));
-    if let Some(sym) = &p.symbol {
-        let refs: Vec<String> = references(&root, sym)
-            .into_iter()
-            .filter(|r| !r.starts_with(&format!("{rel}:{line}:")))
-            .collect();
-        p.references = Some(refs.len());
-        p.tests = refs
-            .iter()
-            .filter(|r| is_test_path(r))
-            .take(3)
-            .map(|r| clip(r, 120))
-            .collect();
-        p.call_sites = refs
-            .iter()
-            .filter(|r| !is_test_path(r))
-            .take(5)
-            .map(|r| clip(r, 120))
-            .collect();
-    }
-    let range = format!("-L{line},{}:{rel}", line + 5);
-    if let Ok(log) = git::run(
-        &root,
-        &[
-            "log",
-            "--no-patch",
-            "--format=%h %ad %s",
-            "--date=short",
-            &range,
-        ],
-    ) {
-        let commits: Vec<&str> = log.lines().filter(|l| !l.trim().is_empty()).collect();
-        if let Some(last) = commits.first() {
-            p.history = Some(format!(
-                "{} commit(s) touch these lines; last {}",
-                commits.len(),
-                clip(last, 90)
-            ));
-        }
-    }
-    if let Ok(ns) = git::run(&root, &["diff", "--numstat", "HEAD", "--", &rel])
-        && let Some(l) = ns.lines().next()
-    {
-        let f: Vec<&str> = l.split_whitespace().collect();
-        if f.len() >= 2 {
-            p.churn = Some(format!("uncommitted +{} -{}", f[0], f[1]));
-        }
-    }
+    add_references(&mut p, &root, &rel, line);
+    add_history(&mut p, &root, &rel, line);
+    add_churn(&mut p, &root, &rel);
     let sym = p.symbol.clone().unwrap_or_default();
     p.atoms = matching_atoms(&root, &[&rel, &sym]);
     if let Some(sha) = &env.head {
-        let (a, b) = p
-            .excerpt
-            .as_ref()
-            .map_or((line, line), |(s, l)| (*s, s + l.len().saturating_sub(1)));
-        p.permalink = git::permalink(&root, sha, &rel, a, b);
+        let span = p.excerpt.as_ref().map_or(
+            LineSpan {
+                first: line,
+                last: line,
+            },
+            |(s, l)| LineSpan {
+                first: *s,
+                last: s + l.len().saturating_sub(1),
+            },
+        );
+        p.permalink = git::permalink(&root, sha, &rel, span);
     }
     let abs_s = abs.to_string_lossy().replace('\\', "/");
     // vscode://file/<absolute path>: `/home/x` becomes `vscode://file/home/x`, `C:/r/a` becomes
@@ -312,53 +258,152 @@ pub fn build(env: &Env, item: &Item) -> Pack {
     p
 }
 
+/// The anchored file's text; a file that cannot be read becomes a note on the pack.
+fn read_source(p: &mut Pack, rel: &str, abs: &Path) -> Option<String> {
+    match std::fs::read_to_string(abs) {
+        Ok(t) => Some(t),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            p.notes.push(format!("{rel} not found in this worktree"));
+            None
+        }
+        Err(e) => {
+            p.notes.push(format!("{rel} unreadable: {e}"));
+            None
+        }
+    }
+}
+
+/// The excerpt window around `line` (first line number, clipped lines) and the anchored line.
+fn excerpt(text: &str, line: usize) -> (usize, Vec<String>, String) {
+    let lines: Vec<&str> = text.lines().collect();
+    let start = line.saturating_sub(3).max(1);
+    let end = (line + 7).min(lines.len()).max(start);
+    let body = lines
+        .get(start - 1..end)
+        .unwrap_or_default()
+        .iter()
+        .map(|l| clip(l, 140))
+        .collect();
+    let anchor = lines.get(line - 1).copied().unwrap_or_default().to_owned();
+    (start, body, anchor)
+}
+
+/// Reference count, test mentions and call sites of the pack's symbol.
+fn add_references(p: &mut Pack, root: &Path, rel: &str, line: usize) {
+    let Some(sym) = &p.symbol else {
+        return;
+    };
+    let refs: Vec<String> = references(root, sym)
+        .into_iter()
+        .filter(|r| !r.starts_with(&format!("{rel}:{line}:")))
+        .collect();
+    p.references = Some(refs.len());
+    p.tests = refs
+        .iter()
+        .filter(|r| is_test_path(r))
+        .take(3)
+        .map(|r| clip(r, 120))
+        .collect();
+    p.call_sites = refs
+        .iter()
+        .filter(|r| !is_test_path(r))
+        .take(5)
+        .map(|r| clip(r, 120))
+        .collect();
+}
+
+/// One line of history for the lines around the anchor.
+fn add_history(p: &mut Pack, root: &Path, rel: &str, line: usize) {
+    let range = format!("-L{line},{}:{rel}", line + 5);
+    let args = [
+        "log",
+        "--no-patch",
+        "--format=%h %ad %s",
+        "--date=short",
+        &range,
+    ];
+    if let Ok(log) = git::run(root, &args) {
+        let commits: Vec<&str> = log.lines().filter(|l| !l.trim().is_empty()).collect();
+        if let Some(last) = commits.first() {
+            p.history = Some(format!(
+                "{} commit(s) touch these lines; last {}",
+                commits.len(),
+                clip(last, 90)
+            ));
+        }
+    }
+}
+
+/// Uncommitted added/removed line counts for the file.
+fn add_churn(p: &mut Pack, root: &Path, rel: &str) {
+    if let Ok(ns) = git::run(root, &["diff", "--numstat", "HEAD", "--", rel])
+        && let Some(l) = ns.lines().next()
+        && let [added, removed, ..] = l.split_whitespace().collect::<Vec<_>>().as_slice()
+    {
+        p.churn = Some(format!("uncommitted +{added} -{removed}"));
+    }
+}
+
+/// Append `label: value` and a newline.
+/// A pack as compact text, uncapped; [`render`] caps it.
+struct Text<'p>(&'p Pack);
+
+impl std::fmt::Display for Text<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let p = self.0;
+        write!(f, "## {} context", p.item)?;
+        if let Some(a) = &p.anchor {
+            write!(f, " · {a}")?;
+        }
+        writeln!(f)?;
+        if let Some((start, lines)) = &p.excerpt {
+            writeln!(f, "```")?;
+            for (n, l) in (*start..).zip(lines) {
+                writeln!(f, "{n:>4} {l}")?;
+            }
+            writeln!(f, "```")?;
+        }
+        if let Some(sym) = &p.symbol {
+            writeln!(
+                f,
+                "symbol `{sym}`: {} other reference(s)",
+                p.references.unwrap_or(0)
+            )?;
+        }
+        for (k, v) in [("call sites", &p.call_sites), ("tests", &p.tests)] {
+            if !v.is_empty() {
+                writeln!(f, "{k}: {}", v.join(" | "))?;
+            }
+        }
+        for (k, v) in [
+            ("history", &p.history),
+            ("churn", &p.churn),
+            ("permalink", &p.permalink),
+            ("editor", &p.editor),
+        ] {
+            if let Some(v) = v {
+                writeln!(f, "{k}: {v}")?;
+            }
+        }
+        if !p.atoms.is_empty() {
+            writeln!(f, ".kb: {}", p.atoms.join(" | "))?;
+        }
+        for n in &p.notes {
+            writeln!(f, "note: {n}")?;
+        }
+        Ok(())
+    }
+}
+
 /// Compact text within `cap` characters.
 #[must_use]
-pub fn render(p: &Pack, cap: usize) -> String {
-    let mut s = format!("## {} context", p.item);
-    if let Some(a) = &p.anchor {
-        s.push_str(&format!(" · {a}"));
-    }
-    s.push('\n');
-    if let Some((start, lines)) = &p.excerpt {
-        s.push_str("```\n");
-        for (i, l) in lines.iter().enumerate() {
-            s.push_str(&format!("{:>4} {l}\n", start + i));
-        }
-        s.push_str("```\n");
-    }
-    if let Some(sym) = &p.symbol {
-        s.push_str(&format!(
-            "symbol `{sym}`: {} other reference(s)\n",
-            p.references.unwrap_or(0)
-        ));
-    }
-    if !p.call_sites.is_empty() {
-        s.push_str(&format!("call sites: {}\n", p.call_sites.join(" | ")));
-    }
-    if !p.tests.is_empty() {
-        s.push_str(&format!("tests: {}\n", p.tests.join(" | ")));
-    }
-    for (k, v) in [
-        ("history", &p.history),
-        ("churn", &p.churn),
-        ("permalink", &p.permalink),
-        ("editor", &p.editor),
-    ] {
-        if let Some(v) = v {
-            s.push_str(&format!("{k}: {v}\n"));
-        }
-    }
-    if !p.atoms.is_empty() {
-        s.push_str(&format!(".kb: {}\n", p.atoms.join(" | ")));
-    }
-    for n in &p.notes {
-        s.push_str(&format!("note: {n}\n"));
-    }
+pub(crate) fn render(p: &Pack, cap: usize) -> String {
+    let s = Text(p).to_string();
     if s.chars().count() > cap {
-        s = s.chars().take(cap.saturating_sub(12)).collect::<String>() + "\n[truncated]";
+        s.chars().take(cap.saturating_sub(12)).collect::<String>() + "\n[truncated]"
+    } else {
+        s
     }
-    s
 }
 
 #[cfg(test)]
@@ -386,6 +431,30 @@ mod tests {
         assert_eq!(
             symbol_on("    let overrides = policy.series_overrides();").as_deref(),
             Some("series_overrides")
+        );
+    }
+
+    #[test]
+    fn a_pack_renders_as_compact_text_within_its_cap() {
+        let pack = Pack {
+            item: "wi-000001".into(),
+            anchor: Some("src/a.rs:9".into()),
+            excerpt: Some((9, vec!["fn a() {}".into(), "fn b() {}".into()])),
+            symbol: Some("a".into()),
+            references: Some(2),
+            call_sites: vec!["src/b.rs:3".into(), "src/c.rs:4".into()],
+            history: Some("abc1234 add a".into()),
+            atoms: vec!["kb-0001".into()],
+            notes: vec!["one".into()],
+            ..Pack::default()
+        };
+        let text = "## wi-000001 context · src/a.rs:9\n```\n   9 fn a() {}\n  10 fn b() {}\n```\nsymbol `a`: 2 other reference(s)\ncall sites: src/b.rs:3 | src/c.rs:4\nhistory: abc1234 add a\n.kb: kb-0001\nnote: one\n";
+
+        assert_eq!(render(&pack, 1000), text);
+        assert_eq!(
+            render(&pack, 20),
+            "## wi-00\n[truncated]",
+            "cut to cap - 12 characters, then marked"
         );
     }
 }

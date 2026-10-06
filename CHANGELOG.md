@@ -6,6 +6,19 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- A closed stdout (`weighin open | head`) now ends the command silently with exit 0; before, it
+  panicked with exit 101. A broken pipe anywhere else (a closed stderr) is reported as an error
+  with exit 1.
+- A hook whose output cannot be written now exits 0 and logs the failure to `hook-errors.log`;
+  before, it panicked with exit 101. A hook whose input cannot be read or is not JSON logs that
+  too, inside a git repository; before, it was ignored without a trace. Outside git such a hook
+  still writes nothing, so it leaves no `.weighin/` in the folder it ran in. In Cowork hooks
+  still write nothing.
+- A command that changes the ledger (`batch`, `board apply`, `scan`, `raise --markers`) whose
+  reader closes stdout early still applies every operation, and only its receipts stop.
+- A failed `DETACH` of the template database when the store is opened is now returned as an
+  error; before, it was ignored.
+
 ## 0.5.3 — 2026-10-05
 
 - Each release is also published to `Wet-Ink-Corporation/weigh-in-plugin`, a release-only

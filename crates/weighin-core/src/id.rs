@@ -1,7 +1,7 @@
 //! Item ids: `wi-` plus lowercase hex of `sha256(session \n normalised question)`.
 //!
 //! Hash ids instead of sequence numbers because parallel sessions and worktrees mint ids with
-//! no coordinator; sequential ids are what collided in beads, beads_rust and Backlog.md. Six hex
+//! no coordinator; sequential ids are what collided in beads, `beads_rust` and Backlog.md. Six hex
 //! characters by default; a writer that finds a different question under the same id extends to
 //! eight ([`ItemId::mint_with_len`]).
 
@@ -14,12 +14,29 @@ pub const DEFAULT_HEX_LEN: usize = 6;
 /// Length used after a collision is detected.
 pub const EXTENDED_HEX_LEN: usize = 8;
 
+/// A ledger item id: `wi-` plus lowercase hex. The same session and question always mint the
+/// same id (see the [module docs](self)); [`ItemId::parse`] accepts one typed by a person or read
+/// from the store.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ItemId(String);
 
 impl ItemId {
     /// Mint the default-length id for a question raised in a session.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use weighin_core::ItemId;
+    ///
+    /// let id = ItemId::mint("session-1", "Should retention attach per record?");
+    /// assert_eq!(id.as_str().len(), "wi-".len() + 6);
+    ///
+    /// // Spacing, case and trailing punctuation do not change the question.
+    /// assert_eq!(id, ItemId::mint("session-1", "  should retention  attach per record "));
+    /// // Another session mints another id for the same question.
+    /// assert_ne!(id, ItemId::mint("session-2", "Should retention attach per record?"));
+    /// ```
     #[must_use]
     pub fn mint(session: &str, question: &str) -> Self {
         Self::mint_with_len(session, question, DEFAULT_HEX_LEN)
@@ -30,12 +47,26 @@ impl ItemId {
     pub fn mint_with_len(session: &str, question: &str, hex_len: usize) -> Self {
         let digest =
             Sha256::digest(format!("{session}\n{}", normalise_question(question)).as_bytes());
-        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-        let n = hex_len.clamp(4, 16);
-        Self(format!("wi-{}", &hex[..n]))
+        Self(format!("wi-{}", hex_prefix(&digest, hex_len.clamp(4, 16))))
     }
 
     /// Accept an id typed by a person or read from the store. Returns `None` when the shape is wrong.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use weighin_core::ItemId;
+    ///
+    /// let minted = ItemId::mint("session-1", "Use Postgres?");
+    /// let parsed = ItemId::parse(minted.as_str()).ok_or("a minted id parses")?;
+    /// assert_eq!(parsed, minted);
+    ///
+    /// // Uppercase hex, a missing prefix and non-hex characters are rejected.
+    /// assert!(ItemId::parse("wi-3FA9C1").is_none());
+    /// assert!(ItemId::parse("3fa9c1").is_none());
+    /// assert!(ItemId::parse("wi-xyz123").is_none());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub fn parse(value: &str) -> Option<Self> {
         let v = value.trim();
@@ -51,6 +82,7 @@ impl ItemId {
         }
     }
 
+    /// The id as written, `wi-` included.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -81,7 +113,17 @@ pub fn normalise_question(question: &str) -> String {
 #[must_use]
 pub fn question_key(question: &str) -> String {
     let digest = Sha256::digest(normalise_question(question).as_bytes());
-    digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
+    hex_prefix(&digest, 16)
+}
+
+/// The first `len` lowercase hex characters of `bytes`, two per byte.
+fn hex_prefix(bytes: &[u8], len: usize) -> String {
+    bytes
+        .iter()
+        .flat_map(|b| [b >> 4, b & 0x0f])
+        .filter_map(|nibble| char::from_digit(u32::from(nibble), 16))
+        .take(len)
+        .collect()
 }
 
 #[cfg(test)]
@@ -114,6 +156,46 @@ mod tests {
         assert!(ItemId::parse("wi-3FA9C1").is_none());
         assert!(ItemId::parse("wi-xyz123").is_none());
         assert!(ItemId::parse("3fa9c1").is_none());
+    }
+
+    #[test]
+    fn minted_ids_are_pinned() {
+        let q = "Should retention attach per record?";
+        assert_eq!(ItemId::mint("s1", q).as_str(), "wi-1b5df8");
+        assert_eq!(ItemId::mint_with_len("s1", q, 4).as_str(), "wi-1b5d");
+        assert_eq!(
+            ItemId::mint_with_len("s1", q, EXTENDED_HEX_LEN).as_str(),
+            "wi-1b5df8ca"
+        );
+        assert_eq!(
+            ItemId::mint_with_len("s1", q, 16).as_str(),
+            "wi-1b5df8ca7d8de40d"
+        );
+    }
+
+    #[test]
+    fn requested_length_is_clamped() {
+        let q = "Should retention attach per record?";
+        assert_eq!(
+            ItemId::mint_with_len("s1", q, 0),
+            ItemId::mint_with_len("s1", q, 4)
+        );
+        assert_eq!(
+            ItemId::mint_with_len("s1", q, 99),
+            ItemId::mint_with_len("s1", q, 16)
+        );
+    }
+
+    #[test]
+    fn question_key_is_pinned() {
+        assert_eq!(question_key("Use Postgres?"), "b39477a7169707a1");
+    }
+
+    #[test]
+    fn parse_round_trips_minted_ids() {
+        let id = ItemId::mint("s1", "Should retention attach per record?");
+        assert_eq!(ItemId::parse(id.as_str()), Some(id.clone()));
+        assert_eq!(ItemId::parse(&format!("  {id} ")), Some(id));
     }
 
     #[test]

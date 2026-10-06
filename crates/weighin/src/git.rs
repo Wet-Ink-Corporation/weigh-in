@@ -9,13 +9,13 @@ use std::process::{Command, Stdio};
 ///
 /// # Errors
 /// Fails when git cannot start or exits non-zero.
-pub fn run(dir: &Path, args: &[&str]) -> Result<String> {
+pub(crate) fn run(dir: &Path, args: &[&str]) -> Result<String> {
     run_env(dir, args, &[])
 }
 
 /// # Errors
 /// Fails when git cannot start or exits non-zero.
-pub fn run_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<String> {
+pub(crate) fn run_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<String> {
     let mut cmd = Command::new("git");
     cmd.stdin(Stdio::null())
         .arg("-C")
@@ -42,7 +42,7 @@ pub fn run_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<String
 /// files excluded, written on a temporary index in the temporary directory. Same derivation as
 /// redkiln-rs ADR-0105 clause 4, so a hash recorded here compares with one recorded there.
 #[must_use]
-pub fn tree_hash(root: &Path) -> Option<String> {
+pub(crate) fn tree_hash(root: &Path) -> Option<String> {
     let index = run(
         root,
         &["rev-parse", "--path-format=absolute", "--git-path", "index"],
@@ -74,13 +74,21 @@ pub fn tree_hash(root: &Path) -> Option<String> {
 /// `origin`'s URL turned into a browsable permalink for `path` lines `a..=b` at `sha`.
 /// GitHub and Azure DevOps are supported; anything else returns `None`.
 #[must_use]
-pub fn permalink(root: &Path, sha: &str, path: &str, a: usize, b: usize) -> Option<String> {
+pub(crate) fn permalink(root: &Path, sha: &str, path: &str, span: LineSpan) -> Option<String> {
     let url = run(root, &["remote", "get-url", "origin"]).ok()?;
-    web_url(url.trim(), sha, path, a, b)
+    web_url(url.trim(), sha, path, span)
+}
+
+/// The first and last line (1-based, inclusive) a permalink points at.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LineSpan {
+    pub(crate) first: usize,
+    pub(crate) last: usize,
 }
 
 #[must_use]
-pub fn web_url(remote: &str, sha: &str, path: &str, a: usize, b: usize) -> Option<String> {
+pub(crate) fn web_url(remote: &str, sha: &str, path: &str, span: LineSpan) -> Option<String> {
+    let LineSpan { first: a, last: b } = span;
     let r = remote.trim_end_matches('/').trim_end_matches(".git");
     // git@github.com:owner/repo  |  https://github.com/owner/repo
     if let Some(rest) = r
@@ -95,16 +103,15 @@ pub fn web_url(remote: &str, sha: &str, path: &str, a: usize, b: usize) -> Optio
     }
     // https://dev.azure.com/org/project/_git/repo  |  git@ssh.dev.azure.com:v3/org/project/repo
     let ado = if let Some(rest) = r.strip_prefix("git@ssh.dev.azure.com:v3/") {
-        let parts: Vec<&str> = rest.split('/').collect();
-        (parts.len() == 3).then(|| {
-            format!(
-                "https://dev.azure.com/{}/{}/_git/{}",
-                parts[0], parts[1], parts[2]
-            )
-        })
+        match rest.split('/').collect::<Vec<&str>>().as_slice() {
+            [org, project, repo] => {
+                Some(format!("https://dev.azure.com/{org}/{project}/_git/{repo}"))
+            }
+            _ => None,
+        }
     } else if r.contains("dev.azure.com/") && r.contains("/_git/") {
-        let start = r.find("dev.azure.com/")?;
-        Some(format!("https://{}", &r[start..]))
+        let (_, tail) = r.split_once("dev.azure.com/")?;
+        Some(format!("https://dev.azure.com/{tail}"))
     } else {
         None
     };
@@ -123,8 +130,7 @@ mod tests {
                 "git@github.com:Wet-Ink-Corporation/redkiln-rs.git",
                 "abc",
                 "crates/x.rs",
-                3,
-                9
+                LineSpan { first: 3, last: 9 }
             )
             .as_deref(),
             Some("https://github.com/Wet-Ink-Corporation/redkiln-rs/blob/abc/crates/x.rs#L3-L9")
@@ -133,12 +139,19 @@ mod tests {
             "https://acme@dev.azure.com/acme/Contoso/_git/migrate",
             "abc",
             "src/a.cs",
-            5,
-            5,
+            LineSpan { first: 5, last: 5 },
         )
         .unwrap();
         assert!(ado.starts_with("https://dev.azure.com/acme/Contoso/_git/migrate?path=/src/a.cs&version=GCabc&line=5&lineEnd=5"), "{ado}");
         assert!(ado.ends_with("lineStyle=plain"));
-        assert!(web_url("https://gitlab.com/x/y", "abc", "a", 1, 1).is_none());
+        assert!(
+            web_url(
+                "https://gitlab.com/x/y",
+                "abc",
+                "a",
+                LineSpan { first: 1, last: 1 }
+            )
+            .is_none()
+        );
     }
 }
