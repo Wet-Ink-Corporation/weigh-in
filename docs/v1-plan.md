@@ -302,7 +302,10 @@ B-14), and only the tag is pushed, since the workflow creates the release.
   Code tab; its Cowork half comes with V1. A Windows install showed the `marketplace` branch's
   launcher checked out with CRLF line endings, but a trace on 2026-10-06 showed Git Bash runs it
   correctly, and `/weigh:weigh-in board` then published a board from a local Windows session on
-  0.5.1. The one earlier "no binary" failure did not reproduce. The board URL stays out of the
+  0.5.1. The earlier "no binary" failure
+  ([#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76)) was not tested by that run:
+  it came from a claude.ai-synced copy of `main` at 0.5.2, which has no binaries, a different
+  install ([B-18](decisions/build-decisions.md#b-18)). The board URL stays out of the
   tracked config ([B-20](decisions/build-decisions.md#b-20)).
 
 Exit criteria. These are the design's slice 1 exit criteria (two weeks or 30 presented items,

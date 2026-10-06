@@ -457,6 +457,61 @@ fn launcher_session_start_without_a_binary_says_capture_is_off() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn launcher_names_a_copy_with_no_binaries() {
+    let (_tmp, launcher, path) = isolated_launcher();
+    // No build for any platform: the development tree, synced or copied as is (B-18).
+    let run = run_within(
+        Command::new("sh")
+            .arg(&launcher)
+            .arg("open")
+            .env("PATH", &path),
+        LAUNCHER_LIMIT,
+    );
+    assert_eq!(run.status.code(), Some(127));
+    let err = String::from_utf8_lossy(&run.stderr);
+    assert!(err.contains("this copy has no binaries"), "{err}");
+    let start = run_within(
+        Command::new("sh")
+            .arg(&launcher)
+            .args(["hook", "SessionStart"])
+            .env("PATH", &path)
+            .env_remove("CLAUDE_CODE_ENTRYPOINT"),
+        LAUNCHER_LIMIT,
+    );
+    assert_eq!(start.status.code(), Some(0));
+    let out: Value = serde_json::from_slice(&start.stdout).unwrap();
+    let message = out["systemMessage"].as_str().unwrap();
+    assert!(
+        message.contains("capture is off") && message.contains("this copy has no binaries"),
+        "{out}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn launcher_with_only_another_platforms_build_names_the_platform() {
+    let (tmp, launcher, path) = isolated_launcher();
+    // A build for some other platform only: the copy has binaries, just not this one's.
+    let other = tmp.path().join("bin/riscv64gc-unknown-linux-gnu");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("weighin"), "not run").unwrap();
+    let run = run_within(
+        Command::new("sh")
+            .arg(&launcher)
+            .arg("open")
+            .env("PATH", &path),
+        LAUNCHER_LIMIT,
+    );
+    assert_eq!(run.status.code(), Some(127));
+    let err = String::from_utf8_lossy(&run.stderr);
+    assert!(
+        err.contains("no binary for") && !err.contains("has no binaries"),
+        "{err}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_session_start_in_cowork_without_a_binary_is_silent() {
     let (_tmp, launcher, path) = isolated_launcher();
     // Cowork captures through the sitting, not hooks: nothing is said there (B-04).
