@@ -15,18 +15,25 @@ fi
 payload=$(cat)
 cd "$CLAUDE_PROJECT_DIR"
 rustup toolchain install >&2
-cargo fetch --locked >&2
-cargo test --workspace --no-run --locked >&2
+# Warming the caches never stops the Weigh-In setup below: a branch whose tests do not build
+# (an agent mid-fix) still gets /weigh-in and its hooks.
+cargo fetch --locked >&2 || echo "session-start: cargo fetch failed" >&2
+cargo test --workspace --no-run --locked >&2 \
+  || echo "session-start: the tests do not build; the gate in CLAUDE.md will say why" >&2
 # Lints warm clippy's cache only. temper's lint tables deny findings the baseline records, so
 # plain clippy fails; the gate (temper.mjs baseline --check) judges them, not this hook (B-13).
 cargo clippy --workspace --all-targets --locked --keep-going >&2 \
   || echo "session-start: clippy reports findings; the gate is node .claude/temper/temper.mjs baseline --check" >&2
 
 # The binary, where the launcher looks for it (git ignores plugin/libexec/*/).
-cargo build -p weighin --locked >&2
+# When it does not build, the launcher's SessionStart below says capture is off.
 target="$(uname -m)-unknown-linux-gnu"
-mkdir -p "plugin/libexec/$target"
-cp target/debug/weighin "plugin/libexec/$target/weighin"
+if cargo build -p weighin --locked >&2; then
+  mkdir -p "plugin/libexec/$target"
+  cp target/debug/weighin "plugin/libexec/$target/weighin"
+else
+  echo "session-start: weighin does not build, so capture is off this session" >&2
+fi
 
 # The skill, as a project skill (git ignores it). ${CLAUDE_PLUGIN_ROOT} is set only for plugins.
 skill=.claude/skills/weigh-in

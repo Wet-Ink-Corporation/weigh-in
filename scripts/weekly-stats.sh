@@ -18,11 +18,10 @@ fi
 
 launcher=""
 if [ -z "${WEIGHIN:-}" ]; then
-  # Version directories sort by name; take the last, which is the newest for x.y.z with one-digit
-  # parts and is otherwise only a guess: set WEIGHIN to be sure.
-  for l in "$HOME"/.claude/plugins/cache/weigh-in/weigh/*/libexec/weighin; do
-    [ -f "$l" ] && launcher=$l
-  done
+  # The newest installed version, by version order (0.10.0 after 0.9.0); set WEIGHIN to choose.
+  launcher=$(for l in "$HOME"/.claude/plugins/cache/weigh-in/weigh/*/libexec/weighin; do
+    [ -f "$l" ] && printf '%s\n' "$l"
+  done | sort -V | tail -n 1)
 fi
 w() {
   if [ -n "${WEIGHIN:-}" ]; then "$WEIGHIN" "$@"
@@ -53,9 +52,10 @@ for dir in "$@"; do
   else
     state="$dir/.weighin"
   fi
-  # weighin opens (and so creates) a ledger to read it; skip a folder that has none rather than
-  # leave an empty one behind, unless its config names a ledger elsewhere.
-  if [ ! -f "$state/ledger.sqlite3" ] && ! grep -qs '"store"' "$dir/.kb/_ledger/config.json"; then
+  # Reads never create a ledger; this only says "no ledger" rather than a row of zeros, unless a
+  # ledger is named elsewhere (the config's `store`, or $WEIGHIN_STORE).
+  if [ ! -f "$state/ledger.sqlite3" ] && [ -z "${WEIGHIN_STORE:-}" ] \
+    && ! grep -qs '"store"' "$dir/.kb/_ledger/config.json"; then
     echo "| $name | no ledger | | | | | | | |"
     continue
   fi
