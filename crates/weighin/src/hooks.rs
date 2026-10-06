@@ -6,10 +6,12 @@
 //! * `PostToolUse` (`Write`, `Edit`, `MultiEdit`) scans only the text the tool wrote.
 //!
 //! These are command hooks: they cost no model tokens. They never fail a session: any error,
-//! including input that cannot be read or parsed and output that cannot be written, is appended
-//! to `<state dir>/hook-errors.log` and the hook exits 0. The next `SessionStart` counts the
-//! lines added since the last one and tells the user, so capture is never off without a word.
-//! (The launcher says so itself when it finds no binary.)
+//! including output that cannot be written, is appended to `<state dir>/hook-errors.log` and the
+//! hook exits 0. Input that cannot be read or parsed is logged only inside a git repository:
+//! outside one, the state dir would be a `.weighin/` the hook creates in whatever folder it was
+//! started in, so there it writes nothing. The next `SessionStart` counts the lines added since
+//! the last one and tells the user, so capture is never off without a word. (The launcher says so
+//! itself when it finds no binary.)
 //!
 //! In Cowork (`CLAUDE_CODE_ENTRYPOINT=remote_cowork`) hooks run in the cloud workspace, whose
 //! project directory is a scratch folder deleted with the session, while the user's files and
@@ -31,8 +33,8 @@ use crate::ops::{RaiseInput, RaiseOutcome, Session, read_ledger, scannable};
 use crate::text::clip;
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
-/// (possibly nothing). Never fails: input that cannot be read or parsed and output that cannot
-/// be written are logged like any other hook error.
+/// (possibly nothing). Never fails: output that cannot be written is logged like any other hook
+/// error, and input that cannot be read or parsed is logged inside a git repository.
 pub(crate) fn entry(input: &mut impl Read, output: &mut impl Write) {
     let (payload, unread) = read_payload(input);
     let env = discover(&payload);
@@ -77,9 +79,12 @@ fn discover(payload: &Value) -> Env {
     Env::discover(&cwd, session)
 }
 
-/// Log why the input was missing, dispatch the hook, and write what it prints to `output`.
+/// Log why the input was missing (inside a git repository only), dispatch the hook, and write
+/// what it prints to `output`.
 fn serve(hook: &Hook, unread: Option<anyhow::Error>, output: &mut impl Write) {
-    if let Some(e) = unread {
+    if let Some(e) = unread
+        && hook.in_git()
+    {
         hook.log(&e);
     }
     let out = hook.run();
@@ -105,6 +110,12 @@ impl Hook {
             .get("hook_event_name")
             .and_then(Value::as_str)
             .unwrap_or("")
+    }
+
+    /// Whether the hook's environment names a git repository, where the state dir is the
+    /// ledger's own and logging input failures creates nothing in the user's folder.
+    fn in_git(&self) -> bool {
+        self.env.repo_root.is_some() || self.env.common_dir.is_some()
     }
 
     /// Append `e` to the error log, named by the hook's event, or `hook` when the payload names
@@ -428,7 +439,8 @@ pub(crate) fn scan_text(
 #[cfg(test)]
 mod tests {
     use super::{Hook, read_payload, serve};
-    use crate::env::{Config, Env};
+    use crate::env::Env;
+    use crate::git;
     use std::io::{self, Read, Write};
     use std::path::Path;
 
@@ -459,21 +471,28 @@ mod tests {
         std::fs::read_to_string(dir.join(".weighin").join("hook-errors.log")).unwrap_or_default()
     }
 
-    /// Run a hook on `input` with its ledger under `dir/.weighin`, whatever the process
-    /// environment says (`WEIGHIN_STORE`, `CLAUDE_CODE_ENTRYPOINT`).
+    /// A temporary directory that is a git repository.
+    fn git_repo() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        git::run(tmp.path(), &["init", "-q"]).expect("git init");
+        tmp
+    }
+
+    /// The entries in `dir`, which a hook that writes nothing leaves empty.
+    fn listing(dir: &Path) -> Vec<std::fs::DirEntry> {
+        std::fs::read_dir(dir)
+            .expect("temp dir listing")
+            .collect::<io::Result<_>>()
+            .expect("temp dir entries")
+    }
+
+    /// Run a hook on `input` in `dir` (inside git when `dir` is a repository) with its ledger
+    /// under `dir/.weighin`, whatever the process environment says (`WEIGHIN_STORE`,
+    /// `CLAUDE_CODE_ENTRYPOINT`).
     fn serve_in(dir: &Path, cowork: bool, input: &mut impl Read, output: &mut impl Write) {
         let (payload, unread) = read_payload(input);
-        let env = Env {
-            cwd: dir.to_path_buf(),
-            repo_root: None,
-            common_dir: None,
-            branch: None,
-            head: None,
-            worktree: None,
-            session: None,
-            config: Config::default(),
-            store_override: Some(dir.join(".weighin").join("ledger.sqlite3")),
-        };
+        let env =
+            Env::discover(dir, None).with_store(Some(dir.join(".weighin").join("ledger.sqlite3")));
         serve(
             &Hook {
                 payload,
@@ -486,7 +505,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "writes the error log through the file system")]
+    #[cfg_attr(
+        miri,
+        ignore = "spawns git and writes the error log through the file system"
+    )]
     fn a_hook_that_cannot_write_its_output_logs_it() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let input = payload(tmp.path(), "SessionStart");
@@ -501,9 +523,9 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "writes the error log through the file system")]
+    #[cfg_attr(miri, ignore = "spawns git")]
     fn a_hook_whose_input_fails_dispatches_what_it_read_and_logs_the_failure() {
-        let tmp = tempfile::tempdir().expect("temp dir");
+        let tmp = git_repo();
         let input = payload(tmp.path(), "Notification");
         let mut output = Vec::new();
 
@@ -523,7 +545,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "reads the ledger through the file system")]
+    #[cfg_attr(
+        miri,
+        ignore = "spawns git and reads the ledger through the file system"
+    )]
     fn a_hook_prints_what_it_dispatched() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let input = payload(tmp.path(), "SessionStart");
@@ -537,15 +562,16 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "writes the error log through the file system")]
-    fn input_that_is_not_utf8_is_logged_under_a_placeholder_event() {
-        let tmp = tempfile::tempdir().expect("temp dir");
+    #[cfg_attr(miri, ignore = "spawns git")]
+    fn input_that_is_not_utf8_is_logged_once_under_a_placeholder_event_in_git() {
+        let tmp = git_repo();
         let mut output = Vec::new();
 
         serve_in(tmp.path(), false, &mut &b"\xff"[..], &mut output);
 
         assert!(output.is_empty(), "{}", String::from_utf8_lossy(&output));
         let log = error_log(tmp.path());
+        assert_eq!(log.lines().count(), 1, "{log}");
         assert!(
             log.contains(" hook: reading the hook input: stream did not contain valid UTF-8"),
             "{log}"
@@ -553,20 +579,50 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "writes the error log through the file system")]
-    fn input_that_is_not_json_is_logged() {
-        let tmp = tempfile::tempdir().expect("temp dir");
+    #[cfg_attr(miri, ignore = "spawns git")]
+    fn input_that_is_not_json_is_logged_once_in_git() {
+        let tmp = git_repo();
         let mut output = Vec::new();
 
         serve_in(tmp.path(), false, &mut "not json".as_bytes(), &mut output);
 
         assert!(output.is_empty(), "{}", String::from_utf8_lossy(&output));
         let log = error_log(tmp.path());
+        assert_eq!(log.lines().count(), 1, "{log}");
         assert!(log.contains(" hook: parsing the hook input: "), "{log}");
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "lists a directory through the file system")]
+    #[cfg_attr(miri, ignore = "spawns git")]
+    fn input_that_is_not_utf8_writes_nothing_outside_git() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let mut output = Vec::new();
+
+        serve_in(tmp.path(), false, &mut &b"\xff"[..], &mut output);
+
+        assert!(output.is_empty(), "{}", String::from_utf8_lossy(&output));
+        let written = listing(tmp.path());
+        assert!(written.is_empty(), "{written:?}");
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "spawns git")]
+    fn input_that_is_not_json_writes_nothing_outside_git() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let mut output = Vec::new();
+
+        serve_in(tmp.path(), false, &mut "not json".as_bytes(), &mut output);
+
+        assert!(output.is_empty(), "{}", String::from_utf8_lossy(&output));
+        let written = listing(tmp.path());
+        assert!(written.is_empty(), "{written:?}");
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "spawns git and lists a directory through the file system"
+    )]
     fn cowork_hooks_write_nothing_even_when_their_input_and_output_fail() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let input = payload(tmp.path(), "SessionStart");
@@ -575,9 +631,7 @@ mod tests {
         serve_in(tmp.path(), true, &mut &b"\xff"[..], &mut Vec::new());
         serve_in(tmp.path(), true, &mut Broken, &mut Broken);
 
-        let written: Vec<_> = std::fs::read_dir(tmp.path())
-            .expect("temp dir listing")
-            .collect();
+        let written = listing(tmp.path());
         assert!(written.is_empty(), "{written:?}");
     }
 }

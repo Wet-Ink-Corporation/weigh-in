@@ -259,6 +259,7 @@ fn block(door: &str, authority: &str, q: &str, did: &str) -> String {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn scorer_counts_each_outcome() -> Res<()> {
     let one_way = block(
         "one-way",
@@ -319,6 +320,7 @@ fn scorer_counts_each_outcome() -> Res<()> {
 /// capture precision of at least 80%. It must hold at least 20 items, so the bar is not met
 /// by a seed trimmed down to the items capture gets right.
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn real_seed_meets_the_precision_bar() -> Res<()> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval/seed.jsonl");
     let items = parse(&std::fs::read_to_string(&path)?)?;
@@ -346,6 +348,7 @@ fn real_seed_meets_the_precision_bar() -> Res<()> {
 /// raises, or to which items default, moves these counts. The 80% bar applies to the real seed
 /// (`eval/seed.jsonl`), drafted from blocks agents emit during Phase 3's daily use.
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn scripted_seed_scores_as_recorded() -> Res<()> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval/seed-scripted.jsonl");
     let items = parse(&std::fs::read_to_string(&path)?)?;

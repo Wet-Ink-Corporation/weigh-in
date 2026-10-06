@@ -425,6 +425,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "spawns git")]
     fn an_existing_file_spelled_differently_is_in_the_repo() {
         let (_tmp, repo, env) = fixture();
         assert_eq!(
@@ -434,6 +435,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "spawns git")]
     fn a_file_not_written_yet_spelled_differently_is_in_the_repo() {
         let (_tmp, repo, env) = fixture();
         assert_eq!(
@@ -466,6 +468,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "spawns git")]
     fn dotdot_after_a_missing_directory_stays_outside() {
         // On Unix, canonicalize does not fold `..` after a directory that does not exist.
         let (_tmp, repo, env) = fixture();
@@ -483,6 +486,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "spawns git")]
     fn a_sibling_reached_through_dotdot_stays_outside() {
         let (tmp, repo, env) = fixture();
         std::fs::create_dir_all(tmp.path().join("other")).expect("other dir");
@@ -499,6 +503,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[cfg_attr(miri, ignore = "spawns git")]
     fn an_in_repo_symlink_keeps_its_own_name() {
         let (_tmp, repo, env) = fixture();
         std::os::unix::fs::symlink("plan.md", repo.join("docs/current.md")).expect("symlink");
@@ -510,6 +515,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[cfg_attr(miri, ignore = "spawns git")]
     fn a_file_beyond_a_directory_symlink_out_of_the_repo_is_outside() {
         // Git treats such a file as beyond a symbolic link, not in the repository; it is not
         // scanned, and nothing is annotated through the link.
@@ -523,6 +529,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "spawns git")]
     fn an_absolute_anchor_keeps_its_line_and_column() {
         let (_tmp, repo, env) = fixture();
         assert_eq!(

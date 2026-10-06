@@ -12,6 +12,7 @@ use std::io::Write as _;
 use std::process::Command;
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_session_from_capture_to_record() {
     let (_tmp, repo) = setup();
     capture_both_markers(&repo);
@@ -24,6 +25,7 @@ fn a_session_from_capture_to_record() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn hooks_never_fail_a_session() {
     let tmp = tempfile::tempdir().unwrap();
     let out = hook(
@@ -39,6 +41,7 @@ fn hooks_never_fail_a_session() {
 /// the event name `hooks.json` passes after `hook` (#21, B-16). The binary takes it and reads the
 /// event from stdin as before.
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn hook_takes_the_event_name_hooks_json_passes() {
     let (_tmp, repo) = setup();
     let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
@@ -58,6 +61,7 @@ fn hook_takes_the_event_name_hooks_json_passes() {
 /// about 700 overflowed it (#19). The export now carries the newest unacknowledged defaults up
 /// to the cap, with the total, and the digest covers the rest (wi-c34fb3).
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn board_export_caps_defaults_at_the_newest_unacknowledged() {
     let (_tmp, repo) = setup();
     let (ok, out) = weighin(&repo, "s1", &["init", "--class", "own"], None);
@@ -122,6 +126,7 @@ fn board_export_caps_defaults_at_the_newest_unacknowledged() {
 /// When the report cannot be marked as seen, the message says it will repeat rather than
 /// dropping that failure (H-10).
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn session_start_says_when_the_error_report_cannot_be_marked_seen() {
     let (_tmp, repo) = setup();
     let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
@@ -144,6 +149,7 @@ fn session_start_says_when_the_error_report_cannot_be_marked_seen() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn session_start_asks_for_one_block_per_call_in_a_list_for_the_user() {
     // Agents list calls for the user in prose ("Decisions for you:") with no block, so capture
     // misses them (eval seed recall 1 of 7, wi-357345); the convention names that case.
@@ -159,6 +165,7 @@ fn session_start_asks_for_one_block_per_call_in_a_list_for_the_user() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn session_start_reports_hook_errors_since_the_last_session() {
     let (_tmp, repo) = setup();
     let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
@@ -230,6 +237,7 @@ fn session_start_reports_hook_errors_since_the_last_session() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn batch_refs_reach_items_raised_in_the_same_call() {
     let (_tmp, repo) = setup();
     let batch = json!([
@@ -249,6 +257,7 @@ fn batch_refs_reach_items_raised_in_the_same_call() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn authority_items_are_not_papered_over() {
     let (_tmp, repo) = setup();
     let batch = json!([
@@ -265,6 +274,7 @@ fn authority_items_are_not_papered_over() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn session_start_in_a_plain_folder_leaves_no_store_behind() {
     let (_tmp, repo) = setup();
     // #8: SessionStart in a plain folder leaves nothing behind.
@@ -281,6 +291,7 @@ fn session_start_in_a_plain_folder_leaves_no_store_behind() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_write_outside_the_repository_is_not_scanned() {
     let (_tmp, repo) = setup();
     // #6: a Write outside the repository is not scanned.
@@ -296,6 +307,7 @@ fn a_write_outside_the_repository_is_not_scanned() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn annotating_a_crlf_file_keeps_it_crlf() {
     let (_tmp, repo) = setup();
     // #7: annotating a CRLF file keeps it CRLF.
@@ -310,6 +322,7 @@ fn annotating_a_crlf_file_keeps_it_crlf() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_settled_question_raised_again_is_not_re_asked() {
     let (_tmp, repo) = setup();
     let id = settle_crlf_question(&repo);
@@ -324,6 +337,7 @@ fn a_settled_question_raised_again_is_not_re_asked() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_bare_defer_next_to_a_decide_in_one_batch_applies_both() {
     let (_tmp, repo) = setup();
     // #3: a bare defer next to a decide in one batch: both apply.
@@ -342,6 +356,7 @@ fn a_bare_defer_next_to_a_decide_in_one_batch_applies_both() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn an_answer_to_an_older_card_is_refused() {
     let (_tmp, repo) = setup();
     // #2: an answer to an older card is refused.
@@ -376,6 +391,7 @@ fn an_answer_to_an_older_card_is_refused() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_does_not_loop_when_no_binary_exists() {
     let (_tmp, launcher, path) = isolated_launcher();
     let limit = LAUNCHER_LIMIT;
@@ -397,6 +413,7 @@ fn launcher_does_not_loop_when_no_binary_exists() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_hook_without_a_binary_never_fails_and_is_silent() {
     let (_tmp, launcher, path) = isolated_launcher();
     let hook = run_within(
@@ -415,6 +432,7 @@ fn launcher_hook_without_a_binary_never_fails_and_is_silent() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_session_start_without_a_binary_says_capture_is_off() {
     let (_tmp, launcher, path) = isolated_launcher();
     // SessionStart says capture is off, in a message shown to the user, and still exits 0.
@@ -438,6 +456,7 @@ fn launcher_session_start_without_a_binary_says_capture_is_off() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_session_start_in_cowork_without_a_binary_is_silent() {
     let (_tmp, launcher, path) = isolated_launcher();
     // Cowork captures through the sitting, not hooks: nothing is said there (B-04).
@@ -454,6 +473,7 @@ fn launcher_session_start_in_cowork_without_a_binary_is_silent() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_passes_session_start_to_the_binary_without_the_event_name() {
     let Some((target, ext)) = launcher_target() else {
         return;
@@ -498,6 +518,7 @@ fn launcher_passes_session_start_to_the_binary_without_the_event_name() {
 /// stderr) and `cmd.exe` exits 7, so the result says which one ran.
 #[cfg(windows)]
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn cmd_launcher_runs_the_newer_build() {
     use std::path::{Path, PathBuf};
     use std::time::{Duration, SystemTime};
@@ -561,6 +582,7 @@ fn cmd_launcher_runs_the_newer_build() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn cowork_hooks_write_nothing_and_still_nudge() {
     let (_tmp, repo) = setup();
     let cowork = [("CLAUDE_CODE_ENTRYPOINT", "remote_cowork")];
@@ -598,6 +620,7 @@ fn cowork_hooks_write_nothing_and_still_nudge() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn the_ledger_goes_where_the_folder_says() {
     // A non-git folder, as a Cowork connected folder usually is.
     let tmp = tempfile::tempdir().unwrap();
@@ -671,6 +694,7 @@ const READ_ONLY_BY_ID: &[&[&str]] = &[
 ];
 
 #[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn read_only_commands_leave_no_ledger_behind() {
     // A non-git folder, reached with `--dir` as Cowork does, and a git repository.
     let tmp = tempfile::tempdir().unwrap();

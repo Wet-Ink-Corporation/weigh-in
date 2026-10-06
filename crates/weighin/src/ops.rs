@@ -262,6 +262,9 @@ pub(crate) struct Session<'a> {
     actor: String,
     /// Ids raised earlier in this batch, so later ops can say `@1`, `@2`, ...
     raised: Vec<ItemId>,
+    /// The date atoms and source annotations carry (`YYYY-MM-DD`), read once when the session
+    /// opens so every write in a batch carries the same day.
+    today: String,
 }
 
 impl<'a> Session<'a> {
@@ -277,7 +280,15 @@ impl<'a> Session<'a> {
             tree: TreeCache::Unread,
             actor: actor.to_owned(),
             raised: Vec::new(),
+            today: env::today(),
         })
+    }
+
+    /// Fix the date this session writes, so a test does not depend on the wall clock.
+    #[cfg(test)]
+    fn with_today(mut self, today: &str) -> Self {
+        today.clone_into(&mut self.today);
+        self
     }
 
     fn tree_hash(&mut self) -> Option<String> {
@@ -696,7 +707,7 @@ impl<'a> Session<'a> {
         let Some(item) = self.ledger.get(id).cloned() else {
             return Ok(None);
         };
-        let Some(text) = atom::render_decision(&item, &render_ctx()) else {
+        let Some(text) = atom::render_decision(&item, &render_ctx(&self.today)) else {
             return Ok(None);
         };
         let rel = atom::decision_path(&item);
@@ -718,7 +729,7 @@ impl<'a> Session<'a> {
         let Some(item) = self.ledger.get(id).cloned() else {
             return Ok(None);
         };
-        let Some(text) = atom::render_open_question(&item, &render_ctx()) else {
+        let Some(text) = atom::render_open_question(&item, &render_ctx(&self.today)) else {
             return Ok(None);
         };
         let rel = atom::open_question_path(&item);
@@ -768,7 +779,7 @@ impl<'a> Session<'a> {
                 write!(
                     joined,
                     "{body} → Weigh-In {id}: decided {option} ({})",
-                    env::today()
+                    self.today
                 )?;
             } else {
                 joined.push_str(body);
@@ -783,9 +794,9 @@ impl<'a> Session<'a> {
     }
 }
 
-fn render_ctx() -> RenderContext {
+fn render_ctx(today: &str) -> RenderContext {
     RenderContext {
-        date: env::today(),
+        date: today.to_owned(),
         depends_on: Vec::new(),
         source_paths: Vec::new(),
     }
@@ -1171,11 +1182,11 @@ mod tests {
             {"op": "supersede", "id": "@1", "by": "kb-0001", "reason": "r"},
             {"op": "link", "id": "@1", "kind": "relates", "target": "wi-000000"}
         ]);
-        let before = env::today();
 
-        let out = run(&mut Session::open(&env, "t")?, &batch)?;
-
-        let after = env::today();
+        let out = run(
+            &mut Session::open(&env, "t")?.with_today("2026-01-02"),
+            &batch,
+        )?;
 
         let id = id_of(ONE_WAY);
         let atom = format!(
@@ -1197,12 +1208,11 @@ mod tests {
             ]
         );
         let annotated = std::fs::read_to_string(dir.path().join("plan.md"))?;
-        let on = |day: &str| {
-            format!("# Plan\r\n\r\n{ONE_WAY} → Weigh-In {id}: decided B ({day})\r\n- tail\r\n")
-        };
-        assert!(
-            annotated == on(&before) || annotated == on(&after),
-            "annotated as {annotated:?}, dated neither {before} nor {after}"
+        assert_eq!(
+            annotated,
+            format!(
+                "# Plan\r\n\r\n{ONE_WAY} → Weigh-In {id}: decided B (2026-01-02)\r\n- tail\r\n"
+            )
         );
         Ok(())
     }
