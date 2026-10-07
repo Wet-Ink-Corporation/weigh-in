@@ -6,6 +6,14 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- `scripts/weekly-stats.sh` ignores `$WEIGHIN_STORE` and reads each folder through its own ledger;
+  before, every folder reported that one ledger and the pooled row counted it once per folder.
+- `scripts/build-plugin-bins.ps1` stops when `cargo build` fails; before, it copied the previous
+  `weighin.exe` into the plugin.
+- `scripts/package-plugin.sh` leaves a leftover `plugin/libexec/weighin.exe` out of the zip when
+  there is no Windows build under `plugin/libexec/<target>/`, and says so; before, it shipped it
+  unchecked.
+
 ## 0.5.4 — 2026-10-06
 
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development
