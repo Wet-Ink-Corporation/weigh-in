@@ -4,9 +4,12 @@
 //!
 //! A code line is only ever changed inside its last comment: the note goes at the end of a line
 //! comment, or just before the closer of a block comment that ends the line. Comment markers
-//! inside a string literal do not count. Anything else is left as it was, so a decision does not
-//! break the code around its question. The reading is a line-local heuristic, not a parser: a
-//! line inside a string or comment opened on an earlier line is read as if it started in code.
+//! inside a string literal do not count, and `#`, `--` and `REM ` open a comment only standing
+//! alone (at the line start or after whitespace, not before a word character), so `r#"`, `x--`
+//! and `#define` stay code. Anything else is left as it was, so a decision does not break the
+//! code around its question. The reading is a line-local heuristic, not a parser: a line inside
+//! a string or comment opened on an earlier line is read as if it started in code, and a line
+//! comment glued to its marker (`#TODO`) is left alone.
 
 /// How the source file reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,7 +23,8 @@ pub(crate) enum Syntax {
 /// Why a source line was left as it was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Skip {
-    /// The note holds a line break, another control character or a comment closer.
+    /// The note holds a line break, another control character or a comment closer, or text
+    /// that would change the block comment it goes in (`/*`, or `--` in `<!-- -->`).
     UnsafeText,
     /// Code follows the comment's closer on the line.
     CodeAfterComment,
@@ -42,10 +46,62 @@ impl Skip {
     }
 }
 
+/// The kind of comment an opener starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Comment {
+    /// Runs to the end of the line, whatever it holds.
+    Line,
+    /// `/* … */`, or a line in its middle that starts with `*`. Rust, Swift, Kotlin and Scala
+    /// nest these, so a `/*` inside one opens another.
+    Star,
+    /// `<!-- … -->`, inside which XML allows no `--`.
+    Html,
+}
+
+impl Comment {
+    /// The closer of a block comment, `None` for a line comment.
+    fn closer(self) -> Option<&'static str> {
+        match self {
+            Self::Line => None,
+            Self::Star => Some("*/"),
+            Self::Html => Some("-->"),
+        }
+    }
+
+    /// Text that a note written inside this comment must not hold, besides the closer.
+    fn forbidden(self) -> Option<&'static str> {
+        match self {
+            Self::Line => None,
+            Self::Star => Some("/*"),
+            Self::Html => Some("--"),
+        }
+    }
+}
+
+/// Where an opener may stand on a line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Place {
+    /// Anywhere outside a string literal.
+    Anywhere,
+    /// Only at the start of the line, after indentation (a block comment's middle `*`).
+    LineStart,
+    /// At the start of the line or after whitespace, and not followed by a word character, `[`
+    /// or `!`: so `r#"`, `x--`, `#define`, `#[derive]` and `--count` stay code.
+    Standalone,
+}
+
 /// The comment openers `weighin-core`'s TODO scan recognises, so every line it raised from is
-/// read the same way here, longest first. A `*` counts only at the start of a line (a block
-/// comment's middle). The scan's `'` is read in context instead ([`scan_code`]).
-const OPENERS: &[&str] = &["<!--", "/*", "//", "--", "#", "REM ", "*"];
+/// read the same way here, longest first, with the comment each opens and where it may stand.
+/// The scan's `'` is read in context instead ([`scan_code`]).
+const OPENERS: &[(&str, Comment, Place)] = &[
+    ("<!--", Comment::Html, Place::Anywhere),
+    ("/*", Comment::Star, Place::Anywhere),
+    ("//", Comment::Line, Place::Anywhere),
+    ("--", Comment::Line, Place::Standalone),
+    ("#", Comment::Line, Place::Standalone),
+    ("REM ", Comment::Line, Place::Standalone),
+    ("*", Comment::Star, Place::LineStart),
+];
 
 /// Block comment closers: text after one is code again.
 const CLOSERS: &[&str] = &["*/", "-->"];
@@ -55,22 +111,41 @@ const QUOTES: &[char] = &['"', '`', '\''];
 
 /// What a stretch of code holds, up to the next comment or the end of the line.
 struct CodeStretch {
-    /// Where the next comment's body starts, if a comment opens before the line ends.
-    comment: Option<usize>,
+    /// Where the next comment's body starts and what kind it is, if a comment opens before the
+    /// line ends.
+    comment: Option<(usize, Comment)>,
     /// Whether a string literal in the stretch holds a comment opener.
     marker_in_string: bool,
 }
 
-/// The length of the comment opener at byte `at` of `line`, if one starts there.
-fn opener_at(line: &str, at: usize) -> Option<usize> {
+/// Whether `before` ends where a standalone opener may start: at the line start or whitespace.
+fn after_space(before: &str) -> bool {
+    before.chars().next_back().is_none_or(char::is_whitespace)
+}
+
+/// The comment opener at byte `at` of `line`, if one starts there: its length and kind.
+fn opener_at(line: &str, at: usize) -> Option<(usize, Comment)> {
     let tail = line.get(at..)?;
+    let before = line.get(..at)?;
     OPENERS
         .iter()
-        .find(|m| {
-            tail.starts_with(**m)
-                && (**m != "*" || line.get(..at).is_some_and(|s| s.trim().is_empty()))
+        .find(|(m, _, place)| {
+            tail.starts_with(m)
+                && match place {
+                    Place::Anywhere => true,
+                    Place::LineStart => before.trim().is_empty(),
+                    Place::Standalone => {
+                        after_space(before)
+                            && !tail
+                                .get(m.len()..)
+                                .and_then(|t| t.chars().next())
+                                .is_some_and(|c| {
+                                    c.is_alphanumeric() || matches!(c, '_' | '[' | '!')
+                                })
+                    }
+                }
         })
-        .map(|m| m.len())
+        .map(|(m, kind, _)| (m.len(), *kind))
 }
 
 /// The byte length of the string literal that `quote`, the first character of `tail`, opens,
@@ -93,7 +168,9 @@ fn string_len(tail: &str, quote: char) -> Option<usize> {
 
 /// Whether `text`, a string literal, holds something that would open a comment outside it.
 fn holds_opener(text: &str) -> bool {
-    OPENERS.iter().any(|m| *m != "*" && text.contains(m))
+    OPENERS
+        .iter()
+        .any(|(m, _, place)| *place != Place::LineStart && text.contains(m))
 }
 
 /// Reads `line` as code from byte `from`, skipping string literals, up to the next comment.
@@ -106,9 +183,9 @@ fn scan_code(line: &str, from: usize) -> CodeStretch {
         let Some(c) = tail.chars().next() else {
             break;
         };
-        if let Some(len) = opener_at(line, at) {
+        if let Some((len, kind)) = opener_at(line, at) {
             return CodeStretch {
-                comment: Some(at.saturating_add(len)),
+                comment: Some((at.saturating_add(len), kind)),
                 marker_in_string,
             };
         }
@@ -123,12 +200,9 @@ fn scan_code(line: &str, from: usize) -> CodeStretch {
                     marker_in_string |= holds_opener(tail);
                     break;
                 }
-                None if line
-                    .get(..at)
-                    .is_some_and(|s| s.chars().next_back().is_none_or(char::is_whitespace)) =>
-                {
+                None if line.get(..at).is_some_and(after_space) => {
                     return CodeStretch {
-                        comment: Some(at.saturating_add(1)),
+                        comment: Some((at.saturating_add(1), Comment::Line)),
                         marker_in_string,
                     };
                 }
@@ -148,7 +222,7 @@ fn scan_code(line: &str, from: usize) -> CodeStretch {
 /// `line` with `note` written into its comment, or why it cannot be.
 ///
 /// # Errors
-/// [`Skip::UnsafeText`] when the note could end the comment or the line;
+/// [`Skip::UnsafeText`] when the note could end or change the comment, or end the line;
 /// [`Skip::NoComment`] for a code line with no comment; [`Skip::InString`] when its only comment
 /// markers sit inside a string; [`Skip::CodeAfterComment`] when its last comment closes before
 /// the end of the line.
@@ -171,7 +245,7 @@ fn annotate_code(line: &str, note: &str) -> Result<String, Skip> {
     loop {
         let stretch = scan_code(line, from);
         marker_in_string |= stretch.marker_in_string;
-        let Some(body_at) = stretch.comment else {
+        let Some((body_at, kind)) = stretch.comment else {
             return Err(if marker_in_string {
                 Skip::InString
             } else if closed_one {
@@ -180,25 +254,32 @@ fn annotate_code(line: &str, note: &str) -> Result<String, Skip> {
                 Skip::NoComment
             });
         };
-        let body = line.get(body_at..).ok_or(Skip::NoComment)?;
-        let closer = CLOSERS
-            .iter()
-            .filter_map(|c| body.find(c).map(|p| (p, c.len())))
-            .min();
-        let Some((at, len)) = closer else {
-            // A line comment, or a block comment that runs on: the line ends inside it.
+        let Some(closer) = kind.closer() else {
+            // A line comment runs to the end of the line, whatever its body holds.
             return Ok(format!("{line} {note}"));
         };
-        let (before, closing) = line
-            .split_at_checked(body_at.saturating_add(at))
-            .ok_or(Skip::NoComment)?;
-        let after = closing.get(len..).ok_or(Skip::NoComment)?;
-        if after.trim().is_empty() {
-            return Ok(format!("{} {note} {closing}", before.trim_end()));
-        }
-        // Code follows the closer: the note can only go in a comment after it.
-        closed_one = true;
-        from = line.len().saturating_sub(after.len());
+        let body = line.get(body_at..).ok_or(Skip::NoComment)?;
+        let written = match body.find(closer) {
+            // A block comment that runs on: the line ends inside it.
+            None => format!("{line} {note}"),
+            Some(at) => {
+                let (before, closing) = line
+                    .split_at_checked(body_at.saturating_add(at))
+                    .ok_or(Skip::NoComment)?;
+                let after = closing.get(closer.len()..).ok_or(Skip::NoComment)?;
+                if !after.trim().is_empty() {
+                    // Code follows the closer: the note can only go in a comment after it.
+                    closed_one = true;
+                    from = line.len().saturating_sub(after.len());
+                    continue;
+                }
+                format!("{} {note} {closing}", before.trim_end())
+            }
+        };
+        return match kind.forbidden() {
+            Some(text) if note.contains(text) => Err(Skip::UnsafeText),
+            _ => Ok(written),
+        };
     }
 }
 
@@ -334,5 +415,76 @@ mod tests {
                 assert_eq!(out, Err(Skip::UnsafeText), "{note:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_closer_inside_a_line_comment_does_not_end_it() {
+        for line in [
+            "    # TODO: exclude build/**/*.o",
+            "// TODO: is a*/b right?",
+            "-- TODO: map a --> b",
+        ] {
+            let out = annotate_line(line, NOTE, Syntax::Code);
+
+            assert_eq!(out, Ok(format!("{line} {NOTE}")), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_hash_inside_code_does_not_open_a_comment() {
+        let out = annotate_line(
+            r##"    let s = r#"// TODO: x"#; f(s);"##,
+            NOTE,
+            Syntax::Code,
+        );
+
+        assert_eq!(out, Err(Skip::InString));
+    }
+
+    #[test]
+    fn a_block_comment_after_dashes_or_a_directive_gets_the_note_before_its_closer() {
+        for (line, want) in [
+            (
+                "x--; /* TODO: pick */",
+                format!("x--; /* TODO: pick {NOTE} */"),
+            ),
+            (
+                "    --count; /* TODO: pick */",
+                format!("    --count; /* TODO: pick {NOTE} */"),
+            ),
+            (
+                "#define CAP 1 /* TODO: pick */",
+                format!("#define CAP 1 /* TODO: pick {NOTE} */"),
+            ),
+        ] {
+            let out = annotate_line(line, NOTE, Syntax::Code);
+
+            assert_eq!(out, Ok(want), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_note_that_would_open_a_nested_comment_is_refused_inside_a_block_comment() {
+        let star = "→ Weigh-In wi-abc123: decided a /* b (2026-10-07)";
+        let dashes = "→ Weigh-In wi-abc123: decided --force (2026-10-07)";
+        for (line, note) in [
+            ("/* TODO: pick */", star),
+            ("/* TODO: pick, because", star),
+            (" * TODO: pick", star),
+            ("<!-- TODO: pick -->", dashes),
+        ] {
+            let out = annotate_line(line, note, Syntax::Code);
+
+            assert_eq!(out, Err(Skip::UnsafeText), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_note_with_an_opener_still_fits_a_line_comment() {
+        let note = "→ Weigh-In wi-abc123: decided a /* b --force (2026-10-07)";
+
+        let out = annotate_line("// TODO: pick", note, Syntax::Code);
+
+        assert_eq!(out, Ok(format!("// TODO: pick {note}")));
     }
 }
