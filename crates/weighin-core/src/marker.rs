@@ -531,6 +531,18 @@ mod tests {
     }
 
     #[test]
+    fn a_shorter_fence_after_an_unclosed_longer_one_is_still_a_fence() {
+        let m = parse_markers("`````md\n```rust\nx\n```\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!(m[0].question, "real?");
+        let m = parse_markers("`````md\n```md\n```weigh-in\nq: example?\n```\n```\nafter");
+        assert!(
+            m.is_empty(),
+            "the shorter fence closes and hides its example: {m:?}"
+        );
+    }
+
+    #[test]
     fn a_closed_outer_fence_still_hides_its_example() {
         let m = parse_markers("  ````markdown\n```weigh-in\nq: example?\n```\n   ````\nafter");
         assert!(m.is_empty(), "{m:?}");
