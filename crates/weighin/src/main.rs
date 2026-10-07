@@ -106,10 +106,11 @@ enum LedgerCmd {
 
 #[derive(Args)]
 struct InitArgs {
-    /// `own` or `client` (client repos default to a local board).
-    #[arg(long, default_value = "own")]
-    class: String,
-    /// `artifact`, `local` or `off`.
+    /// `own` or `client` (client repos default to a local board). Unchanged when not given; a
+    /// first `init` is `own`.
+    #[arg(long)]
+    class: Option<String>,
+    /// `artifact`, `local` or `off`. Unchanged when not given, unless `--class` is.
     #[arg(long)]
     board: Option<String>,
     #[arg(long)]
@@ -428,14 +429,25 @@ fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
 
 fn init(env: Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
     let mut c = Config::load(&env.root());
-    c.board.mode = a.board.unwrap_or_else(|| {
-        if a.class == "client" {
-            "local".into()
-        } else {
-            "artifact".into()
+    // Only what was given changes: a later `init --ledger` keeps a client repo's local board.
+    match (a.class, a.board) {
+        (class, Some(board)) => {
+            if let Some(class) = class {
+                c.repo_class = class;
+            }
+            c.board.mode = board;
         }
-    });
-    c.repo_class = a.class;
+        (Some(class), None) => {
+            c.board.mode = if class == "client" {
+                "local"
+            } else {
+                "artifact"
+            }
+            .into();
+            c.repo_class = class;
+        }
+        (None, None) => {}
+    }
     if a.board_url.is_some() {
         c.board.url = a.board_url;
     }

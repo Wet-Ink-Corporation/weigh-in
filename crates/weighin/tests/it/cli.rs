@@ -773,6 +773,40 @@ fn the_ledger_goes_where_the_folder_says() {
     assert!(!out.contains("Which rule wins"), "{out}");
 }
 
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn init_without_class_or_board_keeps_the_existing_ones() {
+    let (_tmp, repo) = setup();
+    let (ok, out) = weighin(&repo, "s1", &["init", "--class", "client"], None);
+    assert!(ok, "{out}");
+
+    let (ok, out) = weighin(&repo, "s1", &["init", "--ledger", "../l.sqlite3"], None);
+
+    assert!(ok && out.contains("class client · board local"), "{out}");
+    let config: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo.join(".kb/_ledger/config.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        (
+            &config["repo_class"],
+            &config["board"]["mode"],
+            &config["store"]
+        ),
+        (&json!("client"), &json!("local"), &json!("../l.sqlite3"))
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_first_init_without_flags_is_an_own_repo_on_the_artifact_board() {
+    let (_tmp, repo) = setup();
+
+    let (ok, out) = weighin(&repo, "s1", &["init"], None);
+
+    assert!(ok && out.contains("class own · board artifact"), "{out}");
+}
+
 /// Every command that only reads, run where no ledger exists yet.
 const READ_ONLY: &[&[&str]] = &[
     &["stats"],

@@ -15,6 +15,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - In `batch`, `@N` always names the Nth raise in the array. A raise that fails, or cannot be
   parsed, keeps its place: a ref to it is refused, and later refs still reach their own items;
   before, every later ref moved to the next item raised, so an op could act on the wrong item.
+- `weighin init` changes only what its flags name: `init --ledger <path>` or `init --owner <name>`
+  on a client repo keeps its class and its `local` board; before, any `init` without `--class`
+  reset the repo to `own` on the `artifact` board. A first `init` is still `own` on `artifact`.
 ## 0.5.4 — 2026-10-06
 
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development

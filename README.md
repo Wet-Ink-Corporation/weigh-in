@@ -106,7 +106,7 @@ the skill then uses the binary in a connected folder holding this repository.
 
 ```
 weighin [--store <file>] [--dir <folder>] [--session <id>] <command>
-weighin init --class own|client [--board artifact|local|off] [--ledger <path>]
+weighin init [--class own|client] [--board artifact|local|off] [--ledger <path>]
 weighin open [--repo] [--with-context]   open items, ranked (one-way, blocking, authority first)
 weighin context <id>                     script-built evidence, ≤600 tokens
 weighin batch < ops.json                 raise / triage / ground / present / decide / defer /
