@@ -1,8 +1,7 @@
 //! Properties of `.kb` atom rendering: whatever the item holds, the front matter keeps its shape
-//! and every quoted value reads back as written.
+//! and carries exactly the expected fields, each reading back to the value it was generated from.
 
-use crate::support::{CASES, Rng, adversarial};
-use serde::Deserialize;
+use crate::support::{CASES, Rng, TestResult, adversarial};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use weighin_core::atom::{RenderContext, render_decision, render_open_question, y_statement};
@@ -90,7 +89,7 @@ fn envelope(event: LedgerEvent, session: Option<String>, ts: String) -> EventEnv
     }
 }
 
-fn raised(rng: &mut Rng, id: ItemId, question: String) -> LedgerEvent {
+fn raised(rng: &mut Rng, id: ItemId, question: String, door_hint: Door) -> LedgerEvent {
     LedgerEvent::ItemRaised(Raised {
         item_id: id,
         kind: *rng.pick(&[Kind::Question, Kind::Assumption, Kind::Deferral, Kind::Call]),
@@ -101,7 +100,7 @@ fn raised(rng: &mut Rng, id: ItemId, question: String) -> LedgerEvent {
         at: rng.one_in(2).then(|| text(rng)),
         sym: None,
         blocks: None,
-        door_hint: *rng.pick(&[Door::OneWay, Door::TwoWay, Door::Unsure]),
+        door_hint,
         authority_hint: Authority::Authority,
         channel: Channel::Marker,
         source_path: rng.one_in(2).then(|| text(rng)),
@@ -116,7 +115,7 @@ fn outcome(rng: &mut Rng, id: ItemId) -> Option<LedgerEvent> {
             item_id: id,
             option: (*rng.pick(&["A", "B", "Z"])).to_owned(),
             decider: text(rng),
-            provenance: Provenance::UserDirected,
+            provenance: *rng.pick(&[Provenance::UserApproved, Provenance::UserDirected]),
             note: text(rng),
             tree_hash: rng.one_in(2).then(|| text(rng)),
             matched_recommendation: *rng.pick(&[None, Some(true), Some(false)]),
@@ -138,16 +137,34 @@ fn outcome(rng: &mut Rng, id: ItemId) -> Option<LedgerEvent> {
     }
 }
 
+/// A folded item and the inputs the generator chose for it, so the expected front matter comes
+/// from what was generated rather than from the item's own accessors.
+struct Generated {
+    item: Item,
+    /// The triaged door, or the raise's hint when the item was never triaged.
+    door: Door,
+    /// The triaged blast radius, if the item was triaged.
+    blast: Option<Blast>,
+    /// The grounding card, if the item was grounded.
+    card: Option<Card>,
+}
+
 /// A raised item, folded: triaged, grounded and then decided or deferred, each at random.
-fn item(rng: &mut Rng) -> Item {
+fn item(rng: &mut Rng) -> TestResult<Generated> {
+    const DOORS: [Door; 3] = [Door::OneWay, Door::TwoWay, Door::Unsure];
     let question = text(rng);
     let id = ItemId::mint("s", &question);
-    let mut events = vec![raised(rng, id.clone(), question)];
+    let mut door = *rng.pick(&DOORS);
+    let mut events = vec![raised(rng, id.clone(), question, door)];
+    let mut blast = None;
     if rng.one_in(2) {
+        door = *rng.pick(&DOORS);
+        let radius = *rng.pick(&[Blast::File, Blast::System]);
+        blast = Some(radius);
         events.push(LedgerEvent::ItemTriaged(Triaged {
             item_id: id.clone(),
-            door: *rng.pick(&[Door::OneWay, Door::TwoWay, Door::Unsure]),
-            blast: *rng.pick(&[Blast::File, Blast::System]),
+            door,
+            blast: radius,
             authority: Authority::Authority,
             route: Route::Present,
             timing: None,
@@ -155,10 +172,12 @@ fn item(rng: &mut Rng) -> Item {
             reason: text(rng),
         }));
     }
-    if rng.one_in(2) {
+    let card = rng.one_in(2).then(|| card(rng));
+    if let Some(c) = &card {
         events.push(LedgerEvent::ItemGrounded(Grounded {
             item_id: id.clone(),
-            card: card(rng),
+            // The event and the expectation each keep their own copy of the card.
+            card: c.clone(),
             reason: text(rng),
         }));
     }
@@ -169,11 +188,60 @@ fn item(rng: &mut Rng) -> Item {
         .map(|e| envelope(e, session.clone(), text(rng)))
         .collect();
     let ledger = Ledger::fold((1u64..).zip(&envelopes));
-    ledger
+    let item = ledger
         .items
         .into_values()
         .next()
-        .expect("the raise was folded into an item")
+        .ok_or("the raise was not folded into an item")?;
+    Ok(Generated {
+        item,
+        door,
+        blast,
+        card,
+    })
+}
+
+/// The wire spelling of a door, written out from the marker grammar.
+fn door_spelling(door: Door) -> &'static str {
+    match door {
+        Door::OneWay => "one-way",
+        Door::TwoWay => "two-way",
+        Door::Unsure => "unsure",
+    }
+}
+
+/// `KbFrontmatter`'s reversibility: a one-way door is `low`, unsure `medium`, two-way `high`.
+fn reversibility_of(door: Door) -> &'static str {
+    match door {
+        Door::OneWay => "low",
+        Door::Unsure => "medium",
+        Door::TwoWay => "high",
+    }
+}
+
+fn provenance_spelling(provenance: Provenance) -> &'static str {
+    match provenance {
+        Provenance::UserApproved => "user-approved",
+        Provenance::UserDirected => "user-directed",
+    }
+}
+
+fn blast_spelling(blast: Blast) -> &'static str {
+    match blast {
+        Blast::File => "file",
+        Blast::Module => "module",
+        Blast::System => "system",
+        Blast::External => "external",
+    }
+}
+
+/// A front-matter value: a string, or a list of strings.
+fn v(s: impl Into<String>) -> Value {
+    Value::String(s.into())
+}
+
+fn vs(items: &[String]) -> Value {
+    Value::from(items.to_vec())
 }
 
 fn context(rng: &mut Rng) -> RenderContext {
@@ -187,11 +255,13 @@ fn context(rng: &mut Rng) -> RenderContext {
 /// The front matter's `key: value` pairs, checking its shape on the way: it opens on the first
 /// line, closes on a `---` line, and each line is one key with a bare token or a JSON value that
 /// carries no character YAML refuses or reads as a line break.
-fn front_matter(atom: &str, case: u64) -> BTreeMap<String, Value> {
+fn front_matter(atom: &str, case: u64) -> TestResult<BTreeMap<String, Value>> {
     let rest = atom
         .strip_prefix("---\n")
-        .expect("an atom opens with front matter");
-    let (head, _body) = rest.split_once("\n---\n").expect("the front matter closes");
+        .ok_or_else(|| format!("case {case}: no opening front matter in {atom:?}"))?;
+    let (head, _body) = rest
+        .split_once("\n---\n")
+        .ok_or_else(|| format!("case {case}: the front matter never closes in {atom:?}"))?;
     let mut fields = BTreeMap::new();
     for line in head.split('\n') {
         assert!(
@@ -199,7 +269,9 @@ fn front_matter(atom: &str, case: u64) -> BTreeMap<String, Value> {
                 || matches!(c, '\u{2028}' | '\u{2029}' | '\u{fffe}' | '\u{ffff}')),
             "case {case}: raw control or line break in {line:?}"
         );
-        let (key, value) = line.split_once(": ").expect("each line is `key: value`");
+        let (key, value) = line
+            .split_once(": ")
+            .ok_or_else(|| format!("case {case}: {line:?} is not `key: value`"))?;
         assert!(
             !key.is_empty() && key.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
             "case {case}: key {key:?}"
@@ -211,7 +283,8 @@ fn front_matter(atom: &str, case: u64) -> BTreeMap<String, Value> {
         let parsed = if bare {
             Value::String(value.to_owned())
         } else {
-            serde_json::from_str(value).expect("a quoted value is a JSON scalar or list")
+            serde_json::from_str(value)
+                .map_err(|e| format!("case {case}: {key} is not JSON ({e}): {value:?}"))?
         };
         assert!(
             fields.insert(key.to_owned(), parsed).is_none(),
@@ -221,79 +294,161 @@ fn front_matter(atom: &str, case: u64) -> BTreeMap<String, Value> {
     for key in REQUIRED_KEYS {
         assert!(fields.contains_key(*key), "case {case}: {key} is missing");
     }
-    fields
+    Ok(fields)
 }
 
-fn string(fields: &BTreeMap<String, Value>, key: &str) -> Option<String> {
-    fields.get(key).and_then(Value::as_str).map(str::to_owned)
+/// The item's own source path, then the context's extras.
+fn sources(item: &Item, ctx: &RenderContext) -> Vec<String> {
+    item.source_path
+        .iter()
+        .chain(&ctx.source_paths)
+        .cloned()
+        .collect()
 }
 
-fn strings(fields: &BTreeMap<String, Value>, key: &str) -> Option<Vec<String>> {
-    Vec::<String>::deserialize(fields.get(key)?).ok()
+/// Every field a decision atom's front matter must carry, with its value, built from the
+/// generated inputs. An item with no records relates to nothing.
+fn expected_decision(
+    generated: &Generated,
+    ctx: &RenderContext,
+) -> TestResult<BTreeMap<String, Value>> {
+    let item = &generated.item;
+    let decision = item
+        .decision
+        .as_ref()
+        .ok_or("a decision atom for an undecided item")?;
+    let chosen = generated
+        .card
+        .as_ref()
+        .and_then(|c| c.options.iter().find(|o| o.id == decision.option));
+    // The chosen option's title, or the question without its question marks and the answer.
+    let title = chosen.map_or_else(
+        || {
+            format!(
+                "{}: {}",
+                item.question.trim_end_matches('?'),
+                decision.option
+            )
+        },
+        |o| o.title.clone(),
+    );
+    let mut expected = BTreeMap::from([
+        ("id", v(format!("kb-decision-{}", item.id))),
+        ("title", v(title)),
+        ("kind", v("decision")),
+        ("status", v("accepted")),
+        ("authority_tier", v("decision")),
+        ("summary", v(y_statement(item))),
+        ("depends_on", vs(&ctx.depends_on)),
+        ("related", vs(&[])),
+        ("source_paths", vs(&sources(item, ctx))),
+        ("last_reviewed", v(ctx.date.as_str())),
+        ("reversibility", v(reversibility_of(generated.door))),
+        ("phase", v("null")),
+        ("supersedes", vs(&[])),
+        ("superseded_by", v("null")),
+        ("weighin_item", v(item.id.as_str())),
+        ("question", v(item.question.as_str())),
+        ("door", v(door_spelling(generated.door))),
+        ("decider", v(decision.decider.as_str())),
+        ("provenance", v(provenance_spelling(decision.provenance))),
+        ("decided_at", v(decision.ts.as_str())),
+    ]);
+    if let Some(b) = generated.blast {
+        expected.insert("blast_radius", v(blast_spelling(b)));
+    }
+    if let Some(t) = &decision.tree_hash {
+        expected.insert("tree_hash", v(t.as_str()));
+    }
+    if let Some(c) = &generated.card {
+        expected.insert("recommended", v(c.recommendation.option.as_str()));
+        if !c.recommendation.flip.is_empty() {
+            expected.insert("flip_condition", v(c.recommendation.flip.as_str()));
+        }
+    }
+    Ok(expected
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v))
+        .collect())
+}
+
+/// Every field an open-question atom's front matter must carry, with its value.
+fn expected_open_question(
+    generated: &Generated,
+    ctx: &RenderContext,
+) -> TestResult<BTreeMap<String, Value>> {
+    let item = &generated.item;
+    let d = item
+        .deferral
+        .as_ref()
+        .ok_or("an open-question atom for an item never deferred")?;
+    let summary = format!(
+        "Open until {}: {}. Default if unresolved: {}.",
+        d.trigger, item.question, d.default_option
+    );
+    Ok([
+        ("id", v(format!("kb-open-question-{}", item.id))),
+        ("title", v(item.question.as_str())),
+        ("kind", v("open_question")),
+        ("status", v("proposed")),
+        ("authority_tier", v("note")),
+        ("summary", v(summary)),
+        ("depends_on", vs(&ctx.depends_on)),
+        ("related", vs(&[])),
+        ("source_paths", vs(&sources(item, ctx))),
+        ("last_reviewed", v(ctx.date.as_str())),
+        ("tracks", v(item.id.as_str())),
+        ("resolve_by", v(d.resolve_by.as_str())),
+        ("trigger", v(d.trigger.as_str())),
+        ("default_if_unresolved", v(d.default_option.as_str())),
+        ("owner", v(d.owner.as_str())),
+        ("flip_condition", v(d.flip.as_str())),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v))
+    .collect())
 }
 
 #[test]
-fn decision_atoms_keep_their_front_matter_whatever_the_item_holds() {
+fn decision_atoms_keep_their_front_matter_whatever_the_item_holds() -> TestResult {
+    let mut rendered = 0u32;
     for case in 0..CASES {
         let mut rng = Rng::new(0xa7_0001, case);
-        let item = item(&mut rng);
+        let generated = item(&mut rng)?;
+        let item = &generated.item;
         let ctx = context(&mut rng);
 
-        let Some(atom) = render_decision(&item, &ctx) else {
+        let Some(atom) = render_decision(item, &ctx) else {
             assert!(item.decision.is_none(), "case {case}: decided items render");
             continue;
         };
 
-        let fields = front_matter(&atom, case);
-        let decision = item.decision.as_ref().expect("only decided items render");
-        let summary = y_statement(&item);
-        let quoted = [
-            ("question", item.question.as_str()),
-            ("summary", summary.as_str()),
-            ("decider", decision.decider.as_str()),
-            ("decided_at", decision.ts.as_str()),
-            ("weighin_item", item.id.as_str()),
-            ("last_reviewed", ctx.date.as_str()),
-        ];
-        for (key, expected) in quoted {
-            assert_eq!(
-                string(&fields, key).as_deref(),
-                Some(expected),
-                "case {case}: {key}"
-            );
-        }
-        let sources: Vec<String> = item
-            .source_path
-            .iter()
-            .chain(&ctx.source_paths)
-            .cloned()
-            .collect();
+        rendered += 1;
         assert_eq!(
-            strings(&fields, "depends_on").as_ref(),
-            Some(&ctx.depends_on),
-            "case {case}: depends_on"
+            front_matter(&atom, case)?,
+            expected_decision(&generated, &ctx)?,
+            "case {case}: front matter"
         );
         assert_eq!(
-            strings(&fields, "source_paths"),
-            Some(sources),
-            "case {case}: source_paths"
-        );
-        assert_eq!(
-            render_decision(&item, &ctx).as_ref(),
+            render_decision(item, &ctx).as_ref(),
             Some(&atom),
             "case {case}: deterministic"
         );
     }
+    assert!(rendered > 0, "no case rendered a decision atom");
+    Ok(())
 }
 
 #[test]
-fn open_question_atoms_keep_their_front_matter_whatever_the_item_holds() {
+fn open_question_atoms_keep_their_front_matter_whatever_the_item_holds() -> TestResult {
+    let mut rendered = 0u32;
     for case in 0..CASES {
         let mut rng = Rng::new(0xa7_0002, case);
-        let item = item(&mut rng);
+        let generated = item(&mut rng)?;
+        let item = &generated.item;
         let ctx = context(&mut rng);
 
-        let Some(atom) = render_open_question(&item, &ctx) else {
+        let Some(atom) = render_open_question(item, &ctx) else {
             assert!(
                 item.deferral.is_none(),
                 "case {case}: deferred items render"
@@ -301,34 +456,18 @@ fn open_question_atoms_keep_their_front_matter_whatever_the_item_holds() {
             continue;
         };
 
-        let fields = front_matter(&atom, case);
-        let d = item.deferral.as_ref().expect("only deferred items render");
-        let quoted = [
-            ("title", item.question.as_str()),
-            ("tracks", item.id.as_str()),
-            ("trigger", d.trigger.as_str()),
-            ("resolve_by", d.resolve_by.as_str()),
-            ("owner", d.owner.as_str()),
-            ("flip_condition", d.flip.as_str()),
-            ("default_if_unresolved", d.default_option.as_str()),
-            ("last_reviewed", ctx.date.as_str()),
-        ];
-        for (key, expected) in quoted {
-            assert_eq!(
-                string(&fields, key).as_deref(),
-                Some(expected),
-                "case {case}: {key}"
-            );
-        }
+        rendered += 1;
         assert_eq!(
-            strings(&fields, "depends_on").as_ref(),
-            Some(&ctx.depends_on),
-            "case {case}: depends_on"
+            front_matter(&atom, case)?,
+            expected_open_question(&generated, &ctx)?,
+            "case {case}: front matter"
         );
         assert_eq!(
-            render_open_question(&item, &ctx).as_ref(),
+            render_open_question(item, &ctx).as_ref(),
             Some(&atom),
             "case {case}: deterministic"
         );
     }
+    assert!(rendered > 0, "no case rendered an open-question atom");
+    Ok(())
 }

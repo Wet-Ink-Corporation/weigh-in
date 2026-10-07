@@ -1,6 +1,6 @@
 //! Properties of `wi-` item ids, the normalised question and its key.
 
-use crate::support::{CASES, Rng, adversarial};
+use crate::support::{CASES, Rng, TestResult, adversarial};
 use std::collections::BTreeMap;
 use weighin_core::ItemId;
 use weighin_core::id::{DEFAULT_HEX_LEN, normalise_question, question_key};
@@ -11,7 +11,7 @@ fn is_lower_hex(s: &str) -> bool {
 }
 
 #[test]
-fn minted_ids_have_the_documented_shape_and_parse_back() {
+fn minted_ids_have_the_documented_shape_and_parse_back() -> TestResult {
     for case in 0..CASES {
         let mut rng = Rng::new(0x1d_0001, case);
         let session = adversarial(&mut rng, 6);
@@ -23,7 +23,7 @@ fn minted_ids_have_the_documented_shape_and_parse_back() {
         let hex = id
             .as_str()
             .strip_prefix("wi-")
-            .expect("every minted id starts with wi-");
+            .ok_or_else(|| format!("case {case}: {id} does not start with wi-"))?;
         assert_eq!(hex.len(), len.clamp(4, 16), "case {case}: hex length");
         assert!(is_lower_hex(hex), "case {case}: {id} is lowercase hex");
         assert_eq!(id.to_string(), id.as_str(), "case {case}: Display");
@@ -43,6 +43,7 @@ fn minted_ids_have_the_documented_shape_and_parse_back() {
             "case {case}: mint uses the default length"
         );
     }
+    Ok(())
 }
 
 #[test]

@@ -5,6 +5,10 @@
 /// Cases per property: enough to reach the odd corners, few enough to keep the suite fast.
 pub(crate) const CASES: u64 = 3000;
 
+/// What a property or fixture with fallible setup returns, so the setup propagates with `?`
+/// (TST-04). A property with no fallible step returns `()` (`clippy::unnecessary_wraps`).
+pub(crate) type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
 /// splitmix64 (Steele, Lea and Flood): tiny, fast and good enough to drive generators.
 #[derive(Debug, Clone)]
 pub(crate) struct Rng(u64);

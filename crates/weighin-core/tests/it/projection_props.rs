@@ -1,7 +1,7 @@
 //! Properties of the projection fold over generated event sequences: raises, every later event
 //! type, events for ids never raised, duplicate raises and positions out of order.
 
-use crate::support::{CASES, Rng, adversarial};
+use crate::support::{CASES, Rng, TestResult, adversarial};
 use std::collections::BTreeSet;
 use weighin_core::card::{Card, CardOption, Recommendation};
 use weighin_core::event::{
@@ -12,7 +12,7 @@ use weighin_core::event::{
 use weighin_core::id::question_key;
 use weighin_core::marker::{Authority, Door, Kind};
 use weighin_core::projection::Health;
-use weighin_core::{ItemId, Ledger, Status};
+use weighin_core::{Item, ItemId, Ledger, Status};
 
 const SESSIONS: &[Option<&str>] = &[Some("s1"), Some("s2"), Some("s3"), None];
 
@@ -122,25 +122,65 @@ fn dismissed(rng: &mut Rng, item_id: ItemId) -> LedgerEvent {
     })
 }
 
+/// The event types, so the hand-written sequences below can name them.
+#[derive(Debug, Clone, Copy)]
+enum Ev {
+    Raise,
+    Triage,
+    Ground,
+    Present,
+    Decide,
+    Defer,
+    Default,
+    Dismiss,
+    Reopen,
+    Supersede,
+    Link,
+    Record,
+    Ack,
+}
+
+const ALL_EVENTS: [Ev; 13] = [
+    Ev::Raise,
+    Ev::Triage,
+    Ev::Ground,
+    Ev::Present,
+    Ev::Decide,
+    Ev::Defer,
+    Ev::Default,
+    Ev::Dismiss,
+    Ev::Reopen,
+    Ev::Supersede,
+    Ev::Link,
+    Ev::Record,
+    Ev::Ack,
+];
+
 /// One event of any type about `item_id`.
 fn event(rng: &mut Rng, item_id: ItemId) -> LedgerEvent {
-    match rng.below(13) {
-        0 => raised(rng, item_id),
-        1 => triaged(rng, item_id),
-        2 => LedgerEvent::ItemGrounded(Grounded {
+    let ev = *rng.pick(&ALL_EVENTS);
+    make(rng, ev, item_id)
+}
+
+/// An event of type `ev` about `item_id`, its other fields generated.
+fn make(rng: &mut Rng, ev: Ev, item_id: ItemId) -> LedgerEvent {
+    match ev {
+        Ev::Raise => raised(rng, item_id),
+        Ev::Triage => triaged(rng, item_id),
+        Ev::Ground => LedgerEvent::ItemGrounded(Grounded {
             item_id,
             card: card(),
             reason: "grounded".to_owned(),
         }),
-        3 => LedgerEvent::ItemPresented(Presented {
+        Ev::Present => LedgerEvent::ItemPresented(Presented {
             item_id,
             surface: "chat".to_owned(),
             tree_hash: rng.one_in(2).then(|| "abc".to_owned()),
             reason: "shown".to_owned(),
         }),
-        4 => decided(rng, item_id),
-        5 => deferred(rng, item_id),
-        6 => LedgerEvent::ItemDefaulted(Defaulted {
+        Ev::Decide => decided(rng, item_id),
+        Ev::Defer => deferred(rng, item_id),
+        Ev::Default => LedgerEvent::ItemDefaulted(Defaulted {
             item_id,
             option: "A".to_owned(),
             cause: *rng.pick(&[
@@ -150,31 +190,31 @@ fn event(rng: &mut Rng, item_id: ItemId) -> LedgerEvent {
             ]),
             reason: "defaulted".to_owned(),
         }),
-        7 => dismissed(rng, item_id),
-        8 => LedgerEvent::ItemReopened(Reopened {
+        Ev::Dismiss => dismissed(rng, item_id),
+        Ev::Reopen => LedgerEvent::ItemReopened(Reopened {
             item_id,
             note: String::new(),
             reason: "reopened".to_owned(),
         }),
-        9 => LedgerEvent::ItemSuperseded(Superseded {
+        Ev::Supersede => LedgerEvent::ItemSuperseded(Superseded {
             item_id,
             by: adversarial(rng, 2),
             reason: "superseded".to_owned(),
         }),
-        10 => LedgerEvent::ItemLinked(Linked {
+        Ev::Link => LedgerEvent::ItemLinked(Linked {
             item_id,
             kind: (*rng.pick(&["raised-again", "commit", "pr"])).to_owned(),
             target: (*rng.pick(&["s1", "s2", "s4", "abc"])).to_owned(),
             reason: "linked".to_owned(),
         }),
-        11 => LedgerEvent::RecordWritten(RecordWritten {
+        Ev::Record => LedgerEvent::RecordWritten(RecordWritten {
             item_id,
             path: ".kb/x.md".to_owned(),
             atom_id: "kb-x".to_owned(),
             atom_kind: (*rng.pick(&["decision", "open_question"])).to_owned(),
             reason: "recorded".to_owned(),
         }),
-        _ => LedgerEvent::ItemAcknowledged(Acknowledged {
+        Ev::Ack => LedgerEvent::ItemAcknowledged(Acknowledged {
             item_id,
             reason: "seen".to_owned(),
         }),
@@ -326,37 +366,67 @@ fn queries_over_any_fold_are_total_and_consistent() {
     }
 }
 
-/// The status an item must have after `event`, from its status before and whether it had a card.
-fn expected_status(before: Status, had_card: bool, event: &LedgerEvent) -> Status {
-    match event {
-        LedgerEvent::ItemTriaged(_) if before.is_open() => before.max(Status::Triaged),
-        LedgerEvent::ItemGrounded(_) if before.is_open() => before.max(Status::Grounded),
-        LedgerEvent::ItemPresented(_) if before.is_open() && before != Status::Deferred => {
-            Status::Presented
-        }
-        // Raises of a known id, links, records and acknowledgements leave the status alone, and
-        // so do triage, grounding and presentation once the guards above have not matched.
-        LedgerEvent::ItemRaised(_)
-        | LedgerEvent::ItemLinked(_)
-        | LedgerEvent::RecordWritten(_)
-        | LedgerEvent::ItemAcknowledged(_)
-        | LedgerEvent::ItemTriaged(_)
-        | LedgerEvent::ItemGrounded(_)
-        | LedgerEvent::ItemPresented(_) => before,
-        LedgerEvent::ItemDecided(_) => Status::Decided,
-        LedgerEvent::ItemDeferred(_) => Status::Deferred,
-        LedgerEvent::ItemDefaulted(_) => Status::Defaulted,
-        LedgerEvent::ItemDismissed(_) => Status::Dismissed,
-        LedgerEvent::ItemSuperseded(_) => Status::Superseded,
-        LedgerEvent::ItemReopened(_) if had_card => Status::Grounded,
-        LedgerEvent::ItemReopened(_) => Status::Raised,
-    }
+/// Triage, grounding and presentation, written out per status from the lifecycle documented on
+/// `Status`. Each row is the status before; its columns are the status after triage, after
+/// grounding and after presentation. An open item moves forward to the event's own stage and
+/// never back; presenting shows any open item; a deferred item stays parked behind its deferral;
+/// a closed item (decided, defaulted, dismissed, superseded) is left alone.
+const PROGRESS: [(Status, [Status; 3]); 9] = [
+    (
+        Status::Raised,
+        [Status::Triaged, Status::Grounded, Status::Presented],
+    ),
+    (
+        Status::Triaged,
+        [Status::Triaged, Status::Grounded, Status::Presented],
+    ),
+    (
+        Status::Grounded,
+        [Status::Grounded, Status::Grounded, Status::Presented],
+    ),
+    (
+        Status::Presented,
+        [Status::Presented, Status::Presented, Status::Presented],
+    ),
+    (
+        Status::Deferred,
+        [Status::Deferred, Status::Deferred, Status::Deferred],
+    ),
+    (
+        Status::Decided,
+        [Status::Decided, Status::Decided, Status::Decided],
+    ),
+    (
+        Status::Defaulted,
+        [Status::Defaulted, Status::Defaulted, Status::Defaulted],
+    ),
+    (
+        Status::Dismissed,
+        [Status::Dismissed, Status::Dismissed, Status::Dismissed],
+    ),
+    (
+        Status::Superseded,
+        [Status::Superseded, Status::Superseded, Status::Superseded],
+    ),
+];
+
+/// One event folded onto an item that existed before it, as `walk` saw it.
+struct Step<'a> {
+    case: u64,
+    position: u64,
+    before: Status,
+    had_card: bool,
+    last_before: u64,
+    reopened_before: u32,
+    event: &'a LedgerEvent,
+    after: &'a Item,
 }
 
-#[test]
-fn each_event_moves_the_status_as_documented() {
+/// Fold generated sequences one event at a time and hand `check` every event that lands on an
+/// item raised earlier. A first raise must create a raised item, and no item ever disappears.
+fn walk(seed: u64, mut check: impl FnMut(&Step<'_>)) -> TestResult {
     for case in 0..CASES {
-        let mut rng = Rng::new(0x9e_0003, case);
+        let mut rng = Rng::new(seed, case);
         let events = events(&mut rng);
         let mut ledger = Ledger::default();
 
@@ -364,46 +434,265 @@ fn each_event_moves_the_status_as_documented() {
             let id = env.event.item_id();
             let before = ledger
                 .get(id)
-                .map(|i| (i.status, i.card.is_some(), i.last_position));
+                .map(|i| (i.status, i.card.is_some(), i.last_position, i.reopened));
             ledger.apply(position, env);
-            let Some(item) = ledger.get(id) else {
-                assert!(before.is_none(), "case {case}: an item never disappears");
-                continue;
-            };
-            let Some((status, had_card, last)) = before else {
-                assert_eq!(item.status, Status::Raised, "case {case}: a first raise");
-                assert_eq!(item.raised_position, position, "case {case}: raised at");
-                continue;
-            };
-            let what = env.event.event_type();
-            assert_eq!(
-                item.status,
-                expected_status(status, had_card, &env.event),
-                "case {case}: {what} at {position} from {status:?}"
-            );
-            let expected_last = if what == "item_raised" {
-                last
-            } else {
-                position
-            };
-            assert_eq!(
-                item.last_position, expected_last,
-                "case {case}: {what} last position"
-            );
-            if matches!(env.event, LedgerEvent::ItemReopened(_)) {
-                assert_eq!(
-                    (
-                        &item.decision,
-                        &item.default,
-                        &item.dismissed,
-                        &item.deferral
-                    ),
-                    (&None, &None, &None, &None),
-                    "case {case}: reopen clears the outcome"
-                );
+            match (before, ledger.get(id)) {
+                // An orphan: the fold property above counts these.
+                (None, None) => {}
+                (Some(_), None) => {
+                    return Err(format!("case {case}: {id} disappeared at {position}").into());
+                }
+                (None, Some(item)) => {
+                    assert_eq!(item.status, Status::Raised, "case {case}: a first raise");
+                    assert_eq!(item.raised_position, position, "case {case}: raised at");
+                }
+                (Some((before, had_card, last_before, reopened_before)), Some(after)) => {
+                    check(&Step {
+                        case,
+                        position,
+                        before,
+                        had_card,
+                        last_before,
+                        reopened_before,
+                        event: &env.event,
+                        after,
+                    });
+                }
             }
         }
     }
+    Ok(())
+}
+
+#[test]
+fn bookkeeping_events_never_move_the_status() -> TestResult {
+    let mut seen = 0u32;
+
+    walk(0x9e_0003, |s| {
+        if matches!(
+            s.event,
+            LedgerEvent::ItemRaised(_)
+                | LedgerEvent::ItemLinked(_)
+                | LedgerEvent::RecordWritten(_)
+                | LedgerEvent::ItemAcknowledged(_)
+        ) {
+            seen += 1;
+            assert_eq!(
+                s.after.status,
+                s.before,
+                "case {}: {} at {}",
+                s.case,
+                s.event.event_type(),
+                s.position
+            );
+        }
+    })?;
+
+    assert!(seen > 0, "the walk reached no bookkeeping event");
+    Ok(())
+}
+
+#[test]
+fn an_outcome_sets_its_own_status_from_any_status() -> TestResult {
+    let mut from = BTreeSet::new();
+
+    walk(0x9e_0005, |s| {
+        let expected = match s.event {
+            LedgerEvent::ItemDecided(_) => Status::Decided,
+            LedgerEvent::ItemDeferred(_) => Status::Deferred,
+            LedgerEvent::ItemDefaulted(_) => Status::Defaulted,
+            LedgerEvent::ItemDismissed(_) => Status::Dismissed,
+            LedgerEvent::ItemSuperseded(_) => Status::Superseded,
+            _ => return,
+        };
+        from.insert(s.before);
+        assert_eq!(
+            s.after.status,
+            expected,
+            "case {}: {} at {} from {:?}",
+            s.case,
+            s.event.event_type(),
+            s.position,
+            s.before
+        );
+    })?;
+
+    assert_eq!(from.len(), 9, "outcomes were folded from every status");
+    Ok(())
+}
+
+#[test]
+fn triage_grounding_and_presentation_follow_the_lifecycle_table() -> TestResult {
+    let mut cells = BTreeSet::new();
+
+    walk(0x9e_0006, |s| {
+        let column = match s.event {
+            LedgerEvent::ItemTriaged(_) => 0,
+            LedgerEvent::ItemGrounded(_) => 1,
+            LedgerEvent::ItemPresented(_) => 2,
+            _ => return,
+        };
+        cells.insert((s.before, column));
+        let expected = PROGRESS
+            .iter()
+            .find(|(before, _)| *before == s.before)
+            .and_then(|(_, row)| row.get(column));
+        assert_eq!(
+            Some(&s.after.status),
+            expected,
+            "case {}: {} at {} from {:?}",
+            s.case,
+            s.event.event_type(),
+            s.position,
+            s.before
+        );
+    })?;
+
+    assert_eq!(cells.len(), 27, "every cell of the table was exercised");
+    Ok(())
+}
+
+#[test]
+fn reopening_returns_to_raised_or_grounded_and_clears_the_outcome() -> TestResult {
+    let mut with_card = BTreeSet::new();
+
+    walk(0x9e_0007, |s| {
+        if !matches!(s.event, LedgerEvent::ItemReopened(_)) {
+            return;
+        }
+        with_card.insert(s.had_card);
+        let item = s.after;
+        let expected = if s.had_card {
+            Status::Grounded
+        } else {
+            Status::Raised
+        };
+        assert_eq!(item.status, expected, "case {}: at {}", s.case, s.position);
+        assert_eq!(
+            (
+                &item.decision,
+                &item.default,
+                &item.dismissed,
+                &item.deferral
+            ),
+            (&None, &None, &None, &None),
+            "case {}: reopen clears the outcome",
+            s.case
+        );
+        assert_eq!(
+            item.reopened,
+            s.reopened_before + 1,
+            "case {}: reopen count",
+            s.case
+        );
+    })?;
+
+    assert_eq!(with_card.len(), 2, "reopened both with and without a card");
+    Ok(())
+}
+
+#[test]
+fn every_event_but_a_raise_moves_the_last_position() -> TestResult {
+    walk(0x9e_0008, |s| {
+        let expected = if matches!(s.event, LedgerEvent::ItemRaised(_)) {
+            s.last_before
+        } else {
+            s.position
+        };
+        assert_eq!(
+            s.after.last_position,
+            expected,
+            "case {}: {} last position",
+            s.case,
+            s.event.event_type()
+        );
+    })
+}
+
+/// The status after each event of `sequence`, folded onto one item from position 1.
+fn statuses(sequence: &[Ev]) -> TestResult<Vec<Status>> {
+    let mut rng = Rng::new(0x9e_00ff, 0);
+    let id = ItemId::mint("s1", "Use Postgres?");
+    let mut ledger = Ledger::default();
+    (1u64..)
+        .zip(sequence)
+        .map(|(position, ev)| {
+            let env = EventEnvelope {
+                event: make(&mut rng, *ev, id.clone()),
+                actor: "test".to_owned(),
+                session_id: Some("s1".to_owned()),
+                worktree: None,
+                branch: None,
+                head: None,
+                ts: format!("t{position}"),
+            };
+            ledger.apply(position, &env);
+            let item = ledger
+                .get(&id)
+                .ok_or_else(|| format!("{ev:?} at {position}: no item"))?;
+            Ok(item.status)
+        })
+        .collect()
+}
+
+#[test]
+fn hand_written_sequences_reach_the_documented_statuses() -> TestResult {
+    use Ev::{
+        Ack, Decide, Default, Defer, Dismiss, Ground, Link, Present, Raise, Record, Reopen,
+        Supersede, Triage,
+    };
+    use Status::{
+        Decided, Defaulted, Deferred, Dismissed, Grounded, Presented, Raised, Superseded, Triaged,
+    };
+    let cases: [(&str, &[Ev], &[Status]); 8] = [
+        (
+            "the happy path",
+            &[Raise, Triage, Ground, Present, Decide],
+            &[Raised, Triaged, Grounded, Presented, Decided],
+        ),
+        (
+            "a late triage does not move a grounded item back",
+            &[Raise, Ground, Triage, Link, Ack, Record],
+            &[Raised, Grounded, Grounded, Grounded, Grounded, Grounded],
+        ),
+        (
+            "a deferred item stays parked",
+            &[Raise, Present, Defer, Present, Triage, Ground],
+            &[Raised, Presented, Deferred, Deferred, Deferred, Deferred],
+        ),
+        (
+            "a dismissed item ignores progress, and its card decides the reopen",
+            &[Raise, Dismiss, Triage, Ground, Present, Reopen],
+            &[Raised, Dismissed, Dismissed, Dismissed, Dismissed, Grounded],
+        ),
+        (
+            "reopening a decision without a card starts over",
+            &[Raise, Triage, Decide, Reopen, Present],
+            &[Raised, Triaged, Decided, Raised, Presented],
+        ),
+        (
+            "defaults and supersessions reopen too",
+            &[Raise, Default, Ack, Reopen, Ground, Supersede, Reopen],
+            &[
+                Raised, Defaulted, Defaulted, Raised, Grounded, Superseded, Grounded,
+            ],
+        ),
+        (
+            "a later outcome replaces an earlier one",
+            &[Raise, Decide, Dismiss],
+            &[Raised, Decided, Dismissed],
+        ),
+        (
+            "a second raise changes nothing and a deferral can be decided",
+            &[Raise, Raise, Defer, Decide],
+            &[Raised, Raised, Deferred, Decided],
+        ),
+    ];
+
+    for (name, sequence, expected) in cases {
+        assert_eq!(statuses(sequence)?, expected, "{name}");
+    }
+    Ok(())
 }
 
 #[test]
