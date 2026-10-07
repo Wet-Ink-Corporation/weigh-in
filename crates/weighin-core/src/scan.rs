@@ -206,17 +206,9 @@ pub fn scan_todos(text: &str) -> Vec<Candidate> {
         if line.contains("→ Weigh-In") {
             continue;
         }
-        let Some(comment) = comment_start(line)
-            .and_then(|pos| line.get(pos..))
-            .map(up_to_closer)
-        else {
+        let Some((comment, tag_tail)) = flagged_comment(line) else {
             continue;
         };
-        // Uppercasing ASCII keeps byte offsets, so an offset found in `upper` is valid in `comment`.
-        let tag_tail = tag_offset(&comment.to_ascii_uppercase()).and_then(|p| comment.get(p..));
-        if tag_tail.is_none() && !has_prose_hint(comment) {
-            continue;
-        }
         let body = tag_tail.map_or(comment, after_tag_and_owner);
         let body = clean(body.trim_start_matches(['/', '#', '*', '-', ' ', '<', '!']));
         if body.len() < 4 {
@@ -275,14 +267,33 @@ fn after_tag_and_owner(tail: &str) -> &str {
     after_owner.trim_start_matches([':', ' ', '-'])
 }
 
-/// Byte offset where a comment starts in `line`. A `*` (a wrapped block comment) or a `'` (a
-/// VB-style comment) counts only at the start of the line: mid-line they are multiplication,
-/// string quotes or contractions.
-fn comment_start(line: &str) -> Option<usize> {
+/// The first comment in `line` that carries a tag or a prose hint, with the text from its tag on
+/// when it has one. A block comment that closes without either (`/* verbose */`) does not hide a
+/// later comment on the same line.
+fn flagged_comment(line: &str) -> Option<(&str, Option<&str>)> {
+    let mut from = 0;
+    loop {
+        let start = comment_start(line, from)?;
+        let (comment, after) = up_to_closer(line.get(start..)?);
+        // Uppercasing ASCII keeps byte offsets, so an offset found in `upper` is valid in `comment`.
+        let tag_tail = tag_offset(&comment.to_ascii_uppercase()).and_then(|p| comment.get(p..));
+        if tag_tail.is_some() || has_prose_hint(comment) {
+            return Some((comment, tag_tail));
+        }
+        // `after` is a suffix of `line`, and empty once the comment runs to the end of it.
+        from = line.len().checked_sub(after?.len())?;
+    }
+}
+
+/// Byte offset where a comment starts in `line`, at or after `from`. A `*` (a wrapped block
+/// comment) or a `'` (a VB-style comment) counts only at the start of the line: mid-line they are
+/// multiplication, string quotes or contractions.
+fn comment_start(line: &str, from: usize) -> Option<usize> {
+    let tail = line.get(from..)?;
     ["//", "#", "--", "/*", "<!--", "*", "'", "REM "]
         .iter()
         .filter_map(|m| {
-            line.find(m).filter(|&p| {
+            tail.find(m).map(|p| from + p).filter(|&p| {
                 !matches!(*m, "*" | "'") || line.get(..p).is_some_and(|s| s.trim().is_empty())
             })
         })
@@ -290,8 +301,9 @@ fn comment_start(line: &str) -> Option<usize> {
 }
 
 /// `comment` up to the closer of its block comment (`*/`, `-->`), so code after a comment that
-/// closes on the same line is not read as part of it. Line comments are returned whole.
-fn up_to_closer(comment: &str) -> &str {
+/// closes on the same line is not read as part of it, and the text after that closer. Line
+/// comments, and block comments left open, are returned whole with nothing after them.
+fn up_to_closer(comment: &str) -> (&str, Option<&str>) {
     let (opener, closer) = if comment.starts_with("<!--") {
         ("<!--", "-->")
     } else if comment.starts_with("/*") {
@@ -299,13 +311,14 @@ fn up_to_closer(comment: &str) -> &str {
     } else if comment.starts_with('*') {
         ("*", "*/")
     } else {
-        return comment;
+        return (comment, None);
     };
     comment
         .get(opener.len()..)
         .and_then(|inside| inside.find(closer))
-        .and_then(|p| comment.get(..opener.len() + p))
-        .unwrap_or(comment)
+        .map(|p| opener.len() + p)
+        .and_then(|end| Some((comment.get(..end)?, comment.get(end + closer.len()..)?)))
+        .map_or((comment, None), |(cut, after)| (cut, Some(after)))
 }
 
 fn clean(s: &str) -> String {
@@ -481,6 +494,20 @@ mod tests {
         assert_eq!(
             c[0].question, "map a --> b */ c",
             "line comments have no closer"
+        );
+    }
+
+    #[test]
+    fn a_tag_after_a_closed_block_comment_is_still_found() {
+        let c = scan_todos("    call(/* verbose */ false); // TODO: make configurable\n");
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].question, "make configurable");
+        let c = scan_todos("<!-- nav --> <a/> <!-- TODO: pick -->\n");
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].question, "pick");
+        assert!(
+            scan_todos("/* a */ x = b * TODO;\n").is_empty(),
+            "a mid-line star after a closed comment is not a comment"
         );
     }
 
