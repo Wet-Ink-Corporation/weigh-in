@@ -5,7 +5,8 @@ use crate::support::{
     LAUNCHER_LIMIT, MESSAGE, Run, annotate_scanned_and_rescan, bin, capture_both_markers,
     context_pack_for, hook, in_a_folder_with_no_ledger, isolated_launcher,
     items_seen_from_a_worktree, launcher_target, reopen_default_from_the_board, run_within,
-    scan_one, scan_written_plan, settle_crlf_question, setup, sit_and_decide, weighin, weighin_env,
+    scan_one, scan_written_plan, settle_crlf_question, setup, sit_and_decide, stamped_date,
+    weighin, weighin_env,
 };
 use serde_json::{Value, json};
 use std::io::Write as _;
@@ -1007,11 +1008,7 @@ fn deciding_a_c_block_comment_todo_changes_only_the_comment() {
 
     assert!(ok && out.contains("annotated src/a.c"), "{out}");
     let after = std::fs::read_to_string(repo.join("src/a.c")).unwrap();
-    let today = after
-        .split(&format!("{id}: decided 4096 ("))
-        .nth(1)
-        .and_then(|rest| rest.get(..10))
-        .unwrap();
+    let today = stamped_date(&after, &id, "4096");
     assert_eq!(
         after,
         format!(

@@ -8,20 +8,24 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 - Deciding an item raised from a source comment writes `→ Weigh-In …` only inside the line's
   last comment: before the closer of a `/* … */` or `<!-- … -->` that ends the line, at the end
-  of a line comment as before, whatever that comment holds. Comment markers inside a string
-  literal do not count, and `#`, `--` and `REM` open a comment only at the start of the line or
-  after a space, and not right before a word, `[` or `!`, so `r#"…"#`, `x--`, `#define` and
-  `#[derive]` stay code; a `'` that does not close on the line opens a comment only when no other
-  comment marker follows it, so a lifetime such as `'static` stays code. A line
-  where code follows its last comment, a line with no comment or only a marker inside a string,
-  or an option holding a line break (U+2028 and U+2029 included), a control character, `*/` or
-  `-->` (or `/*` inside a
-  `/* … */`, `--` inside a `<!-- … -->`) is left as it was, and the receipt says
-  `not annotated <file> (<reason>)`; before, the arrow went at the end of the line and could
-  break the code. Markdown and plain-text files (`.txt`, `.rst`, `.org`, `.adoc`) still get the
-  arrow at the end of the line. The reading is per line, so a line inside a string or comment
-  opened on an earlier line can still be misread, and a comment glued to its marker (`#TODO`) is
-  left as it was.
+  of a line comment as before. Comment markers inside a string literal do not count, a `/*` glued
+  to a word (`build/**/*.o`) opens no comment, and `#` and `--` open a comment only at the start
+  of the line or after a space, and not right before a word, `[` or `!`, so `r#"…"#`, `x--`,
+  `#define` and `#[derive]` stay code; `REM ` opens one at the start of the line or after a
+  space; a `'` that does not close on the line opens a comment only when no other comment marker
+  follows it, so a lifetime such as `'static` stays code. Since `//`, `#` and `--` can still be
+  code (`url(http://…)`, Python's `a // b`, `#  define`, `i --`), the rest of the line after one
+  is also read as code, and the arrow goes only where both readings keep it in a comment: before
+  the closer of a block comment that ends the line, or at the end of the line. A line where code
+  follows its last comment, a line with no comment or only a marker inside a string, a line
+  comment whose text, read as code, holds a marker inside quotes or closes a block comment
+  before more text, or an option holding a line break (U+2028 and U+2029 included), a control
+  character, `*/` or `-->` (or `/*` inside a `/* … */`, `--` inside a `<!-- … -->`) is left as
+  it was, and the receipt says `not annotated <file> (<reason>)`; before, the arrow went at the
+  end of the line and could break the code. Markdown and plain-text files (`.txt`, `.rst`,
+  `.org`, `.adoc`) still get the arrow at the end of the line. The reading is per line, not a
+  parser: a line inside a string or comment opened on an earlier line can still be misread, and
+  a comment glued to its marker (`#TODO`) is left as it was.
 - In `batch`, `@N` always names the Nth raise in the array. A raise that fails, or cannot be
   parsed, keeps its place: a ref to it is refused, and later refs still reach their own items;
   before, every later ref moved to the next item raised, so an op could act on the wrong item.

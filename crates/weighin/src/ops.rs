@@ -891,7 +891,8 @@ impl<'a> Session<'a> {
             None => return Ok(None),
             Some(Some(skip)) => Annotation::Skipped(src.clone(), skip),
             Some(None) => {
-                std::fs::write(&path, joined)?;
+                std::fs::write(&path, joined)
+                    .with_context(|| format!("writing {}", path.display()))?;
                 Annotation::Written(src.clone())
             }
         };
