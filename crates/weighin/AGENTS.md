@@ -30,7 +30,7 @@ None. This is a binary crate; its modules are private (`annotate`, `context`, `e
 `anyhow` throughout, with `Context` on I/O, store and git failures. Domain rejections from `weighin-core` (`CardError`, `AnswerError`) are reported to the caller as they are. Exit codes: 0 on success; any error prints `weighin: <error chain>` to stderr and exits 1, except a closed stdout (`weighin open | head`): a broken pipe on stdout, anywhere in the chain, exits 0 with nothing on stderr (a command that changes the ledger still applies every operation first, and only its receipts stop), while a broken pipe on stderr or elsewhere is an error like any other; `weighin hook` always exits 0, even on a panic, and logs its own output failures to `hook-errors.log`, and its input and parse failures there only inside a git repository; outside git those leave no trace, and in Cowork hooks write nothing (`main.rs`, `hooks.rs`).
 
 ## Test strategy
-Unit tests sit beside the code in `annotate`, `env`, `store`, `context`, `git`, `hooks`, `ops`, `text` and `main`; the ones that spawn processes or open SQLite carry `#[cfg_attr(miri, ignore = "...")]`. End-to-end tests in `tests/it/cli.rs` cover:
+Unit tests sit beside the code in `annotate`, `env`, `store`, `context`, `git`, `hooks`, `ops`, `text` and `main`; the ones that spawn processes or open SQLite carry `#[cfg_attr(miri, ignore = "...")]`. End-to-end tests in `tests/it/cli.rs` (and the source write-back in `tests/it/annotate.rs`) cover:
 - a scratch repository;
 - hooks fed the JSON Claude Code sends;
 - a linked worktree;

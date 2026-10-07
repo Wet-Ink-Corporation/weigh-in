@@ -852,11 +852,7 @@ impl<'a> Session<'a> {
         if first.is_empty() {
             return Ok(None);
         }
-        let syntax = if is_markdown(src) {
-            Syntax::Markdown
-        } else {
-            Syntax::Code
-        };
+        let syntax = syntax_of(src);
         let note = format!("→ Weigh-In {id}: decided {option} ({})", self.today);
         // Rebuild with each line's own terminator so a CRLF file stays CRLF. `found` is the
         // outcome on the question's line: `None` until it is found, then the skip, if any.
@@ -899,7 +895,7 @@ struct Settled<'a> {
 }
 
 /// `text`, an open-question atom, rewritten as superseded by the decision `s`: `.kb`'s
-/// `status: superseded` with `superseded_by`, a settled summary and a Resolution section. `None`
+/// `status: superseded` with `superseded_by` and `resolution_ref`, a settled summary and a Resolution section. `None`
 /// when `text` is not an open one (no `status: proposed` in its frontmatter).
 fn superseded_open_question(text: &str, s: &Settled<'_>) -> Result<Option<String>> {
     let Some((front, body)) = text
@@ -923,6 +919,8 @@ fn superseded_open_question(text: &str, s: &Settled<'_>) -> Result<Option<String
         if line == "status: proposed" {
             writeln!(out, "status: superseded")?;
             writeln!(out, "superseded_by: {}", yaml(s.decision_atom)?)?;
+            // The key the design and redkiln's `.kb` schema name for an open question's answer.
+            writeln!(out, "resolution_ref: {}", yaml(s.decision_atom)?)?;
             continue;
         }
         match line.split_once(':').map(|(key, _)| key) {
@@ -957,6 +955,25 @@ pub(crate) fn is_markdown(rel: &str) -> bool {
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "md" | "mdx" | "markdown"))
+}
+
+/// How `rel` reads when a decision is written back into it: markdown and plain-text formats
+/// (`.txt`, `.text`, `.rst`, `.org`, `.adoc`, `.asciidoc`) are prose; anything else is code.
+fn syntax_of(rel: &str) -> Syntax {
+    let prose_text = Path::new(rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| {
+            matches!(
+                e.to_ascii_lowercase().as_str(),
+                "txt" | "text" | "rst" | "org" | "adoc" | "asciidoc"
+            )
+        });
+    if prose_text || is_markdown(rel) {
+        Syntax::Prose
+    } else {
+        Syntax::Code
+    }
 }
 
 fn render_ctx(today: &str) -> RenderContext {
@@ -1455,10 +1472,39 @@ mod tests {
         assert_eq!(
             atom,
             format!(
-                "---\nid: \"kb-open-question-{id}\"\ntitle: \"{ONE_WAY}\"\nkind: open_question\nstatus: superseded\nsuperseded_by: \"kb-decision-{id}\"\nauthority_tier: note\nsummary: \"Settled on 2026-10-07: decided B (kb-decision-{id}).\"\ndepends_on: []\nrelated: []\nsource_paths: []\nlast_reviewed: \"2026-10-07\"\ntracks: \"{id}\"\nresolve_by: \"2026-12-01\"\ntrigger: \"the tenant survey\"\ndefault_if_unresolved: \"A\"\nowner: \"ryan\"\nflip_condition: \"a tenant asks\"\n---\n\n# {ONE_WAY}\n\nDeferred on purpose. Waiting for: the tenant survey. Resolve by: 2026-12-01. If nobody acts, **A** applies.\n\n## Resolution\n\nSettled on 2026-10-07: decided **B**, recorded in `kb-decision-{id}`. The deferral above no longer applies.\n"
+                "---\nid: \"kb-open-question-{id}\"\ntitle: \"{ONE_WAY}\"\nkind: open_question\nstatus: superseded\nsuperseded_by: \"kb-decision-{id}\"\nresolution_ref: \"kb-decision-{id}\"\nauthority_tier: note\nsummary: \"Settled on 2026-10-07: decided B (kb-decision-{id}).\"\ndepends_on: []\nrelated: []\nsource_paths: []\nlast_reviewed: \"2026-10-07\"\ntracks: \"{id}\"\nresolve_by: \"2026-12-01\"\ntrigger: \"the tenant survey\"\ndefault_if_unresolved: \"A\"\nowner: \"ryan\"\nflip_condition: \"a tenant asks\"\n---\n\n# {ONE_WAY}\n\nDeferred on purpose. Waiting for: the tenant survey. Resolve by: 2026-12-01. If nobody acts, **A** applies.\n\n## Resolution\n\nSettled on 2026-10-07: decided **B**, recorded in `kb-decision-{id}`. The deferral above no longer applies.\n"
             )
         );
         Ok(())
+    }
+
+    #[test]
+    fn plain_text_and_markdown_are_annotated_as_prose_and_the_rest_as_code() {
+        let read: Vec<(&str, Syntax)> = [
+            "notes.txt",
+            "doc/guide.RST",
+            "plan.org",
+            "a.adoc",
+            "spec.md",
+            "src/c.js",
+            "Makefile",
+        ]
+        .into_iter()
+        .map(|p| (p, syntax_of(p)))
+        .collect();
+
+        assert_eq!(
+            read,
+            [
+                ("notes.txt", Syntax::Prose),
+                ("doc/guide.RST", Syntax::Prose),
+                ("plan.org", Syntax::Prose),
+                ("a.adoc", Syntax::Prose),
+                ("spec.md", Syntax::Prose),
+                ("src/c.js", Syntax::Code),
+                ("Makefile", Syntax::Code),
+            ]
+        );
     }
 
     #[test]

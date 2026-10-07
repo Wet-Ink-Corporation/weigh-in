@@ -6,12 +6,15 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
-- Deciding an item raised from a source comment writes `→ Weigh-In …` only inside the comment:
-  before the closer of a one-line `/* … */` or `<!-- … -->`, at the end of a line comment as
-  before. A line where code follows the comment, a line with no comment, or an option holding a
-  line break, a control character, `*/` or `-->` is left as it was, and the receipt says
-  `not annotated <file> (<reason>)`; before, the arrow went at the end of the line and could
-  break the code.
+- Deciding an item raised from a source comment writes `→ Weigh-In …` only inside the line's
+  last comment: before the closer of a `/* … */` or `<!-- … -->` that ends the line, at the end
+  of a line comment as before. Comment markers inside a string literal do not count. A line where
+  code follows its last comment, a line with no comment or only a marker inside a string, or an
+  option holding a line break, a control character, `*/` or `-->` is left as it was, and the
+  receipt says `not annotated <file> (<reason>)`; before, the arrow went at the end of the line
+  and could break the code. Markdown and plain-text files (`.txt`, `.rst`, `.org`, `.adoc`) still
+  get the arrow at the end of the line. The reading is per line, so a line inside a string or
+  comment opened on an earlier line can still be misread.
 - In `batch`, `@N` always names the Nth raise in the array. A raise that fails, or cannot be
   parsed, keeps its place: a ref to it is refused, and later refs still reach their own items;
   before, every later ref moved to the next item raised, so an op could act on the wrong item.
@@ -25,7 +28,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   `dismiss` or `reopen` that names no item, an empty `batch`, or `board apply` with no answers no
   longer leaves an empty ledger in a folder that had none (B-01).
 - Deciding a deferred one-way item now closes its tracking atom in
-  `.kb/_intake/open_questions/`: `status: superseded`, `superseded_by` naming the decision atom,
+  `.kb/_intake/open_questions/`: `status: superseded`, `superseded_by` and `resolution_ref`
+  naming the decision atom,
   a settled summary and a Resolution section, and the receipt says `superseded <path>`; before, it
   stayed `status: proposed` and read as still open.
 - `weighin context` and `open --with-context` no longer panic on an item whose `at:` line number
@@ -33,6 +37,7 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - `board apply <dir>` and the `.kb` matches in context packs no longer follow symlinked
   directories, so a link back up the tree no longer reads the same answers many times over or
   hangs the command.
+
 ## 0.5.4 — 2026-10-06
 
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development

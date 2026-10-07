@@ -240,6 +240,15 @@ pub(crate) fn scan_one(repo: &Path, file: &str) -> String {
     out.split_whitespace().nth(1).unwrap().to_owned()
 }
 
+/// The date `decide` stamped on `id`'s arrow in `text`.
+pub(crate) fn stamped_date(text: &str, id: &str, option: &str) -> String {
+    text.split(&format!("{id}: decided {option} ("))
+        .nth(1)
+        .and_then(|rest| rest.get(..10))
+        .expect("the file holds the arrow")
+        .to_owned()
+}
+
 /// Settles the CRLF question in `docs/spec.md` and returns its id.
 pub(crate) fn settle_crlf_question(repo: &Path) -> String {
     let spec = "# Spec\r\n\r\n## Open questions\r\n- Keep the queue durable?\r\n";
