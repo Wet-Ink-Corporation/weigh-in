@@ -392,7 +392,8 @@ impl<'a> Session<'a> {
         Ok(outcome)
     }
 
-    /// [`Session::raise`] up to the item's existing: its acted-call default is the caller's.
+    /// Raise `input` without the acted-call default [`Session::raise`] then writes, so a caller
+    /// can note the new id before that second write.
     fn raise_item(&mut self, input: &RaiseInput) -> Result<RaiseOutcome> {
         let q = input.q.trim();
         if q.is_empty() {
