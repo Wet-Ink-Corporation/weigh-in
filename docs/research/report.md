@@ -611,8 +611,8 @@ the exit criteria below are pending. The decision records in
   `main`, and decision atoms pass Redkiln's `validate --kb`.
 - The Artifact board with a `db` store, export and apply. From 0.5.1 it carries at most the
   newest 200 unacknowledged defaults, so its state stays under the store's document limit.
-- The eval seed: 60 real end-of-turn messages, 15 labelled `capture`, 9 captured. Precision is
-  9 of 9; recall is 1 of 7 before 0.5.2's one-block-per-call line and 8 of 8 after it.
+- The eval seed: 70 real end-of-turn messages, 19 labelled `capture`, 12 captured. Precision is
+  12 of 12; recall is 1 of 7 before 0.5.2's one-block-per-call line and 11 of 12 after it.
 
 **What changed against the design.**
 
@@ -658,8 +658,8 @@ into v1 only if the not-useful rate exceeds 10%
 
 - Action rate at least 60%, not-useful at most 10%: no week of stats yet; week 1 is due on or
   after 2026-10-12 ([#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23)).
-- Marker capture precision at least 80%: 9 of 9 so far, but the bar counts at 10 captured items
-  (wi-a9df17), and the labels await Ryan's review ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)).
+- Marker capture precision at least 80%: 12 of 12 on 70 items, so the bar is in force
+  (wi-a9df17); the labels await Ryan's review ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)).
 - No "pending" item reported as "done", and one sitting that returns "no decisions need you":
   measured over the two weeks of use.
 - Every V-item closed or deferred by a decision: V1, the Cowork half of V6 and V7's last check
