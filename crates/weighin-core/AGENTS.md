@@ -27,7 +27,7 @@ The modules `atom`, `board`, `card`, `event`, `id`, `marker`, `projection` and `
 - There are no infrastructure failures in this crate, because it has no I/O.
 
 ## Test strategy
-Unit tests sit beside the code in each module: id, marker, scan, card, atom, projection and event. There is no `tests/` directory. Run with `cargo test -p weighin-core`.
+Unit tests sit beside the code in each module: id, marker, scan, card, atom, board, projection and event, and the public docs carry doctests. There is no `tests/` directory. Run with `cargo test -p weighin-core`.
 
 ## Do not
 - Add I/O, a clock read or an environment read. Those belong in `weighin` (the "no I/O" rule in `lib.rs`).

@@ -40,8 +40,9 @@ the session; your files are on your computer, behind its shell. So in Cowork:
   worked in. With public releases, it downloads the Linux binary of its own release from
   GitHub on first use in a chat, into the shell's per-chat scratch space (outside every
   connected folder), and checks it against the SHA-256 stamped into the skill. Otherwise, and
-  while this repository is internal, it uses the copy in a connected folder holding this
-  repository (`plugin/libexec/`); failing both, it settles in chat and hands you Y-statements.
+  while this repository is internal, it uses the copy in a connected folder holding a checkout
+  of the `marketplace` branch (`plugin/libexec/`, [install](docs/install.md#cowork)); a checkout
+  of `main` has no binaries (B-18). Failing both, it settles in chat and hands you Y-statements.
 - Hooks write nothing (`CLAUDE_CODE_ENTRYPOINT=remote_cowork`): `SessionStart` still teaches the
   marker convention and `Stop` still nudges on one-way markers. Edits to your folder go through
   the computer's shell, so `PostToolUse` never sees them; the sitting scans the files the
@@ -88,37 +89,50 @@ in Claude Code; if you then see `/weigh-in` twice, remove one of the two install
 
 ## Releasing
 
-Bump `version` in `Cargo.toml` and `plugin/.claude-plugin/plugin.json`, commit to `main`, then
-push the tag `v<version>`; push only the tag, since the workflow creates the GitHub release and
-stops if one already exists. The release workflow tests, builds the Linux (musl), Windows (msvc)
-and macOS binaries, packages the plugin with its skill stamped to that Linux build's SHA-256,
-publishes the release with the zip, the raw binaries and `SHA256SUMS`, and then replaces the
-`marketplace` branch with one commit holding that zip's plugin and `marketplace.json`, which
-Claude Code installs from (D-0009, `scripts/marketplace-branch.sh`), and pushes the same commit
-to the default branch of `Wet-Ink-Corporation/weigh-in-plugin` for the organization sync (B-19).
-The zip and the Linux binary must come from the same build, which is why the release is made only there;
-`scripts/package-plugin.sh` run locally gives a zip that matches only a local build. The
-download needs public release assets: while the repository is internal the workflow packages
-with `--no-download`, and so should a local build (`scripts/package-plugin.sh --no-download`);
-the skill then uses the binary in a connected folder holding this repository.
+Bump `version` in `Cargo.toml` and `plugin/.claude-plugin/plugin.json`, move `## Unreleased` in
+`CHANGELOG.md` to the new version, merge to `main`, then push the tag `v<version>`. Push only the
+tag: the workflow creates the GitHub release itself, refuses a tag that is not on `main` or has no
+changelog entry, and a rerun updates the release it made. The release workflow tests, builds the
+Linux (musl), Windows (msvc) and macOS binaries, packages the plugin with its skill stamped to that
+Linux build's SHA-256, publishes the release with the zip, the raw binaries and `SHA256SUMS`, and
+then replaces the `marketplace` branch with one commit holding that zip's plugin and
+`marketplace.json`, which Claude Code installs from (D-0009, `scripts/marketplace-branch.sh`), and
+pushes the same commit to the default branch of `Wet-Ink-Corporation/weigh-in-plugin` for the
+organization sync (B-19). The zip and the Linux binary must come from the same build, which is why
+the release is made only there; `scripts/package-plugin.sh` run locally gives a zip that matches
+only a local build. The download needs public release assets: while the repository is internal
+the workflow packages with `--no-download`, and so should a local build
+(`scripts/package-plugin.sh --no-download`); the skill then uses the binary in a connected
+checkout of the `marketplace` branch.
 
 ## Commands
 
 ```
 weighin [--store <file>] [--dir <folder>] [--session <id>] <command>
-weighin init --class own|client [--board artifact|local|off] [--ledger <path>]
-weighin open [--repo] [--with-context]   open items, ranked (one-way, blocking, authority first)
-weighin context <id>                     script-built evidence, ≤600 tokens
-weighin batch < ops.json                 raise / triage / ground / present / decide / defer /
+weighin prime                            the marker convention and open counts
+weighin init --class own|client [--board artifact|local|off] [--board-url <url>] [--owner <who>]
+             [--ledger <path>]
+weighin open [--repo | --all] [--with-context] [--top <n>] [--json]
+                                         open items, ranked (one-way, blocking, authority first);
+                                         `--all` lists closed ones too
+weighin show <id> [--json]               one item in full
+weighin context <id> [--json]            script-built evidence, ≤600 tokens
+weighin raise --q <question> … | --markers
+                                         raise by hand, or every `weigh-in` block on stdin
+weighin batch [--file <ops.json>]        raise / triage / ground / present / decide / defer /
                                          default / dismiss / reopen / supersede / link / ack
-weighin decide <id> <option> [--note]    record a decision, write the atom, annotate the source
-weighin defer <id> --flip --trigger --by --default
-weighin dismiss <id> <why>               not-useful | recoverable | moot | already-decided:<ref> |
+weighin decide <id> <option> [--note] [--via <channel>]
+                                         record a decision, write the atom, annotate the source
+weighin defer <id> --flip --trigger --by --default [--reason]
+weighin dismiss <id> <why> [--note]      not-useful | recoverable | moot | already-decided:<ref> |
                                          duplicate-of:<id> | not-my-call:<who>
-weighin digest                           defaults taken without you
+weighin reopen <id> [--note]             reopen a decided, defaulted or dismissed item
+weighin digest [--json]                  defaults taken without you
+weighin stats [--json]                   action rate, not-useful rate, overrides, time to decide
+weighin trailer <id>                     the commit trailer for a decided item
 weighin scan <path>…                     backfill from existing documents
-weighin board export | apply <dir>       exchange with the Artifact board
-weighin stats                            action rate, not-useful rate, overrides, time to decide
+weighin board export [--out <file>]      write the board state document
+weighin board apply <path>               apply board answers (a file or a directory)
 weighin hook                             hook entry point (reads the hook JSON on stdin)
 ```
 
