@@ -885,7 +885,7 @@ fn scan(env: &Env, a: ScanArgs, out: &mut impl Write) -> Result<()> {
         let abs = if p.is_absolute() { p } else { env.cwd.join(&p) };
         let text =
             std::fs::read_to_string(&abs).with_context(|| format!("reading {}", abs.display()))?;
-        for o in hooks::scan_text(env, &abs.to_string_lossy(), &[text], "cli")? {
+        for o in hooks::scan_text(env, &abs.to_string_lossy(), &[text.as_str()], "cli")? {
             total += 1;
             match o {
                 ops::RaiseOutcome::New(id) => receipts.line(format_args!("raised {id}")),
