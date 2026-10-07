@@ -478,7 +478,9 @@
       h("button",{class:"btn ghost",type:"button","aria-pressed": mode === "defer" ? "true" : "false",onclick:function(){ toggleMode(it.id,"defer"); }},"Defer…"),
       h("button",{class:"btn ghost",type:"button","aria-pressed": mode === "dismiss" ? "true" : "false",onclick:function(){ toggleMode(it.id,"dismiss"); }},"Dismiss…"),
       h("button",{class:"btn ghost",type:"button","aria-pressed": mode === "other" ? "true" : "false",onclick:function(){ toggleMode(it.id,"other"); }},"Not my call…"),
-      h("button",{class:"btn ghost",type:"button",onclick:function(){ copyPrompt(it, picked, note.value.trim()); }},"Copy as prompt"));
+      h("button",{class:"btn ghost",type:"button",disabled: mode === "dismiss" || mode === "other" || (mode === "choose" && !picked),
+        title: mode === "dismiss" || mode === "other" ? "Copy as prompt covers choosing and deferring; record this one with the button below." : (mode === "choose" && !picked ? "Pick an option first; the prompt records only an option you picked." : null),
+        onclick:function(){ copyPrompt(it, picked, note.value.trim()); }},"Copy as prompt"));
     sec.appendChild(row);
 
     if (mode === "defer"){
@@ -622,15 +624,25 @@
     });
   }
   function copyPrompt(it, picked, note){
+    // Plain language for the next sitting, which maps it to `weighin decide` or `weighin defer`
+    // (the "Waiting for" field is the trigger, as a saved deferral records it).
     var mode = st.mode[it.id] || "choose", txt;
-    function q(s){ return '"' + String(s).replace(/"/g,"'") + '"'; }
+    function one(s){ return String(s || "").replace(/\s+/g," ").trim(); }
+    var tail = note ? " (note: " + one(note) + ")" : "";
     if (mode === "defer"){
+      // Mirrors "Record deferral": a trigger and a resolve-by are required, and the default is the
+      // one shown in the form, never filled in from the recommendation.
       var tr = document.getElementById("trig-" + it.id), by = document.getElementById("by-" + it.id), df = document.getElementById("def-" + it.id);
-      txt = "/weigh-in defer " + it.id + " --flip " + q(tr ? tr.value : "") + " --by " + q(by ? by.value : "") + " --default " + (df ? df.value : recOf(it).option);
-    } else if (picked){
-      txt = "/weigh-in decide " + it.id + " " + picked + (note ? " --note " + q(note) : "");
+      var trv = one(tr ? tr.value : ""), byv = one(by ? by.value : ""), dfv = df ? df.value : "";
+      if (!trv || !byv){ setMsg(it.id,"warn","Name what you are waiting for and when it must be settled."); return; }
+      txt = "/weigh-in defer " + it.id + " — trigger: " + trv + "; resolve by: " + byv + "; default: " + dfv + tail;
+    } else if (mode === "dismiss" || mode === "other"){
+      setMsg(it.id,"warn","Copy as prompt covers choosing and deferring; record this one with the button below."); return;
     } else {
-      txt = "/weigh-in decide " + it.id + " " + (recOf(it).option || "") + (note ? " --note " + q(note) : "");
+      // Mirrors "Record": only an option the owner picked (or already recorded) is copied; the
+      // recommendation is never filled in for them.
+      if (!picked){ setMsg(it.id,"warn","Pick an option to record."); return; }
+      txt = "/weigh-in decide " + it.id + ": " + picked + tail;
     }
     function done(ok){ setMsg(it.id, ok ? "ok" : "warn", ok ? "Copied: " + txt : "Copy blocked here. Select and copy: " + txt); }
     try { navigator.clipboard.writeText(txt).then(function(){ done(true); }, function(){ done(false); }); } catch(e){ done(false); }

@@ -200,6 +200,80 @@ pub(crate) fn isolated_launcher() -> (tempfile::TempDir, PathBuf, std::ffi::OsSt
     (tmp, launcher, path)
 }
 
+/// Runs `args` with `--dir` on a fresh folder with no ledger, and says whether it succeeded,
+/// what it printed and whether it left a `.weighin/` behind. An `<answers>` argument becomes an
+/// empty directory in that folder.
+pub(crate) fn in_a_folder_with_no_ledger(
+    args: &[&str],
+    stdin: Option<&str>,
+) -> (bool, String, bool) {
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("empty");
+    std::fs::create_dir_all(folder.join("answers")).unwrap();
+    let dir = folder.to_str().unwrap().to_owned();
+    let answers = folder.join("answers").to_str().unwrap().to_owned();
+    let args: Vec<&str> = args
+        .iter()
+        .map(|a| {
+            if *a == "<answers>" {
+                answers.as_str()
+            } else {
+                a
+            }
+        })
+        .collect();
+
+    let (ok, out) = weighin(
+        tmp.path(),
+        "s1",
+        &[&["--dir", &dir], &args[..]].concat(),
+        stdin,
+    );
+
+    (ok, out, folder.join(".weighin").exists())
+}
+
+/// Scans `file` in `repo` and returns the id of the one item it raised.
+pub(crate) fn scan_one(repo: &Path, file: &str) -> String {
+    let (ok, out) = weighin(repo, "s1", &["scan", file], None);
+    assert!(ok && out.starts_with("raised "), "{out}");
+    out.split_whitespace().nth(1).unwrap().to_owned()
+}
+
+/// The receipt's note on a code file.
+pub(crate) const CODE_FILE: &str = "code file: the decision is in the ledger";
+
+/// Decides the one item scanned from `file`, written with `source`, as `option`, and checks the
+/// receipt says the code file was not annotated and the file is unchanged.
+pub(crate) fn decide_leaves_code_alone(file: &str, source: &str, option: &str) {
+    let (_tmp, repo) = setup();
+    std::fs::write(repo.join(file), source).unwrap();
+    let id = scan_one(&repo, file);
+
+    let (ok, out) = weighin(&repo, "s1", &["decide", &id, option], None);
+
+    assert!(
+        ok && out.contains(&format!("decided {id} → {option}"))
+            && out.contains(&format!("not annotated {file} ({CODE_FILE})"))
+            && out.contains(&format!("trailer `Weigh-In: {id} decided {option}`")),
+        "{file} {option:?}: {out}"
+    );
+    assert_eq!(
+        std::fs::read(repo.join(file)).unwrap(),
+        source.as_bytes(),
+        "{file} {option:?}"
+    );
+}
+
+/// The date `decide` stamped on `id`'s arrow in `text`.
+pub(crate) fn stamped_date(text: &str, id: &str, option: &str) -> String {
+    text.split(&format!("{id}: decided {option} ("))
+        .nth(1)
+        .and_then(|rest| rest.get(..10))
+        .expect("the file holds the arrow")
+        .to_owned()
+}
+
 /// Settles the CRLF question in `docs/spec.md` and returns its id.
 pub(crate) fn settle_crlf_question(repo: &Path) -> String {
     let spec = "# Spec\r\n\r\n## Open questions\r\n- Keep the queue durable?\r\n";

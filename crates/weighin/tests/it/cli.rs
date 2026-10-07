@@ -3,9 +3,9 @@
 
 use crate::support::{
     LAUNCHER_LIMIT, MESSAGE, Run, annotate_scanned_and_rescan, bin, capture_both_markers,
-    context_pack_for, hook, isolated_launcher, items_seen_from_a_worktree, launcher_target,
-    reopen_default_from_the_board, run_within, scan_written_plan, settle_crlf_question, setup,
-    sit_and_decide, weighin, weighin_env,
+    context_pack_for, hook, in_a_folder_with_no_ledger, isolated_launcher,
+    items_seen_from_a_worktree, launcher_target, reopen_default_from_the_board, run_within,
+    scan_one, scan_written_plan, settle_crlf_question, setup, sit_and_decide, weighin, weighin_env,
 };
 use serde_json::{Value, json};
 use std::io::Write as _;
@@ -252,6 +252,34 @@ fn batch_refs_reach_items_raised_in_the_same_call() {
         out.contains("✓ dismissed")
             && out.contains("recoverable")
             && out.contains("only 1 raise(s) so far"),
+        "{out}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_ref_to_an_unparsable_raise_names_no_item() {
+    let (_tmp, repo) = setup();
+    let batch = json!([
+        {"op": "raise", "q": "Retention per record?", "source_line": "twelve"},
+        {"op": "raise", "q": "Which queue, A or B?"},
+        {"op": "dismiss", "id": "@1", "why": "moot", "reason": "r"},
+        {"op": "present", "id": "@2"}
+    ]);
+
+    let (ok, out) = weighin(&repo, "s9", &["batch"], Some(&batch.to_string()));
+
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(!ok, "{out}");
+    assert_eq!(
+        lines.get(2),
+        Some(&"✗ op 2: `@1`: raise 1 in this batch failed, so it names no item"),
+        "{out}"
+    );
+    assert!(
+        lines
+            .get(3)
+            .is_some_and(|l| l.starts_with("✓ presented wi-")),
         "{out}"
     );
 }
@@ -745,6 +773,71 @@ fn the_ledger_goes_where_the_folder_says() {
     assert!(!out.contains("Which rule wins"), "{out}");
 }
 
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn scan_reads_a_relative_path_under_dir_not_the_process_cwd() {
+    let (tmp, repo) = setup();
+    std::fs::write(
+        repo.join("docs/a.md"),
+        "# A\n\n## Open questions\n- Should the ledger use Postgres?\n",
+    )
+    .unwrap();
+    let other = tmp.path().join("other");
+    std::fs::create_dir_all(other.join("docs")).unwrap();
+    std::fs::write(
+        other.join("docs/a.md"),
+        "# A\n\n## Open questions\n- Should the OTHER file decide on tabs?\n",
+    )
+    .unwrap();
+    let dir = repo.to_str().unwrap();
+
+    let (ok, out) = weighin(&other, "s1", &["--dir", dir, "scan", "docs/a.md"], None);
+
+    assert!(ok && out.starts_with("raised "), "{out}");
+    let (_, open) = weighin(&repo, "s1", &["open", "--repo"], None);
+    assert!(
+        open.contains("Should the ledger use Postgres?") && !open.contains("OTHER"),
+        "{open}"
+    );
+    let (_, json) = weighin(&repo, "s1", &["open", "--repo", "--json"], None);
+    let items: Vec<Value> = serde_json::from_str(json.trim()).unwrap();
+    assert_eq!(items[0]["at"], json!("docs/a.md:4"), "{json}");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn init_without_class_or_board_keeps_the_existing_ones() {
+    let (_tmp, repo) = setup();
+    let (ok, out) = weighin(&repo, "s1", &["init", "--class", "client"], None);
+    assert!(ok, "{out}");
+
+    let (ok, out) = weighin(&repo, "s1", &["init", "--ledger", "../l.sqlite3"], None);
+
+    assert!(ok && out.contains("class client · board local"), "{out}");
+    let config: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo.join(".kb/_ledger/config.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        (
+            &config["repo_class"],
+            &config["board"]["mode"],
+            &config["store"]
+        ),
+        (&json!("client"), &json!("local"), &json!("../l.sqlite3"))
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_first_init_without_flags_is_an_own_repo_on_the_artifact_board() {
+    let (_tmp, repo) = setup();
+
+    let (ok, out) = weighin(&repo, "s1", &["init"], None);
+
+    assert!(ok && out.contains("class own · board artifact"), "{out}");
+}
+
 /// Every command that only reads, run where no ledger exists yet.
 const READ_ONLY: &[&[&str]] = &[
     &["stats"],
@@ -790,6 +883,59 @@ fn raise_with_no_blocks_leaves_no_ledger_behind() -> Result<(), Box<dyn std::err
     );
     assert!(!folder.join(".weighin").exists(), "raise created .weighin/");
     Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_decide_that_finds_no_item_leaves_no_ledger_behind() {
+    let (ok, out, created) = in_a_folder_with_no_ledger(&["decide", "wi-000000", "A"], None);
+
+    assert!(!ok && out.contains("no single item matches"), "{out}");
+    assert!(!created, "decide created .weighin/");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn an_empty_batch_leaves_no_ledger_behind() {
+    let (ok, out, created) = in_a_folder_with_no_ledger(&["batch"], Some("[]"));
+
+    assert!(ok, "{out}");
+    assert!(!created, "batch created .weighin/");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_board_apply_with_no_answers_leaves_no_ledger_behind() {
+    let (ok, out, created) = in_a_folder_with_no_ledger(&["board", "apply", "<answers>"], None);
+
+    assert_eq!((ok, out.as_str()), (true, "applied: none\n"));
+    assert!(!created, "board apply created .weighin/");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn an_anchor_line_past_usize_max_does_not_crash_a_context_pack() {
+    let (_tmp, repo) = setup();
+    for (q, at) in [
+        (
+            "Is the huge anchor fine?",
+            "src/retention.rs:18446744073709551615",
+        ),
+        (
+            "Is a missing file fine?",
+            "src/nope.rs:18446744073709551615",
+        ),
+    ] {
+        let (ok, out) = weighin(&repo, "s1", &["raise", "--q", q, "--at", at], None);
+        assert!(ok, "{out}");
+        let id = out.split_whitespace().nth(1).unwrap().to_owned();
+
+        let (ok, out) = weighin(&repo, "s1", &["context", &id], None);
+
+        assert!(ok && out.contains(&format!("## {id} context")), "{out}");
+    }
+    let (ok, out) = weighin(&repo, "s1", &["open", "--with-context"], None);
+    assert!(ok && out.contains("2 open in this session"), "{out}");
 }
 
 #[test]
@@ -846,5 +992,25 @@ fn read_only_commands_leave_no_ledger_behind() {
     assert!(
         !repo.join(".git/weighin").exists(),
         "a read created .git/weighin/"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn an_option_spanning_lines_is_decided_but_not_annotated() {
+    let (_tmp, repo) = setup();
+    let source = "# Plan\n\n## Open questions\n- Should the cap be fixed?\n";
+    std::fs::write(repo.join("docs/cap.md"), source).unwrap();
+    let id = scan_one(&repo, "docs/cap.md");
+
+    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "10\n- Ship it?"], None);
+
+    assert!(
+        ok && out.contains("not annotated docs/cap.md (the option does not fit on one line)"),
+        "{out}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.join("docs/cap.md")).unwrap(),
+        source
     );
 }

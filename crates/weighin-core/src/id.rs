@@ -97,6 +97,8 @@ impl fmt::Display for ItemId {
 
 /// Lowercase, collapse whitespace, drop trailing punctuation. Two raises of the same question
 /// with different spacing or a missing `?` are one question.
+///
+/// A trailing `#`, `+` or `%` is kept, because it carries meaning (`C#`, `C++`, `100%`).
 #[must_use]
 pub fn normalise_question(question: &str) -> String {
     let collapsed = question
@@ -105,7 +107,9 @@ pub fn normalise_question(question: &str) -> String {
         .join(" ")
         .to_lowercase();
     collapsed
-        .trim_end_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
+        .trim_end_matches(|c: char| {
+            (c.is_ascii_punctuation() && !matches!(c, '#' | '+' | '%')) || c.is_whitespace()
+        })
         .to_owned()
 }
 
@@ -201,5 +205,24 @@ mod tests {
     #[test]
     fn question_key_ignores_session() {
         assert_eq!(question_key("Use Postgres?"), question_key("use postgres"));
+    }
+
+    #[test]
+    fn trailing_hash_plus_and_percent_carry_meaning() {
+        assert_eq!(
+            normalise_question("Port the client to C#?"),
+            "port the client to c#"
+        );
+        assert_eq!(
+            normalise_question("Port the client to C++?"),
+            "port the client to c++"
+        );
+        assert_eq!(normalise_question("Raise it to 100%?"), "raise it to 100%");
+        assert_ne!(
+            question_key("Port the client to C#?"),
+            question_key("Port the client to C++?")
+        );
+        assert_eq!(question_key("Which one?"), question_key("Which one"));
+        assert_eq!(normalise_question("Which one?!.) "), "which one");
     }
 }

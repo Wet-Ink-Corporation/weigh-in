@@ -29,7 +29,7 @@ use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Env};
-use crate::ops::{RaiseInput, RaiseOutcome, Session, read_ledger, scannable};
+use crate::ops::{RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
 use crate::text::clip;
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
@@ -351,21 +351,22 @@ fn scan(env: &Env, payload: &Value) -> Result<String> {
         .get("tool_name")
         .and_then(Value::as_str)
         .unwrap_or("");
-    let input = payload.get("tool_input").cloned().unwrap_or(Value::Null);
+    // Borrowed from the payload: a large Write is not copied to be scanned.
+    let Some(input) = payload.get("tool_input") else {
+        return Ok(String::new());
+    };
     let Some(file) = input.get("file_path").and_then(Value::as_str) else {
         return Ok(String::new());
     };
-    let written: Vec<String> = match tool {
+    let written: Vec<&str> = match tool {
         "Write" => input
             .get("content")
             .and_then(Value::as_str)
-            .map(str::to_owned)
             .into_iter()
             .collect(),
         "Edit" => input
             .get("new_string")
             .and_then(Value::as_str)
-            .map(str::to_owned)
             .into_iter()
             .collect(),
         "MultiEdit" => input
@@ -373,11 +374,7 @@ fn scan(env: &Env, payload: &Value) -> Result<String> {
             .and_then(Value::as_array)
             .map(|a| {
                 a.iter()
-                    .filter_map(|e| {
-                        e.get("new_string")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                    })
+                    .filter_map(|e| e.get("new_string").and_then(Value::as_str))
                     .collect()
             })
             .unwrap_or_default(),
@@ -398,7 +395,7 @@ fn scan(env: &Env, payload: &Value) -> Result<String> {
 pub(crate) fn scan_text(
     env: &Env,
     file: &str,
-    written: &[String],
+    written: &[&str],
     actor: &str,
 ) -> Result<Vec<RaiseOutcome>> {
     let rel = env.relative(file);
@@ -406,10 +403,7 @@ pub(crate) fn scan_text(
     if Path::new(&rel).is_absolute() || rel.starts_with("../") || !scannable(env, &rel) {
         return Ok(Vec::new());
     }
-    let is_md = Path::new(&rel)
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "md" | "mdx" | "markdown"));
+    let is_md = is_markdown(&rel);
     let mut candidates = Vec::new();
     for w in written {
         if is_md && env.config.scan.markdown {

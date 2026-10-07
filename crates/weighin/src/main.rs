@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod annotate;
 mod context;
 mod env;
 mod git;
@@ -105,10 +106,11 @@ enum LedgerCmd {
 
 #[derive(Args)]
 struct InitArgs {
-    /// `own` or `client` (client repos default to a local board).
-    #[arg(long, default_value = "own")]
-    class: String,
-    /// `artifact`, `local` or `off`.
+    /// `own` or `client` (client repos default to a local board). Unchanged when not given; a
+    /// first `init` is `own`.
+    #[arg(long)]
+    class: Option<String>,
+    /// `artifact`, `local` or `off`. Unchanged when not given, unless `--class` is.
     #[arg(long)]
     board: Option<String>,
     #[arg(long)]
@@ -427,14 +429,25 @@ fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
 
 fn init(env: Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
     let mut c = Config::load(&env.root());
-    c.board.mode = a.board.unwrap_or_else(|| {
-        if a.class == "client" {
-            "local".into()
-        } else {
-            "artifact".into()
+    // Only what was given changes: a later `init --ledger` keeps a client repo's local board.
+    match (a.class, a.board) {
+        (class, Some(board)) => {
+            if let Some(class) = class {
+                c.repo_class = class;
+            }
+            c.board.mode = board;
         }
-    });
-    c.repo_class = a.class;
+        (Some(class), None) => {
+            c.board.mode = if class == "client" {
+                "local"
+            } else {
+                "artifact"
+            }
+            .into();
+            c.repo_class = class;
+        }
+        (None, None) => {}
+    }
     if a.board_url.is_some() {
         c.board.url = a.board_url;
     }
@@ -670,19 +683,12 @@ fn batch(env: &Env, a: BatchArgs, out: &mut impl Write) -> Result<()> {
         None => stdin()?,
     };
     let ops = ops::parse_ops(&text)?;
+    let total = ops.len();
     let mut s = Session::open(env, "cli")?;
     let mut receipts = Receipts::new(out);
     let mut failed = 0;
-    for (n, op) in ops.iter().enumerate() {
-        let applied = match op {
-            Ok(op) => s.apply(op),
-            Err(e) => {
-                failed += 1;
-                receipts.line(format_args!("✗ op {n}: {e:#}"));
-                continue;
-            }
-        };
-        match applied {
+    for (n, op) in ops.into_iter().enumerate() {
+        match s.apply_parsed(op) {
             Ok(r) => receipts.line(format_args!("✓ {r}")),
             Err(e) => {
                 failed += 1;
@@ -692,8 +698,7 @@ fn batch(env: &Env, a: BatchArgs, out: &mut impl Write) -> Result<()> {
     }
     let outcome = if failed > 0 {
         Err(anyhow!(
-            "{failed} of {} operations failed; the rest were applied",
-            ops.len()
+            "{failed} of {total} operations failed; the rest were applied"
         ))
     } else {
         Ok(())
@@ -865,10 +870,11 @@ fn scan(env: &Env, a: ScanArgs, out: &mut impl Write) -> Result<()> {
     let mut receipts = Receipts::new(out);
     let mut total = 0;
     let outcome = a.paths.into_iter().try_for_each(|p| {
-        let text =
-            std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
+        // Relative to `--dir`, for the text read and for the anchor alike.
         let abs = if p.is_absolute() { p } else { env.cwd.join(&p) };
-        for o in hooks::scan_text(env, &abs.to_string_lossy(), &[text], "cli")? {
+        let text =
+            std::fs::read_to_string(&abs).with_context(|| format!("reading {}", abs.display()))?;
+        for o in hooks::scan_text(env, &abs.to_string_lossy(), &[text.as_str()], "cli")? {
             total += 1;
             match o {
                 ops::RaiseOutcome::New(id) => receipts.line(format_args!("raised {id}")),
@@ -1078,7 +1084,13 @@ fn read_answers(path: &std::path::Path) -> Result<Vec<(String, Answer)>> {
         while let Some(d) = stack.pop() {
             for e in std::fs::read_dir(&d)?.flatten() {
                 let p = e.path();
-                if p.is_dir() {
+                // The entry's own type: a symlinked directory is not descended into, so a link
+                // back up the tree cannot loop (H-13).
+                let is_dir = e
+                    .file_type()
+                    .with_context(|| format!("reading {}", p.display()))?
+                    .is_dir();
+                if is_dir {
                     stack.push(p);
                 } else if p.extension().is_some_and(|x| x == "json") {
                     files.push(p);
@@ -1215,6 +1227,24 @@ mod tests {
             },
         );
         l
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[cfg_attr(miri, ignore = "makes directories and symlinks on the file system")]
+    fn answers_under_a_symlinked_directory_loop_are_read_once() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let answer = r#"{"item_id": "wi-000001", "action": "reopen"}"#;
+        std::fs::write(dir.path().join("a.json"), answer)?;
+        // One link, so a walk that follows it fails fast (on duplicates, at the kernel's 40-link
+        // limit) rather than hanging as two links make it.
+        std::os::unix::fs::symlink(dir.path(), dir.path().join("loop"))?;
+
+        let answers = super::read_answers(dir.path())?;
+
+        let ids: Vec<&str> = answers.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["a"]);
+        Ok(())
     }
 
     #[test]
