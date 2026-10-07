@@ -1,7 +1,7 @@
 ---
 name: weigh-in
 description: Settle the open questions, assumptions and deferred calls this session or repo raised. Shows at most four decision cards, records answers in the Weigh-In ledger and writes .kb decision atoms.
-argument-hint: "[init own|client | repo | digest | board | sweep <path> | stats]"
+argument-hint: "[init own|client | repo | digest | board | sweep <path> | stats | decide <id>: <option> | defer <id> — …]"
 disable-model-invocation: true
 allowed-tools: Bash(sh:*), Bash(git:*), Read, Grep, Glob, AskUserQuestion
 ---
@@ -10,11 +10,11 @@ allowed-tools: Bash(sh:*), Bash(git:*), Read, Grep, Glob, AskUserQuestion
 
 Ledger (injected). If this shows a command or a placeholder instead of output: with the device shell (`mcp__remote-devices__device_bash`) you are in Cowork, go to **Cowork** below; otherwise run it with Bash first.
 
-!`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session ${CLAUDE_SESSION_ID} --dir "${CLAUDE_PROJECT_DIR}" open --with-context --top 8`
+!`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session "${CLAUDE_SESSION_ID}" --dir "${CLAUDE_PROJECT_DIR}" open --with-context --top 8`
 
-`W` below means `sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session ${CLAUDE_SESSION_ID} --dir "${CLAUDE_PROJECT_DIR}"`. Run it from anywhere; never `cd` into the plugin.
+`W` below means `sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session "${CLAUDE_SESSION_ID}" --dir "${CLAUDE_PROJECT_DIR}"`. Run it from anywhere; never `cd` into the plugin.
 
-Arguments `$ARGUMENTS`: `init own` or `init client` → run `W init --class <own|client>`, report the line it prints, stop · empty → this session · `repo` → run `W open --repo --with-context --top 12` and sit over those · `digest` → Digest · `board` → Board · `sweep <path>` → `W scan <path>`, then sit · `stats` → print `W stats`, stop.
+Arguments `$ARGUMENTS`: `init own` or `init client` → run `W init --class <own|client>`, report the line it prints, stop · empty → this session · `repo` → run `W open --repo --with-context --top 12` and sit over those · `digest` → Digest · `board` → Board · `sweep <path>` → `W scan <path>`, then sit · `stats` → print `W stats`, stop · `decide <id>: <option> (note: …)` or `defer <id> — trigger: …; resolve by: …; default: <X>` (copied from the board) → run `W decide <id> <option>` (with `--note "<note>"` when it has one) or `W defer <id> --flip "<trigger>" --trigger "<trigger>" --by "<resolve by>" --default <X>` (with `--reason "<note>"` when it has one), report the line it prints, then sit as for empty.
 
 Budget: three requests. (1) one `W batch`, (2) one AskUserQuestion, (3) one `W batch`. Do not read whole files for a card; the packs above are the evidence. `W context <id>` only for an item without one.
 
@@ -74,7 +74,7 @@ This workspace is a scratch folder deleted with the session; the user's files, a
 2. `W` is `"<B>" --session "<session>" --dir "<F>"`, with `<B>` the path step 1 printed, always run with the device shell. `<session>` is `${CLAUDE_SESSION_ID}`; if that shows literally, read `$CLAUDE_CODE_SESSION_ID` with Bash here.
 3. Sit as above, with three changes. The ledger is `W open --repo --with-context --top 8`. Batch 1 starts with `W scan <paths>` over the files this conversation created or changed in `F`, in the same call. At the close, if `F` keeps its own decision or ruling log, also add each decision there in that log's format.
 4. Board: not from Cowork yet; use in-chat cards.
-The ledger defaults to `F/.weighin/` under a TRUNCATE journal (connected folders refuse deletes). Only if `F` is synced (OneDrive, Dropbox) and used from more than one computer, suggest `W init --class own --ledger <path outside the synced tree>`.
+The ledger defaults to `F/.weighin/` under a TRUNCATE journal (connected folders refuse deletes). Only if `F` is synced (OneDrive, Dropbox) and used from more than one computer, suggest `W init --class <class> --board <mode> --ledger <path outside the synced tree>`, keeping the folder's class and board mode from `F/.kb/_ledger/config.json`. When it has none or you are unsure, use `client` and `local` (deliberately cautious: a folder with no config counts as `own` with an `artifact` board, which would publish a board). `init` resets the class and board mode it is not given; it keeps the owner, the board url and, without `--ledger`, the ledger path.
 
 ## Without the binary
 If `W` cannot run, do steps 1, 2 and 4 in chat. Record each decision on the board if one exists (answers then state); otherwise give one Y-statement per decision, and with the device shell offer to add them to the folder's decision log.
