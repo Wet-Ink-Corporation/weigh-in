@@ -17,7 +17,7 @@ use weighin_core::id::{EXTENDED_HEX_LEN, ItemId};
 use weighin_core::marker::{Authority, Door, Kind, Marker, authority_tripwire};
 use weighin_core::{Item, Ledger, Status};
 
-use crate::annotate::{Skip, Syntax, annotate_line};
+use crate::annotate::{Lang, Reading, Skip, Syntax, annotate_source_line};
 use crate::env::{self, Env};
 use crate::git;
 use crate::store::{Appended, Guard, Store};
@@ -847,7 +847,8 @@ impl<'a> Session<'a> {
     }
 
     /// spec-kit's write-back: the line the question came from gets an arrow, so it is not raised
-    /// again. The arrow goes only inside the line's comment ([`annotate_line`]); a line it cannot
+    /// again. The arrow goes only inside the line's comment ([`annotate_source_line`]), read in
+    /// the file's language ([`Lang::of`]); a line it cannot
     /// go in is left as it was, and the receipt says so.
     fn annotate_source(&self, id: &ItemId, option: &str) -> Result<Option<Annotation>> {
         let Some(item) = self.ledger.get(id) else {
@@ -864,11 +865,15 @@ impl<'a> Session<'a> {
         if first.is_empty() {
             return Ok(None);
         }
-        let syntax = syntax_of(src);
+        let reading = Reading {
+            syntax: syntax_of(src),
+            lang: Lang::of(src),
+        };
         let note = format!("→ Weigh-In {id}: decided {option} ({})", self.today);
         // Rebuild with each line's own terminator so a CRLF file stays CRLF. `found` is the
         // outcome on the question's line: `None` until it is found, then the skip, if any.
         let mut found = None;
+        let mut prev = None;
         let mut joined = String::with_capacity(text.len() + 64);
         for chunk in text.split_inclusive('\n') {
             let (body, end) = match chunk.strip_suffix("\r\n") {
@@ -879,13 +884,14 @@ impl<'a> Session<'a> {
                 },
             };
             if found.is_none() && body.trim() == first && !body.contains("→ Weigh-In") {
-                let rewritten = annotate_line(body, &note, syntax);
+                let rewritten = annotate_source_line(prev, body, &note, reading);
                 joined.push_str(rewritten.as_deref().unwrap_or(body));
                 found = Some(rewritten.err());
             } else {
                 joined.push_str(body);
             }
             joined.push_str(end);
+            prev = Some(body);
         }
         let annotation = match found {
             None => return Ok(None),

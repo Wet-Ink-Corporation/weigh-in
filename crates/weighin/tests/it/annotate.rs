@@ -97,3 +97,41 @@ fn a_todo_after_a_lifetime_or_a_deref_is_decided_but_not_annotated() {
         assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
     }
 }
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_comment_marker_that_is_code_is_decided_but_not_annotated() {
+    for (file, source) in [
+        (
+            "src/half.py",
+            "half = len(items) // 2 if use_temporary_cache else 0\n",
+        ),
+        (
+            "src/get.sh",
+            "curl -s https://jsonplaceholder.typicode.com/todo/items | jq .\n",
+        ),
+        (
+            "src/Dockerfile",
+            "RUN curl -fsSL https://example.com/temporary-install.sh | sh\n",
+        ),
+        ("src/ci.yml", "- run: wget http://host/todo/list.txt\n"),
+        ("src/conf.yaml", "url: http://example.com/temporary\n"),
+        ("src/count.c", "x = y -- TODO_count;\n"),
+        ("src/scale.c", "x = a\n    * TODO_FACTOR;\n"),
+        ("src/raw.rs", "let s = r#\"a\"b // TODO \"x\"#;\n"),
+        ("src/pick.sh", "echo ' TODO: pick\n"),
+        ("src/run", "half = n // 2 if temporary else 0\n"),
+    ] {
+        let (_tmp, repo) = setup();
+        std::fs::write(repo.join(file), source).unwrap();
+        let id = scan_one(&repo, file);
+
+        let (ok, out) = weighin(&repo, "s1", &["decide", &id, "X"], None);
+
+        assert!(
+            ok && out.contains(&format!("not annotated {file} (")),
+            "{file}: {out}"
+        );
+        assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
+    }
+}
