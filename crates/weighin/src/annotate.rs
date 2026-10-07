@@ -7,14 +7,18 @@
 //! inside a string literal do not count; `/*` glued to a word (`build/**/*.o`) does not open a
 //! comment; and `#`, `--` and `REM ` open one only standing alone (at the line start or after
 //! whitespace, and `#` and `--` not before a word character), so `r#"`, `x--` and `#define` stay
-//! code. A line opener can still be code (`http://`, Python's `a // b`, `#  define`, `i --`), so
-//! the rest of the line is also read as code, and the note goes only where both readings keep
-//! it in a comment: before the closer of a block comment that ends the line, or at the end of
-//! the line. Anything else is left as it was, so a decision does not break the code around its
-//! question. The reading is a line-local heuristic, not a parser: a line inside a string or
-//! comment opened on an earlier line is read as if it started in code; a line comment glued to
-//! its marker (`#TODO`) is left alone; and so is a line comment whose text, read as code, holds
-//! a comment marker inside quotes or closes a block comment before more text.
+//! code; a `'` opens one only standing alone (before whitespace too) and not closing on the
+//! line, so a lifetime (`+ 'static`) stays code; and a line-start `*` is a block comment's
+//! middle only before whitespace, so `*p = 0;` stays code. A line opener can still be code
+//! (`http://`, Python's `a // b`, `#  define`, `i --`), so the rest of the line is also read as
+//! code, and the note goes only where both readings keep it in a comment: before the closer of a
+//! block comment that ends the line, or at the end of the line. Anything else is left as it was,
+//! so a decision does not break the code around its question. The reading is a line-local
+//! heuristic, not a parser: a line inside a string or comment opened on an earlier line is read
+//! as if it started in code; a line comment glued to its marker (`#TODO`) is left alone; and so
+//! is a line comment whose text, read as code, holds a comment marker inside quotes, leaves a
+//! string open or closes a block comment before more text, and one that ends in a backslash,
+//! which splices the next line into it.
 
 /// How the source file reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +41,8 @@ pub(crate) enum Skip {
     NoComment,
     /// The line's only comment markers sit inside a string literal.
     InString,
+    /// The line ends in a backslash, which splices the next line into its line comment.
+    Spliced,
 }
 
 impl Skip {
@@ -47,6 +53,7 @@ impl Skip {
             Self::CodeAfterComment => "code follows the comment",
             Self::NoComment => "no comment on the line",
             Self::InString => "the comment marker is inside a string",
+            Self::Spliced => "the comment runs on to the next line",
         }
     }
 }
@@ -91,7 +98,8 @@ enum Place {
     /// Anywhere outside a string literal, but not glued to a word character before it: so the
     /// `/*` of a path or glob (`build/**/*.o`) stays text.
     AfterNonWord,
-    /// Only at the start of the line, after indentation (a block comment's middle `*`).
+    /// Only at the start of the line, after indentation, and before whitespace or the end of the
+    /// line (a block comment's middle `*`): so a deref or a product (`*p = 0;`) stays code.
     LineStart,
     /// At the start of the line or after whitespace, and, unless the opener ends in a space
     /// (`REM `), not followed by a word character, `[` or `!`: so `r#"`, `x--`, `#define`,
@@ -125,11 +133,18 @@ struct CodeStretch {
     comment: Option<(usize, Comment)>,
     /// Whether a string literal in the stretch holds a comment opener.
     marker_in_string: bool,
+    /// Whether the stretch ends inside a `"` or backtick string that runs past the line.
+    open_string: bool,
 }
 
 /// Whether `before` ends where a standalone opener may start: at the line start or whitespace.
 fn after_space(before: &str) -> bool {
     before.chars().next_back().is_none_or(char::is_whitespace)
+}
+
+/// Whether `after`, the text after an opener, starts with whitespace or is empty.
+fn space_or_end(after: Option<&str>) -> bool {
+    after.is_some_and(|t| t.chars().next().is_none_or(char::is_whitespace))
 }
 
 /// Whether `c` belongs to a word: a letter, a digit or `_`.
@@ -142,7 +157,7 @@ fn stands(opener: &str, place: Place, before: &str, tail: &str) -> bool {
     match place {
         Place::Anywhere => true,
         Place::AfterNonWord => !before.chars().next_back().is_some_and(is_word),
-        Place::LineStart => before.trim().is_empty(),
+        Place::LineStart => before.trim().is_empty() && space_or_end(tail.get(opener.len()..)),
         Place::Standalone => {
             let next = tail.get(opener.len()..).and_then(|t| t.chars().next());
             after_space(before)
@@ -188,9 +203,12 @@ fn holds_opener(text: &str) -> bool {
 }
 
 /// Reads `line` as code from byte `from`, skipping string literals, up to the next comment.
-/// A `'` that does not close on the line opens a comment (VB) when it follows whitespace or
-/// starts the line and no other opener follows it on the line; otherwise it is an ordinary
-/// character (a Rust lifetime or an OCaml type variable).
+/// A `'` that does not close on the line opens a comment (VB) when it stands alone (after
+/// whitespace or at the line start, and before whitespace or the end of the line) and no other
+/// opener follows it on the line; otherwise it is an ordinary character (a Rust lifetime, an
+/// OCaml type variable), which is always glued to a word. A `'` string that closes on the line
+/// but opens with whitespace (`' TODO: it's'`) could be that comment too, so it counts as a
+/// string holding a marker.
 fn scan_code(line: &str, from: usize) -> CodeStretch {
     let mut marker_in_string = false;
     let mut at = from;
@@ -202,25 +220,30 @@ fn scan_code(line: &str, from: usize) -> CodeStretch {
             return CodeStretch {
                 comment: Some((at.saturating_add(len), kind)),
                 marker_in_string,
+                open_string: false,
             };
         }
         let step = if QUOTES.contains(&c) {
             match string_len(tail, c) {
                 Some(len) => {
-                    marker_in_string |= tail.get(..len).is_some_and(holds_opener);
+                    let text = tail.get(..len);
+                    marker_in_string |= text.is_some_and(holds_opener)
+                        || (c == '\'' && vb_opener(line, at) && text.is_some_and(not_a_char));
                     len
                 }
                 None if c != '\'' => {
                     // The string runs past the line: nothing after its quote is code.
-                    marker_in_string |= holds_opener(tail);
-                    break;
+                    return CodeStretch {
+                        comment: None,
+                        marker_in_string: marker_in_string || holds_opener(tail),
+                        open_string: true,
+                    };
                 }
-                None if line.get(..at).is_some_and(after_space)
-                    && !opener_follows(line, at.saturating_add(1)) =>
-                {
+                None if vb_opener(line, at) && !opener_follows(line, at.saturating_add(1)) => {
                     return CodeStretch {
                         comment: Some((at.saturating_add(1), Comment::Line)),
                         marker_in_string,
+                        open_string: false,
                     };
                 }
                 None => c.len_utf8(),
@@ -233,7 +256,20 @@ fn scan_code(line: &str, from: usize) -> CodeStretch {
     CodeStretch {
         comment: None,
         marker_in_string,
+        open_string: false,
     }
+}
+
+/// Whether `text`, a quoted literal, holds more than one character: so it is not a character
+/// literal such as `' '`.
+fn not_a_char(text: &str) -> bool {
+    text.chars().count() > 3
+}
+
+/// Whether the `'` at byte `at` of `line` stands alone, as VB's comment opener does: after
+/// whitespace or at the line start, and before whitespace or the end of the line.
+fn vb_opener(line: &str, at: usize) -> bool {
+    line.get(..at).is_some_and(after_space) && space_or_end(line.get(at.saturating_add(1)..))
 }
 
 /// Whether `c` could end a line or a line comment: a control character, or the Unicode line
@@ -287,8 +323,11 @@ fn annotate_code(line: &str, note: &str) -> Result<String, Skip> {
         let Some((body_at, kind)) = stretch.comment else {
             return if closed_one {
                 Err(Skip::CodeAfterComment)
-            } else if marker_in_string {
+            } else if marker_in_string || (line_opened && stretch.open_string) {
                 Err(Skip::InString)
+            } else if line_opened && line.trim_end().ends_with('\\') {
+                // A backslash splices the next line into the comment; the note would end that.
+                Err(Skip::Spliced)
             } else if line_opened {
                 // Read as code, the rest holds no comment: only the line comment reading stands.
                 Ok(format!("{line} {note}"))
@@ -619,6 +658,172 @@ mod tests {
             let out = annotate_line(line, NOTE, Syntax::Code);
 
             assert_eq!(out, Err(want), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_lifetime_after_whitespace_does_not_open_a_comment() {
+        for line in [
+            r#"fn f(x: impl Fn() + 'static) { panic!("TODO: pick a limit") }"#,
+            r#"where T: 'a + Send { todo!("FIXME later") }"#,
+        ] {
+            let out = annotate_line(line, NOTE, Syntax::Code);
+
+            assert_eq!(out, Err(Skip::NoComment), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_code_line_starting_with_a_star_is_not_a_block_comment() {
+        for line in [
+            r#"    *limit = todo!("pick a cap");"#,
+            "    *p = 0; panic!(\"TODO: x\")",
+        ] {
+            let out = annotate_line(line, NOTE, Syntax::Code);
+
+            assert_eq!(out, Err(Skip::NoComment), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_block_comments_middle_star_still_gets_the_note() {
+        for line in [" * TODO: pick a cap", "\t*\tTODO: pick a cap"] {
+            let out = annotate_line(line, NOTE, Syntax::Code);
+
+            assert_eq!(out, Ok(format!("{line} {NOTE}")), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_line_comment_whose_text_read_as_code_leaves_a_string_open_is_left_alone() {
+        let line = r#"fn f(s: &'static str) -> bool { s == "'" || s == "// TODO: decide" }"#;
+
+        let out = annotate_line(line, NOTE, Syntax::Code);
+
+        assert_eq!(out, Err(Skip::InString));
+    }
+
+    #[test]
+    fn a_line_comment_ending_in_a_line_splice_is_left_alone() {
+        for line in [
+            r"#define X 1 // TODO: q9 word9 \",
+            "    // TODO: pick a cap \\  ",
+        ] {
+            let out = annotate_line(line, NOTE, Syntax::Code);
+
+            assert_eq!(out, Err(Skip::Spliced), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_quote_and_space_that_closes_on_the_line_is_read_as_a_string() {
+        for line in ["x = 1 ' TODO: it's fine", "s = ' TODO: pick it'"] {
+            let out = annotate_line(line, NOTE, Syntax::Code);
+
+            assert_eq!(out, Err(Skip::InString), "{line}");
+        }
+    }
+
+    /// Where the note should go in a corpus line: at the end, before the last block closer, or
+    /// nowhere (left alone, for the given reason).
+    #[derive(Debug, Clone, Copy)]
+    enum Want {
+        End,
+        BeforeCloser(&'static str),
+        Skipped(Skip),
+    }
+
+    /// Real code lines per language, with where the note should go in each.
+    const CORPUS: &[(&str, &str, Want)] = &[
+        ("rust", "    // TODO: pick a cap", Want::End),
+        ("rust", "fn f<'a>(x: &'a str) {} // TODO: pick", Want::End),
+        (
+            "rust",
+            "fn f(x: impl Fn() + 'static) { todo!(\"TODO: x\") }",
+            Want::Skipped(Skip::NoComment),
+        ),
+        (
+            "rust",
+            "where T: 'a + Send { todo!(\"FIXME later\") }",
+            Want::Skipped(Skip::NoComment),
+        ),
+        (
+            "rust",
+            "    *limit = todo!(\"pick a cap\");",
+            Want::Skipped(Skip::NoComment),
+        ),
+        (
+            "rust",
+            "let c = ' '; todo!(\"TODO: x\")",
+            Want::Skipped(Skip::NoComment),
+        ),
+        ("rust", "let c = ' '; // TODO: pick a separator", Want::End),
+        (
+            "rust",
+            "    let s = r#\"// TODO: x\"#; f(s);",
+            Want::Skipped(Skip::InString),
+        ),
+        (
+            "c",
+            "#define X 1 // TODO: q9 word9 \\",
+            Want::Skipped(Skip::Spliced),
+        ),
+        (
+            "c",
+            "    x = a * b; /* TODO: pick a scale */",
+            Want::BeforeCloser("*/"),
+        ),
+        ("c", " * TODO: pick a width", Want::End),
+        ("c", "    *p = 0; // TODO: pick a default", Want::End),
+        ("js", "const u = `// ${a}`; // TODO: pick", Want::End),
+        (
+            "js",
+            "const s = \"// TODO: x\"; f(s);",
+            Want::Skipped(Skip::InString),
+        ),
+        ("python", "x = a // b  # TODO: pick a divisor", Want::End),
+        (
+            "python",
+            "s = ' TODO: pick it'",
+            Want::Skipped(Skip::InString),
+        ),
+        ("python", "s = '#'  # TODO: pick a marker", Want::End),
+        ("sql", "SELECT '--' AS d; -- TODO: pick a dash", Want::End),
+        (
+            "sql",
+            "SELECT 1; /* TODO: pick a limit */",
+            Want::BeforeCloser("*/"),
+        ),
+        (
+            "html",
+            "<p>x</p> <!-- TODO: choose a layout -->",
+            Want::BeforeCloser("-->"),
+        ),
+        ("shell", "echo \"# not\" # TODO: pick a flag", Want::End),
+        ("shell", "    i=$((i--)) # TODO: pick a step", Want::End),
+        ("vb", "x = 1 ' TODO: pick a start", Want::End),
+        (
+            "vb",
+            "x = 1 ' TODO: it's fine",
+            Want::Skipped(Skip::InString),
+        ),
+        ("batch", "REM TODO: pick a drive", Want::End),
+    ];
+
+    #[test]
+    fn a_corpus_of_real_lines_is_skipped_or_gets_the_note_inside_its_comment() {
+        for &(lang, line, want) in CORPUS {
+            let out = annotate_line(line, NOTE, Syntax::Code);
+
+            match want {
+                Want::End => assert_eq!(out, Ok(format!("{line} {NOTE}")), "{lang}: {line}"),
+                Want::BeforeCloser(closer) => {
+                    let (head, _) = line.rsplit_once(closer).expect("the line has the closer");
+                    let expected = format!("{} {NOTE} {closer}", head.trim_end());
+                    assert_eq!(out, Ok(expected), "{lang}: {line}");
+                }
+                Want::Skipped(skip) => assert_eq!(out, Err(skip), "{lang}: {line}"),
+            }
         }
     }
 

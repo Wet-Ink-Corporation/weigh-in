@@ -12,14 +12,16 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   to a word (`build/**/*.o`) opens no comment, and `#` and `--` open a comment only at the start
   of the line or after a space, and not right before a word, `[` or `!`, so `r#"…"#`, `x--`,
   `#define` and `#[derive]` stay code; `REM ` opens one at the start of the line or after a
-  space; a `'` that does not close on the line opens a comment only when no other comment marker
-  follows it, so a lifetime such as `'static` stays code. Since `//`, `#` and `--` can still be
+  space; a `'` opens a comment only standing alone (after a space or at the line start, and
+  before a space or the end of the line), not closing on the line and with no other comment
+  marker after it, so a lifetime such as `+ 'static` stays code; and a `*` starts the middle of a
+  block comment only at the start of the line and before a space, so `*p = …;` stays code. Since `//`, `#` and `--` can still be
   code (`url(http://…)`, Python's `a // b`, `#  define`, `i --`), the rest of the line after one
   is also read as code, and the arrow goes only where both readings keep it in a comment: before
   the closer of a block comment that ends the line, or at the end of the line. A line where code
   follows its last comment, a line with no comment or only a marker inside a string, a line
-  comment whose text, read as code, holds a marker inside quotes or closes a block comment
-  before more text, or an option holding a line break (U+2028 and U+2029 included), a control
+  comment whose text, read as code, holds a marker inside quotes, leaves a string open or closes
+  a block comment before more text, a line comment ending in a `\` line splice, or an option holding a line break (U+2028 and U+2029 included), a control
   character, `*/` or `-->` (or `/*` inside a `/* … */`, `--` inside a `<!-- … -->`) is left as
   it was, and the receipt says `not annotated <file> (<reason>)`; before, the arrow went at the
   end of the line and could break the code. Markdown and plain-text files (`.txt`, `.rst`,

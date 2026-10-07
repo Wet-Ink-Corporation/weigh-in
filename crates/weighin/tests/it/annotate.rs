@@ -73,3 +73,27 @@ fn a_question_quoted_from_a_text_file_is_annotated_at_the_end_of_its_line() {
         format!("Should the cache be shared? → Weigh-In {id}: decided yes ({today})\n")
     );
 }
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_todo_after_a_lifetime_or_a_deref_is_decided_but_not_annotated() {
+    for (file, source) in [
+        (
+            "src/l.rs",
+            "fn f(x: impl Fn() + 'static) { panic!(\"TODO: pick a limit\") }\n",
+        ),
+        ("src/d.rs", "    *limit = todo!(\"pick a cap\");\n"),
+    ] {
+        let (_tmp, repo) = setup();
+        std::fs::write(repo.join(file), source).unwrap();
+        let id = scan_one(&repo, file);
+
+        let (ok, out) = weighin(&repo, "s1", &["decide", &id, "4096"], None);
+
+        assert!(
+            ok && out.contains(&format!("not annotated {file} (no comment on the line)")),
+            "{out}"
+        );
+        assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
+    }
+}
