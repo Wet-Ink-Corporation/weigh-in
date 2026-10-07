@@ -6,6 +6,12 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Deciding an item raised from a source comment writes `→ Weigh-In …` only inside the comment:
+  before the closer of a one-line `/* … */` or `<!-- … -->`, at the end of a line comment as
+  before. A line where code follows the comment, a line with no comment, or an option holding a
+  line break, a control character, `*/` or `-->` is left as it was, and the receipt says
+  `not annotated <file> (<reason>)`; before, the arrow went at the end of the line and could
+  break the code.
 ## 0.5.4 — 2026-10-06
 
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development

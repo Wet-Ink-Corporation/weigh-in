@@ -200,6 +200,13 @@ pub(crate) fn isolated_launcher() -> (tempfile::TempDir, PathBuf, std::ffi::OsSt
     (tmp, launcher, path)
 }
 
+/// Scans `file` in `repo` and returns the id of the one item it raised.
+pub(crate) fn scan_one(repo: &Path, file: &str) -> String {
+    let (ok, out) = weighin(repo, "s1", &["scan", file], None);
+    assert!(ok && out.starts_with("raised "), "{out}");
+    out.split_whitespace().nth(1).unwrap().to_owned()
+}
+
 /// Settles the CRLF question in `docs/spec.md` and returns its id.
 pub(crate) fn settle_crlf_question(repo: &Path) -> String {
     let spec = "# Spec\r\n\r\n## Open questions\r\n- Keep the queue durable?\r\n";

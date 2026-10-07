@@ -29,7 +29,7 @@ use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Env};
-use crate::ops::{RaiseInput, RaiseOutcome, Session, read_ledger, scannable};
+use crate::ops::{RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
 use crate::text::clip;
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
@@ -406,10 +406,7 @@ pub(crate) fn scan_text(
     if Path::new(&rel).is_absolute() || rel.starts_with("../") || !scannable(env, &rel) {
         return Ok(Vec::new());
     }
-    let is_md = Path::new(&rel)
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "md" | "mdx" | "markdown"));
+    let is_md = is_markdown(&rel);
     let mut candidates = Vec::new();
     for w in written {
         if is_md && env.config.scan.markdown {

@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod annotate;
 mod context;
 mod env;
 mod git;

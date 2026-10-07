@@ -17,6 +17,7 @@ use weighin_core::id::{EXTENDED_HEX_LEN, ItemId};
 use weighin_core::marker::{Authority, Door, Kind, Marker, authority_tripwire};
 use weighin_core::{Item, Ledger, Status};
 
+use crate::annotate::{Skip, Syntax, annotate_line};
 use crate::env::{self, Env};
 use crate::git;
 use crate::store::{Appended, Guard, Store};
@@ -687,8 +688,12 @@ impl<'a> Session<'a> {
         if let Some(path) = self.write_decision_atom(id)? {
             write!(receipt, " · atom {path}")?;
         }
-        if let Some(src) = self.annotate_source(id, option)? {
-            write!(receipt, " · annotated {src}")?;
+        match self.annotate_source(id, option)? {
+            Some(Annotation::Written(src)) => write!(receipt, " · annotated {src}")?,
+            Some(Annotation::Skipped(src, skip)) => {
+                write!(receipt, " · not annotated {src} ({})", skip.reason())?;
+            }
+            None => {}
         }
         write!(receipt, " · trailer `Weigh-In: {id} decided {option}`")?;
         Ok(receipt)
@@ -747,8 +752,10 @@ impl<'a> Session<'a> {
         Ok(Some(rel))
     }
 
-    /// spec-kit's write-back: the line the question came from gets an arrow, so it is not raised again.
-    fn annotate_source(&self, id: &ItemId, option: &str) -> Result<Option<String>> {
+    /// spec-kit's write-back: the line the question came from gets an arrow, so it is not raised
+    /// again. The arrow goes only inside the line's comment ([`annotate_line`]); a line it cannot
+    /// go in is left as it was, and the receipt says so.
+    fn annotate_source(&self, id: &ItemId, option: &str) -> Result<Option<Annotation>> {
         let Some(item) = self.ledger.get(id) else {
             return Ok(None);
         };
@@ -763,8 +770,15 @@ impl<'a> Session<'a> {
         if first.is_empty() {
             return Ok(None);
         }
-        // Rebuild with each line's own terminator so a CRLF file stays CRLF.
-        let mut done = false;
+        let syntax = if is_markdown(src) {
+            Syntax::Markdown
+        } else {
+            Syntax::Code
+        };
+        let note = format!("→ Weigh-In {id}: decided {option} ({})", self.today);
+        // Rebuild with each line's own terminator so a CRLF file stays CRLF. `found` is the
+        // outcome on the question's line: `None` until it is found, then the skip, if any.
+        let mut found = None;
         let mut joined = String::with_capacity(text.len() + 64);
         for chunk in text.split_inclusive('\n') {
             let (body, end) = match chunk.strip_suffix("\r\n") {
@@ -774,24 +788,43 @@ impl<'a> Session<'a> {
                     None => (chunk, ""),
                 },
             };
-            if !done && body.trim() == first && !body.contains("→ Weigh-In") {
-                done = true;
-                write!(
-                    joined,
-                    "{body} → Weigh-In {id}: decided {option} ({})",
-                    self.today
-                )?;
+            if found.is_none() && body.trim() == first && !body.contains("→ Weigh-In") {
+                let rewritten = annotate_line(body, &note, syntax);
+                joined.push_str(rewritten.as_deref().unwrap_or(body));
+                found = Some(rewritten.err());
             } else {
                 joined.push_str(body);
             }
             joined.push_str(end);
         }
-        if !done {
-            return Ok(None);
-        }
-        std::fs::write(&path, joined)?;
-        Ok(Some(src.clone()))
+        let annotation = match found {
+            None => return Ok(None),
+            Some(Some(skip)) => Annotation::Skipped(src.clone(), skip),
+            Some(None) => {
+                std::fs::write(&path, joined)?;
+                Annotation::Written(src.clone())
+            }
+        };
+        Ok(Some(annotation))
     }
+}
+
+/// What a decision did to the line its question came from.
+enum Annotation {
+    /// The arrow was written into this file.
+    Written(String),
+    /// This file was left as it was, for this reason.
+    Skipped(String, Skip),
+}
+
+/// Whether `rel` is markdown: scanned for question bullets rather than TODO comments, and
+/// annotated as prose.
+#[must_use]
+pub(crate) fn is_markdown(rel: &str) -> bool {
+    Path::new(rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "md" | "mdx" | "markdown"))
 }
 
 fn render_ctx(today: &str) -> RenderContext {
