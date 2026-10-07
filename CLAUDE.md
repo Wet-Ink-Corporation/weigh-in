@@ -11,7 +11,7 @@ what it does, `docs/decisions/` before changing behaviour, and `docs/roadmap.md`
 - `crates/weighin-core` — no I/O: events, ids, markers, scanning, cards, projection, atoms, board format.
 - `crates/weighin` — the CLI: store, git, context packs, hooks, the batch write path.
 - `plugin/` — the plugin: `skills/weigh-in/SKILL.md`, `hooks/hooks.json`, `libexec/` launcher and built binaries.
-- `scripts/` — `build-plugin-bins.sh` (Linux musl and Windows gnu), `build-plugin-bins.ps1` (Windows msvc), `package-plugin.sh` (zip for upload), `marketplace-branch.sh` (the `marketplace` branch commit, from that zip), `weekly-stats.sh` (`weighin stats` across folders, as markdown for #23).
+- `scripts/` — `build-plugin-bins.sh` (Linux musl and Windows gnu), `build-plugin-bins.ps1` (Windows msvc), `package-plugin.sh` (zip for upload), `marketplace-branch.sh` (the `marketplace` branch commit, from that zip), `changelog-section.sh` (a version's `CHANGELOG.md` section: the release notes, and CI's check that a bump has its entry), `weekly-stats.sh` (`weighin stats` across folders, as markdown for #23).
 - `docs/` — research report and notes, decision records, roadmap.
 
 ## Commands
@@ -81,8 +81,11 @@ Settled decisions are not reopened without new evidence. Record new ones in
 Bump both versions and move `## Unreleased` in `CHANGELOG.md` to the new version, merge to
 `main`, then push the tag `v<version>`; the workflow refuses a tag that is not on `main` or has no
 changelog entry. The workflow tests, builds Linux,
-Windows and macOS binaries, packages the plugin and publishes the release. While the repository
-is internal it packages with `--no-download` (D-0007).
+Windows and macOS binaries, packages the plugin and publishes the release. It then replaces the
+`marketplace` branch (D-0009) and the default branch of `Wet-Ink-Corporation/weigh-in-plugin`,
+which claude.ai's organization sync reads (B-19); that push needs the
+`WEIGH_IN_PLUGIN_DEPLOY_KEY` secret. While the repository is internal it packages with
+`--no-download` (D-0007).
 
 ## temper (Claude Code specifics)
 

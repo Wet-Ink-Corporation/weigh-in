@@ -206,14 +206,9 @@ pub fn scan_todos(text: &str) -> Vec<Candidate> {
         if line.contains("→ Weigh-In") {
             continue;
         }
-        let Some(comment) = comment_start(line).and_then(|pos| line.get(pos..)) else {
+        let Some((comment, tag_tail)) = flagged_comment(line) else {
             continue;
         };
-        // Uppercasing ASCII keeps byte offsets, so an offset found in `upper` is valid in `comment`.
-        let tag_tail = tag_offset(&comment.to_ascii_uppercase()).and_then(|p| comment.get(p..));
-        if tag_tail.is_none() && !has_prose_hint(comment) {
-            continue;
-        }
         let body = tag_tail.map_or(comment, after_tag_and_owner);
         let body = clean(body.trim_start_matches(['/', '#', '*', '-', ' ', '<', '!']));
         if body.len() < 4 {
@@ -272,14 +267,77 @@ fn after_tag_and_owner(tail: &str) -> &str {
     after_owner.trim_start_matches([':', ' ', '-'])
 }
 
+/// The first comment in `line` that carries a tag or a prose hint, with the text from its tag on
+/// when it has one. A block comment that closes without either (`/* verbose */`) does not hide a
+/// later comment on the same line; that one counts where it follows whitespace.
+fn flagged_comment(line: &str) -> Option<(&str, Option<&str>)> {
+    let mut start = comment_start(line)?;
+    loop {
+        let (comment, after) = up_to_closer(line.get(start..)?);
+        // Uppercasing ASCII keeps byte offsets, so an offset found in `upper` is valid in `comment`.
+        let tag_tail = tag_offset(&comment.to_ascii_uppercase()).and_then(|p| comment.get(p..));
+        if tag_tail.is_some() || has_prose_hint(comment) {
+            return Some((comment, tag_tail));
+        }
+        // `after` is a suffix of `line`, and absent once the comment runs to the end of it.
+        let after = after?;
+        start = line.len().checked_sub(after.len())? + comment_start_in_code(after)?;
+    }
+}
+
+/// Markers that start a comment anywhere on a line. A `*` (a wrapped block comment) or a `'` (a
+/// VB-style comment) counts only at the start of one: mid-line they are multiplication, string
+/// quotes or contractions.
+const MID_LINE_COMMENTS: &[&str] = &["//", "#", "--", "/*", "<!--", "REM "];
+
+/// Byte offset where the first comment in `line` starts.
 fn comment_start(line: &str) -> Option<usize> {
-    ["//", "#", "--", "/*", "<!--", "*", "'", "REM "]
-        .iter()
-        .filter_map(|m| {
-            line.find(m)
-                .filter(|&p| m != &"*" || line.get(..p).is_some_and(|s| s.trim().is_empty()))
-        })
-        .min()
+    let body = line.trim_start();
+    let indent = line.len().checked_sub(body.len())?;
+    if body.starts_with(['*', '\'']) {
+        return Some(indent);
+    }
+    MID_LINE_COMMENTS.iter().filter_map(|m| line.find(m)).min()
+}
+
+/// Byte offset of the next comment in `code`, the rest of a line after a block comment closed on
+/// it. That text is code, so a marker counts only where a comment can start on its own: at the
+/// start of `code` or after whitespace. A marker glued to other text (a URL's `//` or `/#` in a
+/// string literal) is not a comment. Quotes are not tracked: `'` is a char literal, a string
+/// delimiter or an apostrophe depending on the language, and guessing wrong hides a real comment.
+fn comment_start_in_code(code: &str) -> Option<usize> {
+    let mut prev_is_space = true;
+    for (i, c) in code.char_indices() {
+        if prev_is_space {
+            let rest = code.get(i..)?;
+            if MID_LINE_COMMENTS.iter().any(|m| rest.starts_with(m)) {
+                return Some(i);
+            }
+        }
+        prev_is_space = c.is_whitespace();
+    }
+    None
+}
+
+/// `comment` up to the closer of its block comment (`*/`, `-->`), so code after a comment that
+/// closes on the same line is not read as part of it, and the text after that closer. Line
+/// comments, and block comments left open, are returned whole with nothing after them.
+fn up_to_closer(comment: &str) -> (&str, Option<&str>) {
+    let (opener, closer) = if comment.starts_with("<!--") {
+        ("<!--", "-->")
+    } else if comment.starts_with("/*") {
+        ("/*", "*/")
+    } else if comment.starts_with('*') {
+        ("*", "*/")
+    } else {
+        return (comment, None);
+    };
+    comment
+        .get(opener.len()..)
+        .and_then(|inside| inside.find(closer))
+        .map(|p| opener.len() + p)
+        .and_then(|end| Some((comment.get(..end)?, comment.get(end + closer.len()..)?)))
+        .map_or((comment, None), |(cut, after)| (cut, Some(after)))
 }
 
 fn clean(s: &str) -> String {
@@ -441,5 +499,60 @@ mod tests {
         let c = scan_todos("x = 1  # temporary until the vendor ships\n");
         assert_eq!(c.len(), 1);
         assert_eq!(c[0].question, "temporary until the vendor ships");
+    }
+
+    #[test]
+    fn code_after_a_closed_comment_is_not_part_of_the_question() {
+        let c = scan_todos("    /* TODO: pick a buffer size */ return 0;\n");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].question, "pick a buffer size");
+        let c = scan_todos("<!-- TODO: choose a layout --> <div>\n");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].question, "choose a layout");
+        let c = scan_todos("// TODO: map a --> b */ c\n");
+        assert_eq!(
+            c[0].question, "map a --> b */ c",
+            "line comments have no closer"
+        );
+    }
+
+    #[test]
+    fn a_tag_after_a_closed_block_comment_is_still_found() {
+        let c = scan_todos("    call(/* verbose */ false); // TODO: make configurable\n");
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].question, "make configurable");
+        let c = scan_todos("<!-- nav --> <a/> <!-- TODO: pick -->\n");
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].question, "pick");
+        assert!(
+            scan_todos("/* a */ x = b * TODO;\n").is_empty(),
+            "a mid-line star after a closed comment is not a comment"
+        );
+    }
+
+    #[test]
+    fn a_comment_marker_inside_a_string_after_a_closed_comment_is_not_a_comment() {
+        let c = scan_todos("/* TODOx */ let url = \"http://x/# TODO: fix\";\n");
+        assert!(c.is_empty(), "{c:?}");
+        let c = scan_todos("/* a */ s = \"q\\\"// TODO: no\"; // TODO: keep this\n");
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].question, "keep this");
+    }
+
+    #[test]
+    fn a_marker_glued_to_code_after_a_closed_comment_is_not_a_comment() {
+        let c = scan_todos("/* TODOx */ const u = 'http://x/# TODO: fix';\n");
+        assert!(c.is_empty(), "a single-quoted URL is not a comment: {c:?}");
+        let c = scan_todos("/* a */ let c = '\"'; // TODO: real\n");
+        assert_eq!(c.len(), 1, "a quote in a char literal hides nothing: {c:?}");
+        assert_eq!(c[0].question, "real");
+    }
+
+    #[test]
+    fn an_apostrophe_is_a_comment_only_at_the_start_of_a_line() {
+        assert!(scan_todos("x = \"can't connect for now\"\n").is_empty());
+        let c = scan_todos("  ' TODO: vb comment\n");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].question, "vb comment");
     }
 }

@@ -1,8 +1,8 @@
 # Installing Weigh-In
 
 For using Weigh-In. Building it from source, for development, is in the
-[README](../README.md#install). Releases are internal for v1 (D-0012), so every route below needs
-read access to `Wet-Ink-Corporation/weigh-in`.
+[README](../README.md#install). Releases are internal for v1 (D-0012), so every route below that
+clones from GitHub needs read access to `Wet-Ink-Corporation/weigh-in`.
 
 ## Through your organization (recommended)
 
@@ -23,7 +23,8 @@ owner:
    Plugins, and in Claude Code `/plugin marketplace remove weigh-in` if you added the
    `#marketplace` branch (below).
 
-The first release after step 2 fills the repository; until then there is nothing to sync.
+The first release after step 2 fills the repository; until then there is nothing to sync. For
+`Wet-Ink-Corporation` steps 1 and 2 are done, and the repository holds the latest release.
 
 ## Claude Code without the organization sync
 

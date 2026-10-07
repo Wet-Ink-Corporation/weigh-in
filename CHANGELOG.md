@@ -6,6 +6,26 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- A `weigh-in` block keeps issue references such as `#123` in its values; before, everything
+  from ` #123` on was dropped as a comment. A comment is now a ` #` followed by a space or the
+  end of the line.
+- A `weigh-in` block shown inside an outer fence, such as an example in a four-backtick
+  `markdown` fence, is no longer raised as an item; a block after the outer fence closes still is.
+  An outer fence with no closing line anywhere after it, or one indented four spaces or more
+  (indented code), does not hide the blocks after it. A three-backtick `weigh-in` block after an
+  unclosed three-backtick example is still read as that example's content, as Markdown renders it.
+- The authority tripwire matches its acronyms (SLA, PII, GDPR, HIPAA, FedRAMP, CJIS) only as
+  whole words, so a question about Slack, a slash command or a slate no longer stays open as
+  authority-bound.
+- A TODO in a block comment followed by code on the same line (`/* TODO: x */ return 0;`,
+  `<!-- TODO: x --> <div>`) raises only the comment's text, not the code after it.
+- An apostrophe counts as a comment only at the start of a line, so a string such as
+  `"can't connect for now"` no longer raises a deferral.
+- Questions ending in `#`, `+` or `%` (`C#?`, `C++?`, `100%?`) keep that character when they are
+  matched against earlier raises, so `C#` and `C++` questions are no longer merged. An item
+  raised before the upgrade is still recognised when the same question is raised again.
+- A card's stability counts near the `u32` limit no longer overflow, which wrapped to the wrong
+  "earned" verdict for its recommendation.
 - The board's "Copy as prompt" now copies a request the next `/weigh-in` sitting acts on
   (`/weigh-in decide wi-x: A (note: …)`, `/weigh-in defer wi-x — trigger: …; resolve by: …;
   default: A`); before, its defer text passed the trigger as `--flip` and left out the required
