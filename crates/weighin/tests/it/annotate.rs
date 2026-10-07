@@ -79,10 +79,6 @@ const LEFT_ALONE: &[(&str, &str)] = &[
         "src/crlf.rs",
         "fn f() {\r\n    // TODO: pick a cap\r\n}\r\n",
     ),
-    (
-        "src/l.rs",
-        "fn f(x: impl Fn() + 'static) { panic!(\"TODO: pick a limit\") }\n",
-    ),
     ("src/d.rs", "    *limit = todo!(\"pick a cap\");\n"),
     (
         "src/half.py",
@@ -167,6 +163,23 @@ const SIGIL_OPTIONS: &[(&str, &str, &str)] = &[
     ),
     ("src/r.pl", "my $x = qr/a\n# TODO: pick a cap\n/x;\n", "a/b"),
 ];
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_lifetime_apostrophe_does_not_open_a_comment_so_its_line_raises_nothing() {
+    let (_tmp, repo) = setup();
+    let source = "fn f(x: impl Fn() + 'static) { panic!(\"TODO: pick a limit\") }\n";
+    std::fs::write(repo.join("src/l.rs"), source).unwrap();
+
+    let (ok, out) = weighin(&repo, "s1", &["scan", "src/l.rs"], None);
+
+    assert!(ok, "{out}");
+    assert_eq!(out.trim_end(), "nothing to raise");
+    assert_eq!(
+        std::fs::read(repo.join("src/l.rs")).unwrap(),
+        source.as_bytes()
+    );
+}
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
