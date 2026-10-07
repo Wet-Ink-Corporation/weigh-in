@@ -135,3 +135,62 @@ fn a_comment_marker_that_is_code_is_decided_but_not_annotated() {
         assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
     }
 }
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_marker_a_mispaired_quote_php_close_or_jsx_text_may_hide_is_decided_but_not_annotated() {
+    for (file, source, reason) in [
+        (
+            "src/a.py",
+            "help = '''Don't use # TODO: explain'''\n",
+            "inside a string",
+        ),
+        (
+            "src/a.js",
+            "s.replace(/'/g, '// TODO: pick a separator')\n",
+            "inside a string",
+        ),
+        (
+            "src/b.js",
+            "s.replace(/\"/g, \"x // TODO: y\").replace(/\"/g, \"\")\n",
+            "inside a string",
+        ),
+        (
+            "src/a.rs",
+            "let v: &'a str = pick(\"' // TODO: decide\", '\"');\n",
+            "inside a string",
+        ),
+        (
+            "src/a.cpp",
+            "int x = 1'000; const char* s = \"' // TODO: q\"; char c = '\"';\n",
+            "inside a string",
+        ),
+        (
+            "src/a.cs",
+            "var p = @\"C:\\\"; Log(\"// TODO: x\" + '\"');\n",
+            "inside a string",
+        ),
+        (
+            "src/a.php",
+            "<?php // TODO: pick ?>\n",
+            "code follows the comment",
+        ),
+        (
+            "src/a.jsx",
+            "  return <p>// TODO: x</p>;\n",
+            "the comment marker may be code",
+        ),
+    ] {
+        let (_tmp, repo) = setup();
+        std::fs::write(repo.join(file), source).unwrap();
+        let id = scan_one(&repo, file);
+
+        let (ok, out) = weighin(&repo, "s1", &["decide", &id, "X"], None);
+
+        assert!(
+            ok && out.contains(&format!("not annotated {file} (")) && out.contains(reason),
+            "{file}: {out}"
+        );
+        assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
+    }
+}

@@ -24,12 +24,18 @@
 //! left alone; and so is a line comment whose text, read as code, holds a comment marker inside
 //! quotes, leaves a string open or closes a block comment before more text, one that ends in a
 //! backslash, which splices the next line into it, and, in a file of unknown language, one whose
-//! marker stands after code with nothing after it to confirm it.
+//! marker stands after code with nothing after it to confirm it. Because the tokeniser ([`lex`])
+//! cannot know every language's literals (lifetimes, digit separators, triple quotes, regex
+//! literals, verbatim strings), a guard ([`guard`]) that does not tokenise has the last word: a
+//! comment whose quotes may pair otherwise, a line comment holding PHP's `?>`, or a `//` after a
+//! JSX tag is left alone too.
 
+mod guard;
 mod lang;
+mod lex;
 
 pub(crate) use lang::Lang;
-use lang::Marker;
+use lex::{Found, opener_at, scan_code};
 
 /// How the source file reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,329 +111,13 @@ impl Comment {
     }
 }
 
-/// Where an opener may stand on a line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Place {
-    /// Anywhere outside a string literal.
-    Anywhere,
-    /// Anywhere outside a string literal, but not glued to a word character before it: so the
-    /// `/*` of a path or glob (`build/**/*.o`) stays text.
-    AfterNonWord,
-    /// Anywhere outside a string literal, but not glued to a `:` before it: so the `//` of a URL
-    /// (`http://`, `file://`) stays text.
-    AfterNonColon,
-    /// Only at the start of the line, after indentation, and before whitespace or the end of the
-    /// line (a block comment's middle `*`): so a deref or a product (`*p = 0;`) stays code.
-    LineStart,
-    /// At the start of the line or after whitespace, and, unless the opener ends in a space
-    /// (`REM `), not followed by a word character, `[` or `!`: so `r#"`, `x--`, `#define`,
-    /// `#[derive]` and `--count` stay code.
-    Standalone,
-}
-
-/// A comment opener: its text, the comment it opens, where it may stand and the marker a
-/// language must have for it to count.
-struct Opener {
-    text: &'static str,
-    kind: Comment,
-    place: Place,
-    marker: Marker,
-}
-
-/// The comment openers `weighin-core`'s TODO scan recognises, so every line it raised from is
-/// read the same way here, longest first. The scan's `'` is read in context instead
-/// ([`scan_code`]).
-const OPENERS: &[Opener] = &[
-    Opener {
-        text: "<!--",
-        kind: Comment::Html,
-        place: Place::Anywhere,
-        marker: Marker::Html,
-    },
-    Opener {
-        text: "/*",
-        kind: Comment::Star,
-        place: Place::AfterNonWord,
-        marker: Marker::Star,
-    },
-    Opener {
-        text: "//",
-        kind: Comment::Line,
-        place: Place::AfterNonColon,
-        marker: Marker::Slash,
-    },
-    Opener {
-        text: "--",
-        kind: Comment::Line,
-        place: Place::Standalone,
-        marker: Marker::Dashes,
-    },
-    Opener {
-        text: "#",
-        kind: Comment::Line,
-        place: Place::Standalone,
-        marker: Marker::Hash,
-    },
-    Opener {
-        text: "REM ",
-        kind: Comment::Line,
-        place: Place::Standalone,
-        marker: Marker::Rem,
-    },
-    Opener {
-        text: "*",
-        kind: Comment::Star,
-        place: Place::LineStart,
-        marker: Marker::Star,
-    },
-];
-
 /// Block comment closers: text after one is code again.
 const CLOSERS: &[&str] = &["*/", "-->"];
-
-/// Quotes that open a string literal. A `'` opens one only when it closes on the line.
-const QUOTES: &[char] = &['"', '`', '\''];
-
-/// A comment found on a line.
-#[derive(Debug, Clone, Copy)]
-struct Found {
-    /// Where its opener starts.
-    start: usize,
-    /// Where its body starts, just after the opener.
-    body: usize,
-    /// What kind of comment it is.
-    kind: Comment,
-}
-
-/// What a stretch of code holds, up to the next comment or the end of the line.
-struct CodeStretch {
-    /// The next comment, if one opens before the line ends.
-    comment: Option<Found>,
-    /// Whether a string literal in the stretch holds a comment opener.
-    marker_in_string: bool,
-    /// Whether the stretch ends inside a `"` or backtick string that runs past the line.
-    open_string: bool,
-}
-
-/// Whether `before` ends where a standalone opener may start: at the line start or whitespace.
-fn after_space(before: &str) -> bool {
-    before.chars().next_back().is_none_or(char::is_whitespace)
-}
-
-/// Whether `after`, the text after an opener, starts with whitespace or is empty.
-fn space_or_end(after: Option<&str>) -> bool {
-    after.is_some_and(|t| t.chars().next().is_none_or(char::is_whitespace))
-}
-
-/// Whether `c` belongs to a word: a letter, a digit or `_`.
-fn is_word(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
-
-/// Whether `opener`, which `tail` starts with and `before` precedes, stands where `place` allows.
-fn stands(opener: &str, place: Place, before: &str, tail: &str) -> bool {
-    match place {
-        Place::Anywhere => true,
-        Place::AfterNonWord => !before.chars().next_back().is_some_and(is_word),
-        Place::AfterNonColon => !before.ends_with(':'),
-        Place::LineStart => before.trim().is_empty() && space_or_end(tail.get(opener.len()..)),
-        Place::Standalone => {
-            let next = tail.get(opener.len()..).and_then(|t| t.chars().next());
-            after_space(before)
-                && (opener.ends_with(' ')
-                    || !next.is_some_and(|c| is_word(c) || matches!(c, '[' | '!')))
-        }
-    }
-}
-
-/// The comment that an opener of `lang` at byte `at` of `line` starts, if one does.
-fn opener_at(line: &str, at: usize, lang: Lang) -> Option<Found> {
-    let tail = line.get(at..)?;
-    let before = line.get(..at)?;
-    OPENERS
-        .iter()
-        .find(|o| {
-            lang.allows(o.marker)
-                && tail.starts_with(o.text)
-                && stands(o.text, o.place, before, tail)
-        })
-        .map(|o| Found {
-            start: at,
-            body: at.saturating_add(o.text.len()),
-            kind: o.kind,
-        })
-}
-
-/// What starts at a byte of a line read as code.
-enum Token {
-    /// A comment.
-    Comment(Found),
-    /// A string literal that closes on the line: its byte length, quotes included, and whether
-    /// it holds something the scan reads as a comment marker.
-    Str { len: usize, marker: bool },
-    /// A string literal that runs past the line.
-    OpenStr,
-    /// Any other character, of this byte length.
-    Other(usize),
-}
-
-/// The raw string literal (`r"…"`, `r#"…"#`, `br"…"`) whose `r` is at byte `at` of `line`, if
-/// one starts there. A backslash escapes nothing in it.
-fn raw_string(line: &str, at: usize) -> Option<Token> {
-    let before = line.get(..at)?;
-    let prefix = before.strip_suffix(['b', 'c']).unwrap_or(before);
-    if prefix.chars().next_back().is_some_and(is_word) {
-        return None;
-    }
-    let tail = line.get(at..)?;
-    let after_r = tail.strip_prefix('r')?;
-    let after_hashes = after_r.trim_start_matches('#');
-    let hashes = after_r.len().saturating_sub(after_hashes.len());
-    let body = after_hashes.strip_prefix('"')?;
-    let closer = format!("\"{}", "#".repeat(hashes));
-    let opened = hashes.saturating_add(2);
-    Some(body.find(&closer).map_or(Token::OpenStr, |i| {
-        let len = opened.saturating_add(i).saturating_add(closer.len());
-        Token::Str {
-            len,
-            marker: tail.get(..len).is_some_and(holds_opener),
-        }
-    }))
-}
-
-/// The token of `lang` code that starts at byte `at` of `line`; `None` at the end of the line.
-/// Where `lang` has Visual Basic's `'`, a `'` that does not close on the line opens a comment
-/// when it stands alone (after whitespace or at the line start, and before whitespace or the end
-/// of the line) and no other opener follows it on the line; otherwise it is an ordinary
-/// character (a Rust lifetime, an OCaml type variable, a shell string running on). A `'` string
-/// that closes on the line but opens with whitespace (`' TODO: it's'`) is what the scan read as
-/// that comment, so it counts as a string holding a marker. In Rust, a raw string is one token.
-fn token_at(line: &str, at: usize, lang: Lang) -> Option<Token> {
-    let tail = line.get(at..)?;
-    let c = tail.chars().next()?;
-    if let Some(found) = opener_at(line, at, lang) {
-        return Some(Token::Comment(found));
-    }
-    if lang == Lang::Rust
-        && c == 'r'
-        && let Some(raw) = raw_string(line, at)
-    {
-        return Some(raw);
-    }
-    if !QUOTES.contains(&c) {
-        return Some(Token::Other(c.len_utf8()));
-    }
-    Some(match string_len(tail, c) {
-        Some(len) => {
-            let text = tail.get(..len);
-            Token::Str {
-                len,
-                marker: text.is_some_and(holds_opener)
-                    || (c == '\'' && vb_opener(line, at) && text.is_some_and(not_a_char)),
-            }
-        }
-        None if c != '\'' => Token::OpenStr,
-        None if lang.allows(Marker::Quote)
-            && vb_opener(line, at)
-            && !opener_follows(line, at.saturating_add(1), lang) =>
-        {
-            Token::Comment(Found {
-                start: at,
-                body: at.saturating_add(1),
-                kind: Comment::Line,
-            })
-        }
-        None => Token::Other(c.len_utf8()),
-    })
-}
-
-/// The byte length of the string literal that `quote`, the first character of `tail`, opens,
-/// both quotes included; `None` when it does not close on the line. A backslash escapes the
-/// character after it.
-fn string_len(tail: &str, quote: char) -> Option<usize> {
-    let mut escaped = false;
-    tail.char_indices().skip(1).find_map(|(i, c)| {
-        if escaped {
-            escaped = false;
-            None
-        } else if c == '\\' {
-            escaped = true;
-            None
-        } else {
-            (c == quote).then(|| i.saturating_add(c.len_utf8()))
-        }
-    })
-}
-
-/// Whether `text`, a string literal, holds something the scan reads as a comment opener, in any
-/// language: the scan raised from it.
-fn holds_opener(text: &str) -> bool {
-    OPENERS
-        .iter()
-        .any(|o| o.place != Place::LineStart && text.contains(o.text))
-}
-
-/// Reads `line` as code of `lang` from byte `from`, skipping string literals, up to the next
-/// comment ([`token_at`]).
-fn scan_code(line: &str, from: usize, lang: Lang) -> CodeStretch {
-    let mut marker_in_string = false;
-    let mut at = from;
-    while let Some(token) = token_at(line, at, lang) {
-        let step = match token {
-            Token::Comment(found) => {
-                return CodeStretch {
-                    comment: Some(found),
-                    marker_in_string,
-                    open_string: false,
-                };
-            }
-            Token::OpenStr => {
-                // The string runs past the line: nothing after its quote is code.
-                return CodeStretch {
-                    comment: None,
-                    marker_in_string: marker_in_string || line.get(at..).is_some_and(holds_opener),
-                    open_string: true,
-                };
-            }
-            Token::Str { len, marker } => {
-                marker_in_string |= marker;
-                len
-            }
-            Token::Other(len) => len,
-        };
-        at = at.saturating_add(step);
-    }
-    CodeStretch {
-        comment: None,
-        marker_in_string,
-        open_string: false,
-    }
-}
-
-/// Whether `text`, a quoted literal, holds more than one character: so it is not a character
-/// literal such as `' '`.
-fn not_a_char(text: &str) -> bool {
-    text.chars().count() > 3
-}
-
-/// Whether the `'` at byte `at` of `line` stands alone, as VB's comment opener does: after
-/// whitespace or at the line start, and before whitespace or the end of the line.
-fn vb_opener(line: &str, at: usize) -> bool {
-    line.get(..at).is_some_and(after_space) && space_or_end(line.get(at.saturating_add(1)..))
-}
 
 /// Whether `c` could end a line or a line comment: a control character, or the Unicode line
 /// and paragraph separators, which end a `//` comment in JavaScript.
 fn ends_a_line(c: char) -> bool {
     c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')
-}
-
-/// Whether a comment opener of `lang` starts anywhere in `line` from byte `from` on.
-fn opener_follows(line: &str, from: usize, lang: Lang) -> bool {
-    line.get(from..).is_some_and(|tail| {
-        tail.char_indices()
-            .any(|(i, _)| opener_at(line, from.saturating_add(i), lang).is_some())
-    })
 }
 
 /// Whether the opener at byte `start` of `line` opens the line, after indentation.
@@ -516,12 +206,16 @@ fn annotate_line(line: &str, note: &str, syntax: Syntax, lang: Lang) -> Result<S
 /// keep in a comment. It goes at the end of the line when the code reading ends in a comment that
 /// runs on or finds none, and that comment is certain: `lang` is known, or a comment the line
 /// ends in opens the line. When the code reading closes a comment before more code, or finds a
-/// marker inside a string, the line is left alone.
+/// marker inside a string, the line is left alone. Before writing, [`guard::check`] refuses a
+/// comment the tokeniser may have found by pairing quotes wrongly; it checks from the first line
+/// opener, where the comment begins under the line comment reading.
 fn annotate_code(line: &str, note: &str, lang: Lang) -> Result<String, Skip> {
     let mut from = 0;
     let mut marker_in_string = false;
     let mut closed_one = false;
-    let mut line_opened = false;
+    // The first line opener, if one was found: under the line comment reading, the comment the
+    // note goes in starts there.
+    let mut first_line: Option<Found> = None;
     // Whether a comment the line ends in under one reading opens the line, so no reading of a
     // file of unknown language takes it for code.
     let mut certain = lang.known();
@@ -531,15 +225,18 @@ fn annotate_code(line: &str, note: &str, lang: Lang) -> Result<String, Skip> {
         let Some(found) = stretch.comment else {
             return if closed_one {
                 Err(Skip::CodeAfterComment)
-            } else if marker_in_string || (line_opened && stretch.open_string) {
+            } else if marker_in_string || (first_line.is_some() && stretch.open_string) {
                 Err(Skip::InString)
-            } else if line_opened && line.trim_end().ends_with('\\') {
+            } else if first_line.is_some() && line.trim_end().ends_with('\\') {
                 // A backslash splices the next line into the comment; the note would end that.
                 Err(Skip::Spliced)
-            } else if line_opened && certain {
+            } else if let Some(first) = first_line
+                && certain
+            {
                 // Read as code, the rest holds no comment: only the line comment reading stands.
+                guard::check(line, first, lang)?;
                 Ok(format!("{line} {note}"))
-            } else if line_opened {
+            } else if first_line.is_some() {
                 Err(Skip::Ambiguous)
             } else {
                 Err(Skip::NoComment)
@@ -548,7 +245,7 @@ fn annotate_code(line: &str, note: &str, lang: Lang) -> Result<String, Skip> {
         let Some(closer) = found.kind.closer() else {
             // Read the rest as code too, afresh: what came before the opener is settled.
             certain |= opens_line(line, found.start);
-            line_opened = true;
+            first_line = first_line.or(Some(found));
             closed_one = false;
             marker_in_string = false;
             from = found.body;
@@ -573,6 +270,7 @@ fn annotate_code(line: &str, note: &str, lang: Lang) -> Result<String, Skip> {
                 format!("{} {note} {closing}", before.trim_end())
             }
         };
+        guard::check(line, first_line.unwrap_or(found), lang)?;
         return match found.kind.forbidden() {
             Some(text) if note.contains(text) => Err(Skip::UnsafeText),
             _ => Ok(written),
@@ -1116,6 +814,71 @@ mod tests {
         ),
         ("unknown", "    // TODO: see http://x", Want::End),
         ("unknown", "# TODO: a // b", Want::End),
+        (
+            "python",
+            "help = '''Don't use # TODO: explain'''",
+            Want::Skipped(Skip::InString),
+        ),
+        (
+            "python",
+            "x = '''don't # TODO: explain",
+            Want::Skipped(Skip::InString),
+        ),
+        (
+            "js",
+            "s.replace(/'/g, '// TODO: x')",
+            Want::Skipped(Skip::InString),
+        ),
+        (
+            "js",
+            "s.replace(/\"/g, \"x // TODO: y\").replace(/\"/g, \"\")",
+            Want::Skipped(Skip::InString),
+        ),
+        (
+            "js",
+            "s.replace(/`/g, `x // TODO: y",
+            Want::Skipped(Skip::Ambiguous),
+        ),
+        (
+            "rust",
+            "let v: &'a str = pick(\"' // TODO: decide\", '\"');",
+            Want::Skipped(Skip::InString),
+        ),
+        (
+            "rust",
+            "let v: &'a str = \"' // TODO: decide",
+            Want::Skipped(Skip::InString),
+        ),
+        (
+            "c",
+            "int x = 1'000; const char* s = \"' // TODO: q\"; char c = '\"';",
+            Want::Skipped(Skip::InString),
+        ),
+        (
+            "c",
+            "var p = @\"C:\\\"; Log(\"// TODO: x\" + '\"');",
+            Want::Skipped(Skip::InString),
+        ),
+        (
+            "php",
+            "<?php // TODO: pick ?>",
+            Want::Skipped(Skip::CodeAfterComment),
+        ),
+        (
+            "unknown",
+            "    // TODO: pick ?> <p>",
+            Want::Skipped(Skip::CodeAfterComment),
+        ),
+        (
+            "jsx",
+            "  return <p>// TODO: x</p>;",
+            Want::Skipped(Skip::Ambiguous),
+        ),
+        ("rust", "    // TODO: don't cache it", Want::End),
+        ("js", "const re = /a/g; // TODO: pick a flag", Want::End),
+        ("php", "$x = 1; // TODO: pick a cap", Want::End),
+        ("jsx", "  // TODO: pick a prop", Want::End),
+        ("jsx", "const f = () => a > b; // TODO: pick", Want::End),
     ];
 
     /// The language a corpus row names.
@@ -1124,6 +887,8 @@ mod tests {
             "rust" => Lang::Rust,
             "c" | "js" => Lang::CFamily,
             "python" | "shell" | "yaml" | "dockerfile" => Lang::Hash,
+            "php" => Lang::HashSlash,
+            "jsx" => Lang::Jsx,
             "sql" => Lang::Sql,
             "html" => Lang::Markup,
             "vb" => Lang::Basic,

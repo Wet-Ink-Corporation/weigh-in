@@ -28,7 +28,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   string, a line comment whose text, read as code, holds a marker inside quotes, leaves a string
   open or closes a block comment before more text, a line comment ending in a `\` line splice, a
   marker that may be code (after code in a file of unknown language, or a `*` with no block
-  comment open above it), or an option holding a line break (U+2028 and U+2029 included), a
+  comment open above it), a comment whose quotes around its marker may pair otherwise than read
+  (a triple quote before it, a quote character both before and after it, an odd count of `"` or
+  backticks before it, or a JavaScript regex literal holding a quote before it), a line comment
+  holding PHP's `?>`, which ends it, a `//` after an element tag in a `.jsx` or `.tsx` file,
+  which may be element text, or an option holding a line break (U+2028 and U+2029 included), a
   control character, `*/` or `-->` (or `/*` inside a `/* … */`, `--` inside a `<!-- … -->`) is
   left as it was, and the receipt says `not annotated <file> (<reason>)`; before, the arrow went
   at the end of the line and could break the code. Markdown and plain-text files (`.txt`, `.rst`,

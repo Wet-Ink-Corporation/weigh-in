@@ -31,6 +31,9 @@ pub(crate) enum Lang {
     CFamily,
     /// Rust: the C family's comments, and raw strings (`r#"…"#`).
     Rust,
+    /// JSX and TSX: the C family's comments, in a file where element text (`<p>// x</p>`) may
+    /// hold a `//` that is no comment.
+    Jsx,
     /// `/* */` only: CSS.
     Css,
     /// `#`, `//` and `/* */`: PHP, Terraform and HCL.
@@ -71,7 +74,7 @@ impl Lang {
     pub(super) fn allows(self, marker: Marker) -> bool {
         use Marker::{Dashes, Hash, Html, Quote, Rem, Slash, Star};
         match self {
-            Self::CFamily | Self::Rust => matches!(marker, Slash | Star),
+            Self::CFamily | Self::Rust | Self::Jsx => matches!(marker, Slash | Star),
             Self::Css => marker == Star,
             Self::HashSlash => matches!(marker, Hash | Slash | Star),
             Self::Hash => marker == Hash,
@@ -122,9 +125,10 @@ fn by_extension(ext: &str) -> Lang {
     match ext {
         "rs" => Lang::Rust,
         "c" | "h" | "cc" | "cpp" | "cxx" | "c++" | "hh" | "hpp" | "hxx" | "m" | "mm" | "cs"
-        | "java" | "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts" | "go" | "swift"
-        | "kt" | "kts" | "scala" | "sc" | "dart" | "groovy" | "gradle" | "proto" | "zig"
-        | "sol" | "scss" | "less" | "jsonc" | "json5" => Lang::CFamily,
+        | "java" | "js" | "mjs" | "cjs" | "ts" | "mts" | "cts" | "go" | "swift" | "kt" | "kts"
+        | "scala" | "sc" | "dart" | "groovy" | "gradle" | "proto" | "zig" | "sol" | "scss"
+        | "less" | "jsonc" | "json5" => Lang::CFamily,
+        "jsx" | "tsx" => Lang::Jsx,
         "css" => Lang::Css,
         "php" | "tf" | "tfvars" | "hcl" => Lang::HashSlash,
         "py" | "pyi" | "pyw" | "sh" | "bash" | "zsh" | "ksh" | "fish" | "rb" | "pl" | "pm"
@@ -149,6 +153,7 @@ mod tests {
         let read: Vec<_> = [
             "src/main.rs",
             "web/app.TS",
+            "web/App.tsx",
             "style.css",
             "infra/main.tf",
             "tools/run.py",
@@ -171,6 +176,7 @@ mod tests {
             [
                 ("src/main.rs", Lang::Rust),
                 ("web/app.TS", Lang::CFamily),
+                ("web/App.tsx", Lang::Jsx),
                 ("style.css", Lang::Css),
                 ("infra/main.tf", Lang::HashSlash),
                 ("tools/run.py", Lang::Hash),
