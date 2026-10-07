@@ -163,11 +163,11 @@ Measured on 0.5.4 (2026-10-07). Items marked **pending** are v1 exit criteria
   version and read back (fixture tests, B-10). Cowork's refused deletes, reproduced with a shim
   that refuses `unlink`, break 0.1.1 with `SQLITE_IOERR_DELETE` (2570). From 0.1.2 the store
   creates, raises and decides with no delete or rename in the folder.
-- **Capture precision** (eval seed, #22): 60 real end-of-turn messages from cloud sessions on this
-  repository, 15 labelled `capture`, 9 captured. Precision is 9 of 9 (100%, bar 80%). Recall is
-  1 of 7 before the 0.5.2 convention line and 8 of 8 after it.
-  - **Pending:** the 80% bar counts once 10 items are captured (wi-a9df17), and the labels await
-    Ryan's review (#22).
+- **Capture precision** (eval seed, #22): 70 real end-of-turn messages from cloud sessions on this
+  repository, 19 labelled `capture`, 12 captured. Precision is 12 of 12 (100%, bar 80%, in force
+  since 10 items are captured, wi-a9df17). Recall is 1 of 7 before the 0.5.2 convention line and
+  11 of 12 after it.
+  - **Pending:** the labels await Ryan's review (#22).
 - **Sitting cost** (D-0016): about 3 × the session's context at the cache-read price, plus about
   5,600 output tokens of cards. That is about $0.10–0.15 on Sonnet 5.5 after a short session and
   about $0.47 after a 585k-token one. Earlier live runs (`--plugin-dir`) cost $0.42–0.57, against
