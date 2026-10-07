@@ -11,6 +11,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   end of the line.
 - A `weigh-in` block shown inside an outer fence, such as an example in a four-backtick
   `markdown` fence, is no longer raised as an item; a block after the outer fence closes still is.
+  An outer fence that never closes, or one indented four spaces or more (indented code), does not
+  hide the blocks after it.
 - The authority tripwire matches its acronyms (SLA, PII, GDPR, HIPAA, FedRAMP, CJIS) only as
   whole words, so a question about Slack, a slash command or a slate no longer stays open as
   authority-bound.

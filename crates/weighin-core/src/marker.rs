@@ -203,24 +203,74 @@ impl Marker {
 #[must_use]
 pub fn parse_markers(text: &str) -> Vec<Marker> {
     let mut out = Vec::new();
+    let mut unclosed = Unclosed::default();
     let mut lines = text.lines();
     while let Some(line) = lines.next() {
-        let Some(fence) = Fence::open(line.trim_start()) else {
+        let trimmed = line.trim_start();
+        let Some(fence) = Fence::open(trimmed) else {
             continue;
         };
-        // Every fenced block is consumed whole, so a `weigh-in` block shown inside an outer
-        // fence (a ````markdown example) is that fence's content, not an item.
-        let body: Vec<&str> = lines
-            .by_ref()
-            .take_while(|inner| !fence.is_closed_by(inner))
-            .collect();
-        if fence.is_weigh_in()
-            && let Some(m) = parse_body(&body)
-        {
-            out.push(m);
+        if fence.is_weigh_in() {
+            let body: Vec<&str> = lines
+                .by_ref()
+                .take_while(|inner| !fence.is_closed_by(inner))
+                .collect();
+            if let Some(m) = parse_body(&body) {
+                out.push(m);
+            }
+            continue;
+        }
+        // Any other fence is consumed whole, so a `weigh-in` block shown inside it (a ````markdown
+        // example) is its content, not an item. Two departures keep later blocks capturable.
+        // CommonMark: a line indented four spaces or more is indented code, not a fence. And,
+        // unlike CommonMark, which runs an unclosed fence to the end of the document, a fence with
+        // no closer is read as an ordinary line: a stray or truncated example must not swallow a
+        // real block after it.
+        if indent_opens_fence(line, trimmed) && !unclosed.rules_out(&fence) {
+            let mut rest = lines.clone();
+            if rest.any(|inner| fence.is_closed_by(inner)) {
+                lines = rest;
+            } else {
+                unclosed.record(&fence);
+            }
         }
     }
     out
+}
+
+/// Whether the indentation before a fence's marks (`line` minus `trimmed`) lets it open one: at
+/// most three spaces, as `CommonMark` allows.
+fn indent_opens_fence(line: &str, trimmed: &str) -> bool {
+    line.strip_suffix(trimmed)
+        .is_some_and(|indent| indent.len() <= 3 && indent.bytes().all(|b| b == b' '))
+}
+
+/// The shortest backtick and tilde fences already found to have no closer in the rest of the
+/// text. A later fence of the same mark, at least as long, has none either (its closer would have
+/// closed the earlier one), so each run of unclosed fences is scanned to the end only once.
+#[derive(Default)]
+struct Unclosed {
+    backtick: Option<usize>,
+    tilde: Option<usize>,
+}
+
+impl Unclosed {
+    fn slot(&mut self, mark: char) -> &mut Option<usize> {
+        if mark == '`' {
+            &mut self.backtick
+        } else {
+            &mut self.tilde
+        }
+    }
+
+    fn rules_out(&mut self, fence: &Fence<'_>) -> bool {
+        self.slot(fence.mark).is_some_and(|len| fence.len >= len)
+    }
+
+    fn record(&mut self, fence: &Fence<'_>) {
+        let slot = self.slot(fence.mark);
+        *slot = Some(slot.map_or(fence.len, |len| len.min(fence.len)));
+    }
 }
 
 /// An opening code fence: three or more backticks or tildes, then an info string.
@@ -461,6 +511,29 @@ mod tests {
         // As CommonMark renders it: a ```weigh-in line cannot close an open ```rust fence
         // (a closer carries no info), so the block is that fence's content.
         assert!(parse_markers("```rust\nlet x;\n```weigh-in\nq: lost?\n```").is_empty());
+    }
+
+    #[test]
+    fn an_outer_fence_indented_four_spaces_is_indented_code() {
+        let m = parse_markers("    ```rust\n    let x = 1;\n\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!(m[0].question, "real?");
+    }
+
+    #[test]
+    fn an_outer_fence_that_never_closes_does_not_hide_later_blocks() {
+        let m = parse_markers("````markdown\nan example\n```weigh-in\nq: real?\n```\nafter");
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!(m[0].question, "real?");
+        let m = parse_markers("~~~~rust\n~~~~rust\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!(m[0].question, "real?");
+    }
+
+    #[test]
+    fn a_closed_outer_fence_still_hides_its_example() {
+        let m = parse_markers("  ````markdown\n```weigh-in\nq: example?\n```\n   ````\nafter");
+        assert!(m.is_empty(), "{m:?}");
     }
 
     #[test]
