@@ -197,27 +197,55 @@ const LEFT_ALONE: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Whole-line comments inside a string opened on an earlier line, with an option that would
+/// close or interpolate into that string (review: bash, PHP, Ruby and Perl).
+const SIGIL_OPTIONS: &[(&str, &str, &str)] = &[
+    (
+        "src/s.py",
+        "s = \"\"\"\n# TODO: pick a cap\n\"\"\"\n",
+        "x \"\"\" y",
+    ),
+    (
+        "src/b.py",
+        "s = \"\"\"\n# TODO: pick a cap\n\"\"\"\n",
+        r"C:\N",
+    ),
+    ("src/e.sh", "echo \"a\n# TODO: pick a cap\nb\"\n", "$(nproc"),
+    ("src/e2.sh", "echo \"a\n# TODO: pick a cap\nb\"\n", "$(("),
+    (
+        "src/h.php",
+        "<?php\n$s = <<<EOT\n// TODO: pick a cap\nEOT;\n",
+        "$a[",
+    ),
+    ("src/q.rb", "x = %q(\n# TODO: pick a cap\n)\n", "a)"),
+    ("src/q.pl", "my $x = q(\n# TODO: pick a cap\n);\n", "a)"),
+    (
+        "src/h.pl",
+        "use strict;\nmy $x = <<\"EOT\";\n# TODO: pick a cap\nEOT\n",
+        "me@example",
+    ),
+];
+
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn an_option_that_could_close_a_string_is_decided_but_not_annotated_in_code() {
-    for option in ["x \"\"\" y", r"C:\N", r"use \x1"] {
+    for &(file, source, option) in SIGIL_OPTIONS {
         let (_tmp, repo) = setup();
-        let source = "s = \"\"\"\n# TODO: pick a cap\n\"\"\"\n";
-        std::fs::write(repo.join("src/s.py"), source).unwrap();
-        let id = scan_one(&repo, "src/s.py");
+        std::fs::write(repo.join(file), source).unwrap();
+        let id = scan_one(&repo, file);
 
         let (ok, out) = weighin(&repo, "s1", &["decide", &id, option], None);
 
         assert!(
-            ok && out.contains(
-                "not annotated src/s.py (the option holds a quote, bracket or backslash that could end or change a string around the comment)"
-            ),
-            "{option}: {out}"
+            ok && out.contains(&format!(
+                "not annotated {file} (the option holds a character that could end the comment or a string around it)"
+            )),
+            "{file} {option}: {out}"
         );
         assert_eq!(
-            std::fs::read_to_string(repo.join("src/s.py")).unwrap(),
+            std::fs::read_to_string(repo.join(file)).unwrap(),
             source,
-            "{option}"
+            "{file} {option}"
         );
     }
 }

@@ -1,24 +1,27 @@
 //! The source write-back of a decision: the line a question came from gets
 //! `→ Weigh-In <id>: decided <option> (<date>)`, so it is not raised again. Pure: the line and
-//! the note in, the rewritten line or the reason it was left alone out.
+//! the decision in, the rewritten line or the reason it was left alone out.
 //!
 //! A prose line (markdown, plain text) gets the note at its end. A code line gets it only when
 //! a comment is the whole line, read in the file's language ([`Lang`], from its name):
-//! - a line that starts with one of the language's line comment openers gets it at the end,
-//!   unless the line holds PHP's `?>`, which ends the comment, ends in a `\` line splice, or
-//!   already holds a line break (a lone CR, U+0085, U+2028 or U+2029) that ends the comment;
+//! - a line that starts with one of the language's line comment openers (not a `#!` shebang)
+//!   gets it at the end, unless the line holds PHP's `?>`, which ends the comment, ends in a `\`
+//!   line splice, or already holds a line break (a lone CR, U+0085, U+2028 or U+2029);
 //! - a line that is exactly one block comment, `/* … */` or `<!-- … -->`, with nothing before
 //!   its opener or after its closer, gets it just before the closer.
 //!
-//! Anything else is left as it was, a comment after code (`x = 1  # TODO`) included, so a
-//! decision never breaks the code around its question. The reading is per line, so a whole-line
-//! comment may really sit inside a string, template or block comment opened on an earlier line.
-//! Two refusals keep that case safe, at the cost of skipping some harmless lines:
-//! - a line holding text that could close such a construct (a quote, a backtick, a brace, an
-//!   angle bracket, `*/`, `]]` or `]=`, and `'` where single-quoted strings span lines) is left
-//!   alone ([`Skip::MayCloseAbove`]), as the note would land after the closer, in code;
-//! - a code note holding such text, or a backslash, which is an escape inside a string, is
-//!   refused ([`Skip::MayCloseString`]).
+//! Anything else is left as it was, a comment after code (`x = 1  # TODO`) included. In code the
+//! option is written only when it holds nothing but letters, digits, spaces and
+//! `. , : ; - _ + = / ! ?`, with `%` outside batch files and `'` where single-quoted strings stay
+//! on one line, never three in a row ([`Skip::MayCloseString`] otherwise), and a line holding a
+//! common closer of a string or block comment is left alone ([`Skip::MayCloseAbove`]).
+//!
+//! The reading is per line, so a whole-line comment may really sit inside a string or block
+//! comment opened on an earlier line, and the note then changes that string. Those two refusals
+//! narrow the risk but cannot close it: a byte string (`b"""…"""`, `br#"…"#`) cannot hold the
+//! note's `→`, and a string with a delimiter of its own (Perl's `q!…!`, Ruby's `%q/…/`) may end
+//! on any character. That residual risk is a known cost of the per-line rule; an ASCII note in
+//! code would remove the byte-string case, and changing the marker is the owner's call.
 
 mod lang;
 
@@ -43,15 +46,35 @@ pub(crate) struct Reading {
     pub(crate) lang: Lang,
 }
 
+/// The decision a note records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Decision<'a> {
+    /// The item's `wi-` id.
+    pub(crate) id: &'a str,
+    /// The option decided, as the owner wrote it.
+    pub(crate) option: &'a str,
+    /// The day it was decided, `YYYY-MM-DD`.
+    pub(crate) date: &'a str,
+}
+
+impl Decision<'_> {
+    /// `→ Weigh-In <id>: decided <option> (<date>)`.
+    fn note(&self) -> String {
+        format!(
+            "→ Weigh-In {}: decided {} ({})",
+            self.id, self.option, self.date
+        )
+    }
+}
+
 /// Why a source line was left as it was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Skip {
-    /// The note holds a line break (a control character, U+2028 or U+2029), or, in code, a
-    /// comment opener or closer (which nests or ends a block comment around the line), PHP's
-    /// `?>`, or `--` in `<!-- -->`.
+    /// The option holds a line break (a control character, U+2028 or U+2029), or `--`, which
+    /// XML does not allow inside `<!-- -->`.
     UnsafeText,
-    /// The line is not a comment of the file's language from its start: code, a string or a
-    /// block comment's middle line may hold the marker.
+    /// The line is not a comment of the file's language from its start: code, a string, a
+    /// shebang or a block comment's middle line may hold the marker.
     NotWholeLine,
     /// Code follows the comment on the line: after a block comment's closer, or after PHP's `?>`.
     CodeAfterComment,
@@ -60,8 +83,8 @@ pub(crate) enum Skip {
     RunsOn,
     /// The block comment holds another opener, which nests in some languages.
     Nested,
-    /// The note holds text that could end or change a string, template or JSX text opened on an
-    /// earlier line, should the comment sit inside one: see [`may_close`], and a backslash.
+    /// In code, the option holds a character outside the allowed set (see [`safe_option`]),
+    /// which could end the comment or end or change a string around it.
     MayCloseString,
     /// The line holds text that could close a string, template, JSX text or block comment
     /// opened on an earlier line (see [`may_close`]), after which the note would be code.
@@ -78,7 +101,7 @@ impl Skip {
             Self::RunsOn => "the comment runs on to the next line",
             Self::Nested => "the comment holds another comment opener",
             Self::MayCloseString => {
-                "the option holds a quote, bracket or backslash that could end or change a string around the comment"
+                "the option holds a character that could end the comment or a string around it"
             }
             Self::MayCloseAbove => "the line may close a string or comment opened above",
         }
@@ -89,14 +112,39 @@ impl Skip {
 /// interpolation braces and JSX's tag brackets (which cover `-->` and `?>` too).
 const STRING_CLOSERS: [char; 6] = ['"', '`', '{', '}', '<', '>'];
 
-/// Whether `text`, in a file of `lang`, could close a string, template, JSX text or block
-/// comment opened on an earlier line: [`STRING_CLOSERS`], `*/`, Lua's `]]` and `]=`, Python's
-/// `'''`, and `'` in the languages whose single-quoted strings span lines (shell, SQL and
-/// files of unknown language).
+/// The texts other than [`STRING_CLOSERS`] that close a string or block comment: `*/`, Lua's
+/// `]]` and `]=`, Python's `'''`, Julia's `=#`, Nim's `]#`, CoffeeScript's `###` and
+/// Postgres's `$$`.
+const OTHER_CLOSERS: [&str; 8] = ["*/", "]]", "]=", "'''", "=#", "]#", "###", "$$"];
+
+/// Whether `text`, a line of a file in `lang`, could close a string, template, JSX text or block
+/// comment opened on an earlier line: [`STRING_CLOSERS`], [`OTHER_CLOSERS`], and `'` in the
+/// languages whose single-quoted strings span lines (shell, SQL and files of unknown language).
 fn may_close(text: &str, lang: Lang) -> bool {
     text.contains(STRING_CLOSERS)
-        || ["*/", "]]", "]=", "'''"].iter().any(|c| text.contains(c))
+        || OTHER_CLOSERS.iter().any(|c| text.contains(c))
         || (lang.single_quotes_span_lines() && text.contains('\''))
+}
+
+/// Whether `c` may be written into a comment of a file in `lang`: a letter, a digit, a space or
+/// one of `. , : ; - _ + = / ! ?`; `%` except where batch files expand it; and `'` where
+/// single-quoted strings stay on one line. Nothing else, so no sigil, bracket, quote or
+/// backslash can interpolate into or close a string the comment may sit in.
+fn safe_in_code(c: char, lang: Lang) -> bool {
+    c.is_alphanumeric()
+        || matches!(
+            c,
+            ' ' | '.' | ',' | ':' | ';' | '-' | '_' | '+' | '=' | '/' | '!' | '?'
+        )
+        || (c == '%' && !lang.expands_percent())
+        || (c == '\'' && !lang.single_quotes_span_lines())
+}
+
+/// Whether `option` may be written into a comment of a file in `lang`: every character is
+/// [`safe_in_code`], and it holds no `'''`, which closes Groovy's and Dart's multi-line strings
+/// even where a lone `'` is safe.
+fn safe_option(option: &str, lang: Lang) -> bool {
+    option.chars().all(|c| safe_in_code(c, lang)) && !option.contains("'''")
 }
 
 /// Whether `c` could end a line or a line comment: a control character (`\r` and U+0085
@@ -106,41 +154,35 @@ fn ends_a_line(c: char) -> bool {
     c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')
 }
 
-/// `line` of a file read as `reading`, with `note` written into it, or why it cannot be.
+/// `line` of a file read as `reading`, with the note of `decision` written into it, or why it
+/// cannot be.
 ///
 /// # Errors
-/// [`Skip::UnsafeText`] when the note could end the line (or, in code, open or end a comment);
-/// [`Skip::MayCloseString`] when a code note could end or change a string around the comment;
-/// for a code line, the [`Skip`] that says why its comment is not the whole line or could not
-/// hold the note.
+/// [`Skip::UnsafeText`] when the option could end the line; [`Skip::MayCloseString`] when, in
+/// code, it is not [`safe_option`]; for a code line, the [`Skip`] that says
+/// why its comment is not the whole line or could not hold the note.
 pub(crate) fn annotate_source_line(
     line: &str,
-    note: &str,
+    decision: &Decision<'_>,
     reading: Reading,
 ) -> Result<String, Skip> {
-    if note.chars().any(ends_a_line) {
+    if decision.option.chars().any(ends_a_line) {
         return Err(Skip::UnsafeText);
     }
     match reading.syntax {
-        Syntax::Prose => Ok(format!("{line} {note}")),
-        Syntax::Code => annotate_code(line, note, reading.lang),
+        Syntax::Prose => Ok(format!("{line} {}", decision.note())),
+        Syntax::Code => annotate_code(line, decision, reading.lang),
     }
 }
 
 /// [`annotate_source_line`] for a code line in `lang`.
-fn annotate_code(line: &str, note: &str, lang: Lang) -> Result<String, Skip> {
-    if ["*/", "-->", "?>", "/*", "<!--"]
-        .iter()
-        .any(|c| note.contains(c))
-    {
-        return Err(Skip::UnsafeText);
-    }
-    if note.contains('\\') || may_close(note, lang) {
+fn annotate_code(line: &str, decision: &Decision<'_>, lang: Lang) -> Result<String, Skip> {
+    if !safe_option(decision.option, lang) {
         return Err(Skip::MayCloseString);
     }
     let trimmed = line.trim();
     if let Some(&block) = lang.blocks().iter().find(|b| trimmed.starts_with(b.open)) {
-        return annotate_block(line, note, block, lang);
+        return annotate_block(line, decision, block, lang);
     }
     if !lang.opens_line_comment(trimmed) {
         return Err(Skip::NotWholeLine);
@@ -154,14 +196,19 @@ fn annotate_code(line: &str, note: &str, lang: Lang) -> Result<String, Skip> {
     if may_close(trimmed, lang) {
         return Err(Skip::MayCloseAbove);
     }
-    Ok(format!("{line} {note}"))
+    Ok(format!("{line} {}", decision.note()))
 }
 
-/// `line`, which starts (after indentation) with `block`'s opener, with `note` written just
-/// before its closer, when that closer ends the line, the comment holds no other opener and
-/// nothing in it could close a construct opened above.
-fn annotate_block(line: &str, note: &str, block: Block, lang: Lang) -> Result<String, Skip> {
-    if note.contains(block.note_forbids) {
+/// `line`, which starts (after indentation) with `block`'s opener, with the note of `decision`
+/// written just before its closer, when that closer ends the line, the comment holds no other
+/// opener and nothing in it could close a construct opened above.
+fn annotate_block(
+    line: &str,
+    decision: &Decision<'_>,
+    block: Block,
+    lang: Lang,
+) -> Result<String, Skip> {
+    if decision.option.contains(block.option_forbids) {
         return Err(Skip::UnsafeText);
     }
     let indent = line.len().saturating_sub(line.trim_start().len());
@@ -184,7 +231,7 @@ fn annotate_block(line: &str, note: &str, block: Block, lang: Lang) -> Result<St
     let head = line
         .get(..body_at.saturating_add(at))
         .ok_or(Skip::NotWholeLine)?;
-    Ok(format!("{} {note} {closing}", head.trim_end()))
+    Ok(format!("{} {} {closing}", head.trim_end(), decision.note()))
 }
 
 #[cfg(test)]
@@ -193,13 +240,23 @@ mod tests {
 
     const NOTE: &str = "→ Weigh-In wi-abc123: decided 4096 (2026-10-07)";
 
+    /// The decision of `option` on wi-abc123, on 2026-10-07.
+    fn decision(option: &str) -> Decision<'_> {
+        Decision {
+            id: "wi-abc123",
+            option,
+            date: "2026-10-07",
+        }
+    }
+
+    /// `line`, read as `syntax` in `lang`, with the decision of `option` written into it.
+    fn write(syntax: Syntax, lang: Lang, line: &str, option: &str) -> Result<String, Skip> {
+        annotate_source_line(line, &decision(option), Reading { syntax, lang })
+    }
+
     /// `line` of the file `file`, read as code, with [`NOTE`] written into it.
     fn code(file: &str, line: &str) -> Result<String, Skip> {
-        let reading = Reading {
-            syntax: Syntax::Code,
-            lang: Lang::of(file),
-        };
-        annotate_source_line(line, NOTE, reading)
+        write(Syntax::Code, Lang::of(file), line, "4096")
     }
 
     #[test]
@@ -225,12 +282,12 @@ mod tests {
 
     #[test]
     fn a_markdown_line_gets_the_note_at_the_end() {
-        let reading = Reading {
-            syntax: Syntax::Prose,
-            lang: Lang::Unknown,
-        };
-
-        let out = annotate_source_line("- Should we shard by tenant?", NOTE, reading);
+        let out = write(
+            Syntax::Prose,
+            Lang::Unknown,
+            "- Should we shard by tenant?",
+            "4096",
+        );
 
         assert_eq!(out, Ok(format!("- Should we shard by tenant? {NOTE}")));
     }
@@ -268,65 +325,35 @@ mod tests {
     }
 
     #[test]
-    fn a_note_that_would_break_the_line_is_refused() {
-        for option in [
-            "10\nreturn 99;",
-            "a\u{2028}b",
-            "x */ y",
-            "x --> y",
-            "x ?> y",
-            "a\tb",
-        ] {
-            let note = format!("→ Weigh-In wi-abc123: decided {option} (2026-10-07)");
-            let reading = Reading {
-                syntax: Syntax::Code,
-                lang: Lang::CFamily,
-            };
-
-            let out = annotate_source_line("// TODO: pick a cap", &note, reading);
-
-            assert_eq!(out, Err(Skip::UnsafeText), "{option:?}");
+    fn an_option_with_a_line_break_is_refused_in_code_and_prose() {
+        for option in ["10\nreturn 99;", "a\u{2028}b", "a\tb", "a\rb"] {
+            assert_eq!(
+                [Syntax::Code, Syntax::Prose].map(|syntax| write(
+                    syntax,
+                    Lang::CFamily,
+                    "// TODO: pick a cap",
+                    option
+                )),
+                [Err(Skip::UnsafeText), Err(Skip::UnsafeText)],
+                "{option:?}"
+            );
         }
     }
 
     #[test]
-    fn a_prose_note_with_a_line_break_is_refused() {
-        let reading = Reading {
-            syntax: Syntax::Prose,
-            lang: Lang::Unknown,
-        };
-
-        let out = annotate_source_line("- Shard?", "decided a\nb", reading);
+    fn an_option_with_dashes_is_refused_inside_an_html_comment() {
+        let out = write(Syntax::Code, Lang::Markup, "<!-- TODO: pick -->", "a -- b");
 
         assert_eq!(out, Err(Skip::UnsafeText));
     }
 
     #[test]
-    fn a_note_that_would_open_or_change_a_block_comment_is_refused() {
-        let star = "→ Weigh-In wi-abc123: decided a /* b (2026-10-07)";
-        let dashes = "→ Weigh-In wi-abc123: decided a -- b (2026-10-07)";
-        let read = |file: &str, line: &str, note: &str| {
-            let reading = Reading {
-                syntax: Syntax::Code,
-                lang: Lang::of(file),
-            };
-            annotate_source_line(line, note, reading)
-        };
-
-        assert_eq!(
-            [
-                read("a.c", "/* TODO: pick */", star),
-                read("a.html", "<!-- TODO: pick -->", dashes),
-                read("a.c", "// TODO: pick", star),
-            ]
-            .map(|r| r.map(|_| ())),
-            [Err(Skip::UnsafeText); 3]
-        );
-    }
-
-    #[test]
-    fn a_code_note_that_could_close_a_string_around_its_comment_is_refused() {
+    fn a_code_option_outside_the_safe_characters_is_refused() {
         for option in [
+            "x */ y",
+            "x --> y",
+            "x ?> y",
+            "a /* b",
             r#"x """ y"#,
             "a ` b",
             "a ${ b",
@@ -339,30 +366,53 @@ mod tests {
             "a ''' b",
             r"C:\N",
             r"use \x1",
-            r"C:\q",
+            "$a[",
+            "$(nproc",
+            "$((",
+            "a)",
+            "me@example",
+            "#{x}",
+            "a =# b",
+            "a\u{202e}b",
         ] {
-            let note = format!("→ Weigh-In wi-abc123: decided {option} (2026-10-07)");
-            let reading = Reading {
-                syntax: Syntax::Code,
-                lang: Lang::CFamily,
-            };
-
-            let out = annotate_source_line("// TODO: pick a cap", &note, reading);
+            let out = write(Syntax::Code, Lang::CFamily, "// TODO: pick a cap", option);
 
             assert_eq!(out, Err(Skip::MayCloseString), "{option:?}");
         }
     }
 
     #[test]
-    fn a_code_note_with_an_apostrophe_fits_where_single_quoted_strings_stay_on_one_line() {
+    fn a_code_option_of_letters_digits_and_safe_punctuation_is_written() {
+        let option = "Größe 4k, max: 50% - a_b + c = d/e! ok? ja; 1.5";
+
+        let out = write(Syntax::Code, Lang::Hash, "# TODO: pick", option);
+
+        assert_eq!(
+            out,
+            Ok(format!(
+                "# TODO: pick → Weigh-In wi-abc123: decided {option} (2026-10-07)"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_percent_is_refused_where_batch_files_may_expand_it() {
+        let read = |lang: Lang, line: &str| write(Syntax::Code, lang, line, "50%").map(|_| ());
+
+        assert_eq!(
+            [
+                read(Lang::Batch, "REM TODO: pick"),
+                read(Lang::Unknown, "REM TODO: pick"),
+                read(Lang::CFamily, "// TODO: pick"),
+            ],
+            [Err(Skip::MayCloseString), Err(Skip::MayCloseString), Ok(())]
+        );
+    }
+
+    #[test]
+    fn a_code_option_with_an_apostrophe_fits_where_single_quoted_strings_stay_on_one_line() {
         let note = "→ Weigh-In wi-abc123: decided don't cache (2026-10-07)";
-        let read = |lang: Lang, line: &str| {
-            let reading = Reading {
-                syntax: Syntax::Code,
-                lang,
-            };
-            annotate_source_line(line, note, reading)
-        };
+        let read = |lang: Lang, line: &str| write(Syntax::Code, lang, line, "don't cache");
 
         assert_eq!(
             [
@@ -383,16 +433,17 @@ mod tests {
     }
 
     #[test]
-    fn a_prose_note_may_hold_comment_closers_and_quotes() {
-        let note = r#"→ Weigh-In wi-abc123: decided "a */ b --> c ?>" <d> (2026-10-07)"#;
-        let reading = Reading {
-            syntax: Syntax::Prose,
-            lang: Lang::Unknown,
-        };
+    fn a_prose_option_may_hold_comment_closers_and_quotes() {
+        let option = r#""a */ b --> c ?>" <d> $(e) @f \g"#;
 
-        let out = annotate_source_line("- Shard?", note, reading);
+        let out = write(Syntax::Prose, Lang::Unknown, "- Shard?", option);
 
-        assert_eq!(out, Ok(format!("- Shard? {note}")));
+        assert_eq!(
+            out,
+            Ok(format!(
+                "- Shard? → Weigh-In wi-abc123: decided {option} (2026-10-07)"
+            ))
+        );
     }
 
     /// Where the note should go in a corpus line: at the end, before the line's closer, or
@@ -672,6 +723,23 @@ mod tests {
             Want::Skipped(Skip::MayCloseAbove),
         ),
         ("a.vb", "' TODO: don't start", Want::End),
+        (
+            "a.py",
+            "#!/usr/bin/env -S python3 -u # TODO: pick flags",
+            Want::Skipped(Skip::NotWholeLine),
+        ),
+        ("a.jl", "# TODO: x =#", Want::Skipped(Skip::MayCloseAbove)),
+        ("a.nim", "# TODO: x ]#", Want::Skipped(Skip::MayCloseAbove)),
+        (
+            "a.coffee",
+            "### TODO: x",
+            Want::Skipped(Skip::MayCloseAbove),
+        ),
+        (
+            "a.sql",
+            "-- TODO: x $$;",
+            Want::Skipped(Skip::MayCloseAbove),
+        ),
         // F4: Visual Basic's and batch's `REM` is not case-sensitive.
         ("a.bat", "rem TODO: pick a drive", Want::End),
         ("a.vb", "Rem TODO: pick a start", Want::End),

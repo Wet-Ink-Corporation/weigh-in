@@ -5,7 +5,8 @@
 
 use std::path::Path;
 
-/// A block comment: its opener, its closer and the text a note inside it must not hold.
+/// A block comment: its opener, its closer and the text an option written inside it must not
+/// hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Block {
     /// `/*` or `<!--`.
@@ -14,21 +15,21 @@ pub(super) struct Block {
     pub(super) close: &'static str,
     /// `/*`, which opens a nested comment in Rust, Swift and Kotlin; or `--`, which XML does not
     /// allow inside `<!-- -->`.
-    pub(super) note_forbids: &'static str,
+    pub(super) option_forbids: &'static str,
 }
 
 /// `/* … */`.
 const STAR: Block = Block {
     open: "/*",
     close: "*/",
-    note_forbids: "/*",
+    option_forbids: "/*",
 };
 
 /// `<!-- … -->`.
 const HTML: Block = Block {
     open: "<!--",
     close: "-->",
-    note_forbids: "--",
+    option_forbids: "--",
 };
 
 /// The comment syntax of a source file.
@@ -73,7 +74,8 @@ impl Lang {
     }
 
     /// Whether `trimmed`, a line without its surrounding whitespace, starts with a line comment
-    /// opener of this language.
+    /// opener of this language. A `#!` shebang is not one: its text is the interpreter's
+    /// arguments.
     pub(super) fn opens_line_comment(self, trimmed: &str) -> bool {
         let opens = |opener: &str, refused: &[char]| {
             trimmed
@@ -83,8 +85,8 @@ impl Lang {
         match self {
             Self::CFamily => opens("//", &[]),
             Self::Css | Self::Markup => false,
-            Self::HashSlash => opens("//", &[]) || opens("#", &['[']),
-            Self::Hash => opens("#", &[]),
+            Self::HashSlash => opens("//", &[]) || opens("#", &['[', '!']),
+            Self::Hash => opens("#", &['!']),
             Self::Sql => opens("--", &[]),
             Self::Dashes => opens("--", &['[']),
             Self::Basic => opens("'", &[]) || opens_rem(trimmed),
@@ -103,6 +105,12 @@ impl Lang {
     /// and a file whose language is not known.
     pub(super) fn single_quotes_span_lines(self) -> bool {
         matches!(self, Self::Hash | Self::Sql | Self::Unknown)
+    }
+
+    /// Whether a `%` in a comment may still be expanded: batch files read `%` before `REM`, so
+    /// `rem %~` is an error; a file whose language is not known may be one.
+    pub(super) fn expands_percent(self) -> bool {
+        matches!(self, Self::Batch | Self::Unknown)
     }
 
     /// The block comments of this language.
@@ -232,6 +240,9 @@ mod tests {
     fn a_language_opens_a_line_comment_only_with_its_own_openers() {
         let opens: Vec<_> = [
             (Lang::Hash, "# TODO"),
+            (Lang::Hash, "#!/bin/sh # TODO"),
+            (Lang::HashSlash, "#!/usr/bin/php # TODO"),
+            (Lang::Unknown, "#!/bin/sh # TODO"),
             (Lang::Hash, "// TODO"),
             (Lang::CFamily, "// TODO"),
             (Lang::CFamily, "# TODO"),
@@ -249,7 +260,8 @@ mod tests {
         assert_eq!(
             opens,
             [
-                true, false, true, false, false, false, true, false, true, false
+                true, false, false, false, false, true, false, false, false, true, false, true,
+                false
             ]
         );
     }

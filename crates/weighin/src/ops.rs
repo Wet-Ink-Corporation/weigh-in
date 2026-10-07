@@ -17,7 +17,7 @@ use weighin_core::id::{EXTENDED_HEX_LEN, ItemId};
 use weighin_core::marker::{Authority, Door, Kind, Marker, authority_tripwire};
 use weighin_core::{Item, Ledger, Status};
 
-use crate::annotate::{Lang, Reading, Skip, Syntax, annotate_source_line};
+use crate::annotate::{Decision, Lang, Reading, Skip, Syntax, annotate_source_line};
 use crate::env::{self, Env};
 use crate::git;
 use crate::store::{Appended, Guard, Store};
@@ -869,7 +869,11 @@ impl<'a> Session<'a> {
             syntax: syntax_of(src),
             lang: Lang::of(src),
         };
-        let note = format!("→ Weigh-In {id}: decided {option} ({})", self.today);
+        let decision = Decision {
+            id: id.as_str(),
+            option,
+            date: &self.today,
+        };
         // Rebuild with each line's own terminator so a CRLF file stays CRLF. `found` is the
         // outcome on the question's line: `None` until it is found, then the skip, if any.
         let mut found = None;
@@ -883,7 +887,7 @@ impl<'a> Session<'a> {
                 },
             };
             if found.is_none() && body.trim() == first && !body.contains("→ Weigh-In") {
-                let rewritten = annotate_source_line(body, &note, reading);
+                let rewritten = annotate_source_line(body, &decision, reading);
                 joined.push_str(rewritten.as_deref().unwrap_or(body));
                 found = Some(rewritten.err());
             } else {
