@@ -206,7 +206,10 @@ pub fn scan_todos(text: &str) -> Vec<Candidate> {
         if line.contains("→ Weigh-In") {
             continue;
         }
-        let Some(comment) = comment_start(line).and_then(|pos| line.get(pos..)) else {
+        let Some(comment) = comment_start(line)
+            .and_then(|pos| line.get(pos..))
+            .map(up_to_closer)
+        else {
             continue;
         };
         // Uppercasing ASCII keeps byte offsets, so an offset found in `upper` is valid in `comment`.
@@ -272,14 +275,37 @@ fn after_tag_and_owner(tail: &str) -> &str {
     after_owner.trim_start_matches([':', ' ', '-'])
 }
 
+/// Byte offset where a comment starts in `line`. A `*` (a wrapped block comment) or a `'` (a
+/// VB-style comment) counts only at the start of the line: mid-line they are multiplication,
+/// string quotes or contractions.
 fn comment_start(line: &str) -> Option<usize> {
     ["//", "#", "--", "/*", "<!--", "*", "'", "REM "]
         .iter()
         .filter_map(|m| {
-            line.find(m)
-                .filter(|&p| m != &"*" || line.get(..p).is_some_and(|s| s.trim().is_empty()))
+            line.find(m).filter(|&p| {
+                !matches!(*m, "*" | "'") || line.get(..p).is_some_and(|s| s.trim().is_empty())
+            })
         })
         .min()
+}
+
+/// `comment` up to the closer of its block comment (`*/`, `-->`), so code after a comment that
+/// closes on the same line is not read as part of it. Line comments are returned whole.
+fn up_to_closer(comment: &str) -> &str {
+    let (opener, closer) = if comment.starts_with("<!--") {
+        ("<!--", "-->")
+    } else if comment.starts_with("/*") {
+        ("/*", "*/")
+    } else if comment.starts_with('*') {
+        ("*", "*/")
+    } else {
+        return comment;
+    };
+    comment
+        .get(opener.len()..)
+        .and_then(|inside| inside.find(closer))
+        .and_then(|p| comment.get(..opener.len() + p))
+        .unwrap_or(comment)
 }
 
 fn clean(s: &str) -> String {
@@ -441,5 +467,28 @@ mod tests {
         let c = scan_todos("x = 1  # temporary until the vendor ships\n");
         assert_eq!(c.len(), 1);
         assert_eq!(c[0].question, "temporary until the vendor ships");
+    }
+
+    #[test]
+    fn code_after_a_closed_comment_is_not_part_of_the_question() {
+        let c = scan_todos("    /* TODO: pick a buffer size */ return 0;\n");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].question, "pick a buffer size");
+        let c = scan_todos("<!-- TODO: choose a layout --> <div>\n");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].question, "choose a layout");
+        let c = scan_todos("// TODO: map a --> b */ c\n");
+        assert_eq!(
+            c[0].question, "map a --> b */ c",
+            "line comments have no closer"
+        );
+    }
+
+    #[test]
+    fn an_apostrophe_is_a_comment_only_at_the_start_of_a_line() {
+        assert!(scan_todos("x = \"can't connect for now\"\n").is_empty());
+        let c = scan_todos("  ' TODO: vb comment\n");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].question, "vb comment");
     }
 }
