@@ -9,12 +9,13 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - The board's "Copy as prompt" now copies a request the next `/weigh-in` sitting acts on
   (`/weigh-in decide wi-x: A (note: …)`, `/weigh-in defer wi-x — trigger: …; resolve by: …;
   default: A`); before, its defer text passed the trigger as `--flip` and left out the required
-  `--trigger`, and the skill had no such arguments.
+  `--trigger`, and the skill had no such arguments. A note on a deferral is kept as its reason.
+  In Dismiss and Not my call, the button is off: it used to copy a decide request.
 - `/weigh-in` quotes the session id it passes to `weighin`, so an empty one no longer fails every
   call with "a value is required for '--session'".
-- In Cowork, the advice to move a synced folder's ledger keeps the folder's class and board mode;
-  before, it suggested `--class own`, which turned a client folder into an own one with an
-  artifact board.
+- In Cowork, the advice to move a synced folder's ledger keeps the folder's class and board mode,
+  or uses `client` and `local` when the folder has no config; before, it suggested `--class own`,
+  which turned a client folder into an own one with an artifact board.
 - `scripts/weekly-stats.sh` ignores `$WEIGHIN_STORE` and reads each folder through its own ledger;
   before, every folder reported that one ledger and the pooled row counted it once per folder.
 - `scripts/build-plugin-bins.ps1` stops when `cargo build` fails; before, it copied the previous

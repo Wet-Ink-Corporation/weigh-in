@@ -478,7 +478,7 @@
       h("button",{class:"btn ghost",type:"button","aria-pressed": mode === "defer" ? "true" : "false",onclick:function(){ toggleMode(it.id,"defer"); }},"Defer…"),
       h("button",{class:"btn ghost",type:"button","aria-pressed": mode === "dismiss" ? "true" : "false",onclick:function(){ toggleMode(it.id,"dismiss"); }},"Dismiss…"),
       h("button",{class:"btn ghost",type:"button","aria-pressed": mode === "other" ? "true" : "false",onclick:function(){ toggleMode(it.id,"other"); }},"Not my call…"),
-      h("button",{class:"btn ghost",type:"button",onclick:function(){ copyPrompt(it, picked, note.value.trim()); }},"Copy as prompt"));
+      h("button",{class:"btn ghost",type:"button",disabled: mode === "dismiss" || mode === "other",title: mode === "dismiss" || mode === "other" ? "Copy as prompt covers choosing and deferring; record this one with the button below." : null,onclick:function(){ copyPrompt(it, picked, note.value.trim()); }},"Copy as prompt"));
     sec.appendChild(row);
 
     if (mode === "defer"){
@@ -630,6 +630,8 @@
     if (mode === "defer"){
       var tr = document.getElementById("trig-" + it.id), by = document.getElementById("by-" + it.id), df = document.getElementById("def-" + it.id);
       txt = "/weigh-in defer " + it.id + " — trigger: " + one(tr ? tr.value : "") + "; resolve by: " + one(by ? by.value : "") + "; default: " + (df ? df.value : recOf(it).option) + tail;
+    } else if (mode === "dismiss" || mode === "other"){
+      setMsg(it.id,"warn","Copy as prompt covers choosing and deferring; record this one with the button below."); return;
     } else {
       txt = "/weigh-in decide " + it.id + ": " + (picked || recOf(it).option || "") + tail;
     }
