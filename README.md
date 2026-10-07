@@ -133,14 +133,14 @@ weighin hook                             hook entry point (reads the hook JSON o
 
 ## Measured in this build
 
-Measured on 0.5.3 (2026-10-06). Items marked **pending** are v1 exit criteria
+Measured on 0.5.4 (2026-10-07). Items marked **pending** are v1 exit criteria
 ([v1 plan](docs/v1-plan.md), Phase 3) that have not been measured yet.
 
-- **Tests and lints.** 174 tests on `main` (85 core unit tests, 7 core doctests, 56 CLI unit
-  tests, 26 end to end). CI runs them, fmt and rustdoc on Linux, Windows and macOS; `cargo deny`,
-  the plugin package check and temper's lint ratchet run on Linux. The temper baseline is 0 findings
-  (721 remediated in #82). Atoms pass Redkiln's `validate --kb`, with a rejected negative
-  control.
+- **Tests and lints.** 180 tests on `main` (85 core unit tests, 7 core doctests, 58 CLI unit
+  tests, 30 end to end; one more end-to-end test runs on Windows only). CI runs them, fmt and
+  rustdoc on Linux, Windows and macOS; `cargo deny`, the plugin package check and temper's lint
+  ratchet run on Linux. The temper baseline is 0 findings (721 remediated in #82). Atoms pass
+  Redkiln's `validate --kb`, with a rejected negative control.
 - **Reviews.** An independent review at 0.1 found eleven defects; all are fixed, each with a
   regression test. The `/code-review` of everything since 0.2.2 (#26) found 14 candidates.
   Seven were verified and fixed: two in the CLI, five in scripts and workflows. One was refuted
@@ -167,9 +167,10 @@ Measured on 0.5.3 (2026-10-06). Items marked **pending** are v1 exit criteria
     board are not supported (V4).
   - Cowork: the zip-synced plugin keeps the launcher's executable bit and shows the SessionStart
     line.
-  - Releases: 0.5.3 reaches claude.ai's organization sync through `weigh-in-plugin` (B-19), with
-    Linux musl, Windows msvc and macOS arm64 binaries. A copy synced from the development tree
-    has none (#76); not yet released: the launcher naming that case (#84).
+  - Releases: 0.5.4 reaches claude.ai's organization sync through `weigh-in-plugin` (B-19), with
+    Linux musl, Windows msvc and macOS arm64 binaries and `libexec/weighin.exe`. A copy synced
+    from the development tree has none (#76); from 0.5.4 the launcher says so (B-18).
+  - **Pending:** Ryan's Windows check of the synced `weigh-in-plugin` copy, which closes #76.
   - **Pending:** the Cowork session id and the Cowork half of V6 (V1, #16); a marker captured on
     Windows without Git Bash (V7, #21).
 - **Use.** **Pending:** two weeks and 30 presented items of real sittings, whichever comes later
