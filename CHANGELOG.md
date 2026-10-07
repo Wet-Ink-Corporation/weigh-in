@@ -21,6 +21,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - `weighin --dir <folder> scan <path>` reads a relative path under `<folder>`, as it already
   anchored it; before, it read the path against the shell's own directory, so it failed or raised
   another file's questions into the folder's ledger.
+- A command that changes the ledger creates it only when it first writes: `decide`, `defer`,
+  `dismiss` or `reopen` that names no item, an empty `batch`, or `board apply` with no answers no
+  longer leaves an empty ledger in a folder that had none (B-01).
 ## 0.5.4 — 2026-10-06
 
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development

@@ -200,6 +200,39 @@ pub(crate) fn isolated_launcher() -> (tempfile::TempDir, PathBuf, std::ffi::OsSt
     (tmp, launcher, path)
 }
 
+/// Runs `args` with `--dir` on a fresh folder with no ledger, and says whether it succeeded,
+/// what it printed and whether it left a `.weighin/` behind. An `<answers>` argument becomes an
+/// empty directory in that folder.
+pub(crate) fn in_a_folder_with_no_ledger(
+    args: &[&str],
+    stdin: Option<&str>,
+) -> (bool, String, bool) {
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("empty");
+    std::fs::create_dir_all(folder.join("answers")).unwrap();
+    let dir = folder.to_str().unwrap().to_owned();
+    let answers = folder.join("answers").to_str().unwrap().to_owned();
+    let args: Vec<&str> = args
+        .iter()
+        .map(|a| {
+            if *a == "<answers>" {
+                answers.as_str()
+            } else {
+                a
+            }
+        })
+        .collect();
+
+    let (ok, out) = weighin(
+        tmp.path(),
+        "s1",
+        &[&["--dir", &dir], &args[..]].concat(),
+        stdin,
+    );
+
+    (ok, out, folder.join(".weighin").exists())
+}
+
 /// Scans `file` in `repo` and returns the id of the one item it raised.
 pub(crate) fn scan_one(repo: &Path, file: &str) -> String {
     let (ok, out) = weighin(repo, "s1", &["scan", file], None);

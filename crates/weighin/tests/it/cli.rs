@@ -3,9 +3,9 @@
 
 use crate::support::{
     LAUNCHER_LIMIT, MESSAGE, Run, annotate_scanned_and_rescan, bin, capture_both_markers,
-    context_pack_for, hook, isolated_launcher, items_seen_from_a_worktree, launcher_target,
-    reopen_default_from_the_board, run_within, scan_one, scan_written_plan, settle_crlf_question,
-    setup, sit_and_decide, weighin, weighin_env,
+    context_pack_for, hook, in_a_folder_with_no_ledger, isolated_launcher,
+    items_seen_from_a_worktree, launcher_target, reopen_default_from_the_board, run_within,
+    scan_one, scan_written_plan, settle_crlf_question, setup, sit_and_decide, weighin, weighin_env,
 };
 use serde_json::{Value, json};
 use std::io::Write as _;
@@ -883,6 +883,33 @@ fn raise_with_no_blocks_leaves_no_ledger_behind() -> Result<(), Box<dyn std::err
     );
     assert!(!folder.join(".weighin").exists(), "raise created .weighin/");
     Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_decide_that_finds_no_item_leaves_no_ledger_behind() {
+    let (ok, out, created) = in_a_folder_with_no_ledger(&["decide", "wi-000000", "A"], None);
+
+    assert!(!ok && out.contains("no single item matches"), "{out}");
+    assert!(!created, "decide created .weighin/");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn an_empty_batch_leaves_no_ledger_behind() {
+    let (ok, out, created) = in_a_folder_with_no_ledger(&["batch"], Some("[]"));
+
+    assert!(ok, "{out}");
+    assert!(!created, "batch created .weighin/");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_board_apply_with_no_answers_leaves_no_ledger_behind() {
+    let (ok, out, created) = in_a_folder_with_no_ledger(&["board", "apply", "<answers>"], None);
+
+    assert_eq!((ok, out.as_str()), (true, "applied: none\n"));
+    assert!(!created, "board apply created .weighin/");
 }
 
 #[test]

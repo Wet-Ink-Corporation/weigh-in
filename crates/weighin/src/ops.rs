@@ -146,12 +146,17 @@ impl RaiseOutcome {
 /// Fails when the store's path cannot be checked (so an unreadable ledger is never taken for a
 /// missing one), or when an existing store cannot be opened or read.
 pub(crate) fn stored_ledger(env: &Env) -> Result<Option<Ledger>> {
+    existing_store(env)?.map(|s| s.ledger()).transpose()
+}
+
+/// The store, opened only when it exists already. See [`stored_ledger`].
+fn existing_store(env: &Env) -> Result<Option<Store>> {
     let path = env.store_path();
     if path
         .try_exists()
         .with_context(|| format!("checking {}", path.display()))?
     {
-        Store::open(&path)?.ledger().map(Some)
+        Store::open(&path).map(Some)
     } else {
         Ok(None)
     }
@@ -257,7 +262,9 @@ impl Hints {
 
 pub(crate) struct Session<'a> {
     pub(crate) env: &'a Env,
-    pub(crate) store: Store,
+    /// The store, once one exists: it is created by the first append, so a command that fails
+    /// before writing anything leaves no ledger behind (B-01).
+    store: Option<Store>,
     pub(crate) ledger: Ledger,
     tree: TreeCache,
     actor: String,
@@ -270,11 +277,17 @@ pub(crate) struct Session<'a> {
 }
 
 impl<'a> Session<'a> {
+    /// Open the session on the store, if there is one yet; it is created by the first append.
+    ///
     /// # Errors
-    /// Fails when the store cannot be opened or read.
+    /// Fails when the store's path cannot be checked, or an existing store cannot be opened or
+    /// read.
     pub(crate) fn open(env: &'a Env, actor: &str) -> Result<Self> {
-        let store = Store::open(&env.store_path())?;
-        let ledger = store.ledger()?;
+        let store = existing_store(env)?;
+        let ledger = match &store {
+            Some(s) => s.ledger()?,
+            None => Ledger::default(),
+        };
         Ok(Self {
             env,
             store,
@@ -303,6 +316,15 @@ impl<'a> Session<'a> {
         t
     }
 
+    /// The store, created on the first call when there was none.
+    fn store(&mut self) -> Result<&Store> {
+        let env = self.env;
+        match &mut self.store {
+            Some(store) => Ok(store),
+            slot @ None => Ok(slot.insert(Store::open(&env.store_path())?)),
+        }
+    }
+
     /// Append events for `id` guarded on the item being unchanged since this session read it.
     fn write(&mut self, id: &ItemId, events: Vec<LedgerEvent>) -> Result<()> {
         let since = self.ledger.get(id).map_or(0, |i| i.last_position);
@@ -311,7 +333,7 @@ impl<'a> Session<'a> {
             .map(|e| self.env.envelope(e, &self.actor))
             .collect();
         match self
-            .store
+            .store()?
             .append(&envs, &Guard::ItemUnchangedSince(id.clone(), since))?
         {
             Appended::At(last) => {
@@ -323,7 +345,7 @@ impl<'a> Session<'a> {
                 Ok(())
             }
             Appended::Conflict => {
-                self.ledger = self.store.ledger()?;
+                self.ledger = self.store()?.ledger()?;
                 bail!(
                     "{id} changed while this was being written (another session acted on it); re-read with `weighin show {id}` and retry"
                 )
@@ -457,7 +479,7 @@ impl<'a> Session<'a> {
                 .env
                 .envelope(self.raised_event(input, id.clone()), &self.actor);
             match self
-                .store
+                .store()?
                 .append(std::slice::from_ref(&env), &Guard::NotYetRaised(id.clone()))?
             {
                 Appended::At(p) => {
@@ -465,7 +487,7 @@ impl<'a> Session<'a> {
                     return Ok(RaiseOutcome::New(id));
                 }
                 Appended::Conflict => {
-                    self.ledger = self.store.ledger()?;
+                    self.ledger = self.store()?.ledger()?;
                     let same = self.ledger.get(&id).is_some_and(|i| {
                         weighin_core::id::question_key(&i.question)
                             == weighin_core::id::question_key(q)
