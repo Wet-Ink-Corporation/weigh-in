@@ -269,7 +269,7 @@ fn after_tag_and_owner(tail: &str) -> &str {
 
 /// The first comment in `line` that carries a tag or a prose hint, with the text from its tag on
 /// when it has one. A block comment that closes without either (`/* verbose */`) does not hide a
-/// later comment on the same line; that one is looked for in code, outside string literals.
+/// later comment on the same line; that one counts where it follows whitespace.
 fn flagged_comment(line: &str) -> Option<(&str, Option<&str>)> {
     let mut start = comment_start(line)?;
     loop {
@@ -301,25 +301,20 @@ fn comment_start(line: &str) -> Option<usize> {
 }
 
 /// Byte offset of the next comment in `code`, the rest of a line after a block comment closed on
-/// it. That text is code, so a marker inside a `"…"` or `` `…` `` string literal (a URL's `//`, a
-/// `#` fragment) does not start a comment.
+/// it. That text is code, so a marker counts only where a comment can start on its own: at the
+/// start of `code` or after whitespace. A marker glued to other text (a URL's `//` or `/#` in a
+/// string literal) is not a comment. Quotes are not tracked: `'` is a char literal, a string
+/// delimiter or an apostrophe depending on the language, and guessing wrong hides a real comment.
 fn comment_start_in_code(code: &str) -> Option<usize> {
-    let mut quote = None;
-    let mut escaped = false;
+    let mut prev_is_space = true;
     for (i, c) in code.char_indices() {
-        match quote {
-            Some(_) if escaped => escaped = false,
-            Some(_) if c == '\\' => escaped = true,
-            Some(q) if c == q => quote = None,
-            Some(_) => {}
-            None if c == '"' || c == '`' => quote = Some(c),
-            None => {
-                let rest = code.get(i..)?;
-                if MID_LINE_COMMENTS.iter().any(|m| rest.starts_with(m)) {
-                    return Some(i);
-                }
+        if prev_is_space {
+            let rest = code.get(i..)?;
+            if MID_LINE_COMMENTS.iter().any(|m| rest.starts_with(m)) {
+                return Some(i);
             }
         }
+        prev_is_space = c.is_whitespace();
     }
     None
 }
@@ -542,6 +537,15 @@ mod tests {
         let c = scan_todos("/* a */ s = \"q\\\"// TODO: no\"; // TODO: keep this\n");
         assert_eq!(c.len(), 1, "{c:?}");
         assert_eq!(c[0].question, "keep this");
+    }
+
+    #[test]
+    fn a_marker_glued_to_code_after_a_closed_comment_is_not_a_comment() {
+        let c = scan_todos("/* TODOx */ const u = 'http://x/# TODO: fix';\n");
+        assert!(c.is_empty(), "a single-quoted URL is not a comment: {c:?}");
+        let c = scan_todos("/* a */ let c = '\"'; // TODO: real\n");
+        assert_eq!(c.len(), 1, "a quote in a char literal hides nothing: {c:?}");
+        assert_eq!(c[0].question, "real");
     }
 
     #[test]
