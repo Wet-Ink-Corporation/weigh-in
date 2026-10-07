@@ -150,8 +150,10 @@ weighin hook                             hook entry point (reads the hook JSON o
 Measured on 0.5.4 (2026-10-07). Items marked **pending** are v1 exit criteria
 ([v1 plan](docs/v1-plan.md), Phase 3) that have not been measured yet.
 
-- **Tests and lints.** 180 tests on `main` (85 core unit tests, 7 core doctests, 58 CLI unit
-  tests, 30 end to end; one more end-to-end test runs on Windows only). CI runs them, fmt and
+- **Tests and lints.** 245 tests on `main` after the 2026-10-07 review (102 core unit tests, 22
+  core property tests, 7 core doctests, 70 CLI unit tests, 44 CLI integration tests including the
+  eval scorer; one more end-to-end test runs on Windows only). At the 0.5.4 tag the count was
+  180. CI runs them, fmt and
   rustdoc on Linux, Windows and macOS; `cargo deny`, the plugin package check and temper's lint
   ratchet run on Linux. The temper baseline is 0 findings (721 remediated in #82). Atoms pass
   Redkiln's `validate --kb`, with a rejected negative control.
