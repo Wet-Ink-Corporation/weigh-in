@@ -241,11 +241,12 @@ impl<'a> Fence<'a> {
             return None;
         }
         // The fence marks are one byte each, so trimming them leaves what `line[len..]` would.
-        let info = line
-            .trim_start_matches(mark)
-            .split_whitespace()
-            .next()
-            .unwrap_or("");
+        let rest = line.trim_start_matches(mark);
+        // CommonMark: a backtick fence's info string has no backticks; such a line is inline code.
+        if mark == '`' && rest.contains('`') {
+            return None;
+        }
+        let info = rest.split_whitespace().next().unwrap_or("");
         Some(Self { mark, len, info })
     }
 
@@ -460,6 +461,15 @@ mod tests {
     }
 
     #[test]
+    fn a_backtick_line_with_backticks_in_its_info_is_not_a_fence() {
+        let m = parse_markers("```x``` is inline code\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!(m[0].question, "real?");
+        let m = parse_markers("~~~x`y\nq: inside a tilde fence\n~~~\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1, "a tilde fence may carry backticks in its info");
+    }
+
+    #[test]
     fn unterminated_blocks_run_to_the_end() {
         let m = parse_markers("```weigh-in\nq: open ended?\nkind: call");
         assert_eq!(m.len(), 1);
@@ -551,7 +561,7 @@ fn ends_word(rest: Option<&str>) -> bool {
 
 #[cfg(test)]
 mod tripwire_tests {
-    use super::authority_tripwire;
+    use super::{AUTHORITY_WORDS, WHOLE_WORDS, authority_tripwire};
 
     #[test]
     fn catches_authority_words_at_word_starts() {
@@ -598,6 +608,13 @@ mod tripwire_tests {
         }
         assert_eq!(authority_tripwire("Log the PII?"), Some("pii"));
         assert_eq!(authority_tripwire("GDPR-safe?"), Some("gdpr"));
+    }
+
+    #[test]
+    fn every_whole_word_is_an_authority_word() {
+        for w in WHOLE_WORDS {
+            assert!(AUTHORITY_WORDS.contains(w), "{w} is not in AUTHORITY_WORDS");
+        }
     }
 
     #[test]
