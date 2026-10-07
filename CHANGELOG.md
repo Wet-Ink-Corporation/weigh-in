@@ -7,26 +7,23 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 ## Unreleased
 
 - Deciding an item raised from a source comment writes `→ Weigh-In …` only when the comment is
-  the whole line. A line that starts with a line comment of the file's language, judged by its
-  name (`//` in C, Rust, JavaScript and the like; `#` in Python, shell, YAML, TOML, Dockerfiles
-  and Makefiles; `#` and `//` in PHP and Terraform; `--` in SQL and Lua; `'` and `REM ` in
-  Visual Basic; `REM ` in batch files, in any case; in a file of unknown language `//`, `#`,
-  `--` or `REM ` before a space), gets the arrow at its end, unless it is a `#!` shebang, holds
-  PHP's `?>`, ends in a `\` line splice, or already holds a line break (a lone CR, U+0085,
-  U+2028 or U+2029). A line that is exactly one `/* … */` or `<!-- … -->`, with nothing before
-  the opener or after the closer, gets it just before the closer. Anything else is left as it
-  was, a comment after code (`x = 1  # TODO`) included. In code the option is written only when
-  it holds nothing but letters, digits, spaces and `. , : ; - _ + = / ! ?`, plus `%` outside
-  batch files and `'` where single-quoted strings stay on one line (never `'''`); and a line is
-  left alone when it holds a common closer of a string or block comment (a `"`, a backtick, `{`,
-  `}`, `<`, `>`, `*/`, `]]`, `]=`, `'''`, `=#`, `]#`, `###` or `$$`, and `'` in shell, the other
-  `#` languages, SQL and files of unknown language). The receipt then says
-  `not annotated <file> (<reason>)`. Before, the arrow went at the end of the line and could
-  break the code. The reading is still per line, so a whole-line comment inside a string opened
-  on an earlier line can still be changed: a byte string (`b"""…"""` in Python, `b"…"` in
-  Rust) cannot hold the arrow, and a string with its own delimiter (Perl's `q!…!`) may end on
-  any character. Markdown and plain-text files (`.txt`, `.rst`, `.org`, `.adoc`) still get the
-  arrow at the end of the line, whatever the option holds apart from a line break.
+  the whole line. The rule, in the file's language (judged by its name):
+  (a) a line that starts with a line comment opener (`//`, `#`, `--`, `'`, `REM `) gets the
+  note at its end, unless it is a `#!` shebang, holds PHP's `?>`, ends in a `\` or already
+  holds a line break; (b) a line that is exactly one `/* … */` or `<!-- … -->` gets the note
+  just before the closer; (c) markdown and plain-text files (`.txt`, `.rst`, `.org`, `.adoc`)
+  get it at the end of the line, as before; (d) anything else, a comment after code
+  (`x = 1  # TODO`) included, is left alone, and the receipt says
+  `not annotated <file> (<reason>)`. Before, the note went at the end of any line and could
+  break the code.
+- In code, a line is also left alone when it may close a string or comment opened above it
+  (it holds `"`, a backtick, `{`, `}`, `<`, `>`, `*/`, `]]`, `]=`, `=#`, `]#` or `###`; or `'`
+  outside Visual Basic and batch files; or `/` and `!` in `#` languages such as Perl and Ruby;
+  or `$` in SQL), when the option holds anything but letters, digits, spaces and
+  `. , : ; - _ + = / ! ? ' %` (less those closers, and `%` in batch files), and when the file
+  may hold a byte string (`b"…"`, `br#"…"#`) or declares a coding other than UTF-8. What
+  remains is a string with a delimiter of its own (Perl's `q,…,`) that ends on an allowed
+  character.
 - In `batch`, `@N` always names the Nth raise in the array. A raise that fails, or cannot be
   parsed, keeps its place: a ref to it is refused, and later refs still reach their own items;
   before, every later ref moved to the next item raised, so an op could act on the wrong item.

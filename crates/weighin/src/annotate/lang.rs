@@ -5,31 +5,30 @@
 
 use std::path::Path;
 
-/// A block comment: its opener, its closer and the text an option written inside it must not
-/// hold.
+/// A block comment: its opener, its closer and any text an option written inside it must not
+/// hold beyond what every code comment refuses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Block {
     /// `/*` or `<!--`.
     pub(super) open: &'static str,
     /// `*/` or `-->`.
     pub(super) close: &'static str,
-    /// `/*`, which opens a nested comment in Rust, Swift and Kotlin; or `--`, which XML does not
-    /// allow inside `<!-- -->`.
-    pub(super) option_forbids: &'static str,
+    /// `--`, which XML does not allow inside `<!-- -->`.
+    pub(super) option_forbids: Option<&'static str>,
 }
 
 /// `/* … */`.
 const STAR: Block = Block {
     open: "/*",
     close: "*/",
-    option_forbids: "/*",
+    option_forbids: None,
 };
 
 /// `<!-- … -->`.
 const HTML: Block = Block {
     open: "<!--",
     close: "-->",
-    option_forbids: "--",
+    option_forbids: Some("--"),
 };
 
 /// The comment syntax of a source file.
@@ -73,38 +72,42 @@ impl Lang {
         })
     }
 
-    /// Whether `trimmed`, a line without its surrounding whitespace, starts with a line comment
-    /// opener of this language. A `#!` shebang is not one: its text is the interpreter's
-    /// arguments.
-    pub(super) fn opens_line_comment(self, trimmed: &str) -> bool {
+    /// The text after the line comment opener `trimmed`, a line without its surrounding
+    /// whitespace, starts with in this language; `None` when it starts with none. A `#!` shebang
+    /// is not one: its text is the interpreter's arguments.
+    pub(super) fn line_comment_body(self, trimmed: &str) -> Option<&str> {
         let opens = |opener: &str, refused: &[char]| {
             trimmed
                 .strip_prefix(opener)
-                .is_some_and(|rest| !rest.starts_with(refused))
+                .filter(|rest| !rest.starts_with(refused))
         };
         match self {
             Self::CFamily => opens("//", &[]),
-            Self::Css | Self::Markup => false,
-            Self::HashSlash => opens("//", &[]) || opens("#", &['[', '!']),
+            Self::Css | Self::Markup => None,
+            Self::HashSlash => opens("//", &[]).or_else(|| opens("#", &['[', '!'])),
             Self::Hash => opens("#", &['!']),
             Self::Sql => opens("--", &[]),
             Self::Dashes => opens("--", &['[']),
-            Self::Basic => opens("'", &[]) || opens_rem(trimmed),
-            Self::Batch => opens_rem(trimmed),
-            Self::Unknown => {
-                ["//", "#", "--"]
-                    .into_iter()
-                    .any(|opener| opens_before_space(trimmed, opener))
-                    || trimmed.starts_with("REM ")
-            }
+            Self::Basic => opens("'", &[]).or_else(|| after_rem(trimmed)),
+            Self::Batch => after_rem(trimmed),
+            Self::Unknown => ["//", "#", "--", "REM"]
+                .into_iter()
+                .find_map(|opener| after_before_space(trimmed, opener)),
         }
     }
 
-    /// Whether a single-quoted string in this language may run over several lines, so a `'`
-    /// on a comment line could close one opened above: shell and the other `#` languages, SQL,
-    /// and a file whose language is not known.
-    pub(super) fn single_quotes_span_lines(self) -> bool {
-        matches!(self, Self::Hash | Self::Sql | Self::Unknown)
+    /// The characters that, besides the quotes and brackets of every language, could close a
+    /// string opened on an earlier line: `'` wherever a single-quoted string may run on (all but
+    /// Visual Basic and batch files), `/` and `!` where Perl and Ruby take them as a string's
+    /// own delimiter, and `$` where Postgres's `$tag$` quotes do.
+    pub(super) fn closers(self) -> &'static [char] {
+        match self {
+            Self::Basic | Self::Batch => &[],
+            Self::CFamily | Self::Css | Self::HashSlash | Self::Dashes | Self::Markup => &['\''],
+            Self::Hash => &['\'', '/', '!'],
+            Self::Sql => &['\'', '$'],
+            Self::Unknown => &['\'', '/', '!', '$'],
+        }
     }
 
     /// Whether a `%` in a comment may still be expanded: batch files read `%` before `REM`, so
@@ -124,44 +127,48 @@ impl Lang {
     }
 }
 
-/// Whether `trimmed` starts with `REM ` in any case, as Visual Basic and batch files read it.
-fn opens_rem(trimmed: &str) -> bool {
+/// The text after `REM ` when `trimmed` starts with it in any case, as Visual Basic and batch
+/// files read it.
+fn after_rem(trimmed: &str) -> Option<&str> {
     trimmed
         .get(..4)
-        .is_some_and(|head| head.eq_ignore_ascii_case("REM "))
+        .filter(|head| head.eq_ignore_ascii_case("REM "))
+        .and_then(|_| trimmed.get(4..))
 }
 
-/// Whether `trimmed` starts with `opener` followed by whitespace or the line's end, as a file
-/// of unknown language needs (`#define` is not a comment there).
-fn opens_before_space(trimmed: &str, opener: &str) -> bool {
+/// The text after `opener` when `trimmed` starts with it followed by whitespace or the line's
+/// end, as a file of unknown language needs (`#define` is not a comment there).
+fn after_before_space<'a>(trimmed: &'a str, opener: &str) -> Option<&'a str> {
     trimmed
         .strip_prefix(opener)
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+        .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
 }
+
+/// The (lowercased) names of files read with `#` comments, whatever their extension.
+const HASH_NAMES: [&str; 17] = [
+    "dockerfile",
+    "containerfile",
+    "makefile",
+    "gnumakefile",
+    "gemfile",
+    "rakefile",
+    "vagrantfile",
+    "procfile",
+    "justfile",
+    ".gitignore",
+    ".gitattributes",
+    ".dockerignore",
+    ".editorconfig",
+    ".env",
+    ".bashrc",
+    ".zshrc",
+    ".profile",
+];
 
 /// The language of a file known by its whole (lowercased) name.
 fn by_name(name: &str) -> Option<Lang> {
-    let hash = matches!(
-        name,
-        "dockerfile"
-            | "containerfile"
-            | "makefile"
-            | "gnumakefile"
-            | "gemfile"
-            | "rakefile"
-            | "vagrantfile"
-            | "procfile"
-            | "justfile"
-            | ".gitignore"
-            | ".gitattributes"
-            | ".dockerignore"
-            | ".editorconfig"
-            | ".env"
-            | ".bashrc"
-            | ".zshrc"
-            | ".profile"
-    ) || name.starts_with("dockerfile.")
-        || name.starts_with(".env.");
+    let hash =
+        HASH_NAMES.contains(&name) || name.starts_with("dockerfile.") || name.starts_with(".env.");
     hash.then_some(Lang::Hash)
 }
 
@@ -254,7 +261,7 @@ mod tests {
             (Lang::Unknown, "' TODO"),
         ]
         .into_iter()
-        .map(|(lang, line)| lang.opens_line_comment(line))
+        .map(|(lang, line)| lang.line_comment_body(line).is_some())
         .collect();
 
         assert_eq!(

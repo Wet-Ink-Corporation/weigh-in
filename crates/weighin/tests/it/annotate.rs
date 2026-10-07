@@ -195,6 +195,36 @@ const LEFT_ALONE: &[(&str, &str, &str)] = &[
         "echo 'a\n# TODO: pick a word'\n",
         "the line may close a string or comment opened above",
     ),
+    (
+        "src/q.php",
+        "<?php\n$s = 'a\n// TODO: pick a cap';\n",
+        "the line may close a string or comment opened above",
+    ),
+    (
+        "src/h.php",
+        "<?php\n$s = 'a\n# TODO: pick a cap';\n",
+        "the line may close a string or comment opened above",
+    ),
+    (
+        "src/q.js",
+        "const s = 'a\\\n// TODO: pick a cap';\n",
+        "the line may close a string or comment opened above",
+    ),
+    (
+        "src/b.py",
+        "data = b\"\"\"\n# TODO: pick a cap\n\"\"\"\n",
+        "the file may hold only ASCII where the note would go",
+    ),
+    (
+        "src/b.rs",
+        "const S: &[u8] = br#\"\n// TODO: pick a cap\n\"#;\n",
+        "the file may hold only ASCII where the note would go",
+    ),
+    (
+        "src/ascii.py",
+        "# -*- coding: ascii -*-\n# TODO: pick a cap\n",
+        "the file may hold only ASCII where the note would go",
+    ),
 ];
 
 /// Whole-line comments inside a string opened on an earlier line, with an option that would
@@ -224,6 +254,12 @@ const SIGIL_OPTIONS: &[(&str, &str, &str)] = &[
         "use strict;\nmy $x = <<\"EOT\";\n# TODO: pick a cap\nEOT\n",
         "me@example",
     ),
+    (
+        "src/a.php",
+        "<?php\n$s = '\n// TODO: pick a cap\n';\n",
+        "don't",
+    ),
+    ("src/r.pl", "my $x = qr/a\n# TODO: pick a cap\n/x;\n", "a/b"),
 ];
 
 #[test]

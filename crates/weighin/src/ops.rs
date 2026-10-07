@@ -17,7 +17,9 @@ use weighin_core::id::{EXTENDED_HEX_LEN, ItemId};
 use weighin_core::marker::{Authority, Door, Kind, Marker, authority_tripwire};
 use weighin_core::{Item, Ledger, Status};
 
-use crate::annotate::{Decision, Lang, Reading, Skip, Syntax, annotate_source_line};
+use crate::annotate::{
+    Decision, Lang, Reading, Skip, Syntax, annotate_source_line, file_fits_note,
+};
 use crate::env::{self, Env};
 use crate::git;
 use crate::store::{Appended, Guard, Store};
@@ -874,6 +876,8 @@ impl<'a> Session<'a> {
             option,
             date: &self.today,
         };
+        // The line's own skip, when it has one, is the more precise reason; the file's comes next.
+        let fits = file_fits_note(&text, reading);
         // Rebuild with each line's own terminator so a CRLF file stays CRLF. `found` is the
         // outcome on the question's line: `None` until it is found, then the skip, if any.
         let mut found = None;
@@ -887,7 +891,8 @@ impl<'a> Session<'a> {
                 },
             };
             if found.is_none() && body.trim() == first && !body.contains("→ Weigh-In") {
-                let rewritten = annotate_source_line(body, &decision, reading);
+                let rewritten = annotate_source_line(body, &decision, reading)
+                    .and_then(|line| fits.map(|()| line));
                 joined.push_str(rewritten.as_deref().unwrap_or(body));
                 found = Some(rewritten.err());
             } else {

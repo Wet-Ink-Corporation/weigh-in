@@ -5,23 +5,19 @@
 //! A prose line (markdown, plain text) gets the note at its end. A code line gets it only when
 //! a comment is the whole line, read in the file's language ([`Lang`], from its name):
 //! - a line that starts with one of the language's line comment openers (not a `#!` shebang)
-//!   gets it at the end, unless the line holds PHP's `?>`, which ends the comment, ends in a `\`
-//!   line splice, or already holds a line break (a lone CR, U+0085, U+2028 or U+2029);
+//!   gets it at the end, unless the line holds PHP's `?>`, ends in a `\` line splice, or
+//!   already holds a line break (a lone CR, U+0085, U+2028 or U+2029);
 //! - a line that is exactly one block comment, `/* … */` or `<!-- … -->`, with nothing before
 //!   its opener or after its closer, gets it just before the closer.
 //!
-//! Anything else is left as it was, a comment after code (`x = 1  # TODO`) included. In code the
-//! option is written only when it holds nothing but letters, digits, spaces and
-//! `. , : ; - _ + = / ! ?`, with `%` outside batch files and `'` where single-quoted strings stay
-//! on one line, never three in a row ([`Skip::MayCloseString`] otherwise), and a line holding a
-//! common closer of a string or block comment is left alone ([`Skip::MayCloseAbove`]).
+//! Anything else is left as it was, a comment after code (`x = 1  # TODO`) included.
 //!
-//! The reading is per line, so a whole-line comment may really sit inside a string or block
-//! comment opened on an earlier line, and the note then changes that string. Those two refusals
-//! narrow the risk but cannot close it: a byte string (`b"""…"""`, `br#"…"#`) cannot hold the
-//! note's `→`, and a string with a delimiter of its own (Perl's `q!…!`, Ruby's `%q/…/`) may end
-//! on any character. That residual risk is a known cost of the per-line rule; an ASCII note in
-//! code would remove the byte-string case, and changing the marker is the owner's call.
+//! The reading is per line, so a whole-line comment may sit inside a string or block comment
+//! opened on an earlier line. Three refusals keep the note from closing or breaking one: a line
+//! holding a closer of a string or comment ([`may_close`]), an option holding anything but a
+//! few safe characters ([`safe_option`]), and a file that may need ASCII where the note goes
+//! ([`file_fits_note`]). A string with a delimiter of its own (Perl's `q,…,`) may still end on
+//! an allowed character: that residual risk is the cost of the per-line rule.
 
 mod lang;
 
@@ -89,6 +85,8 @@ pub(crate) enum Skip {
     /// The line holds text that could close a string, template, JSX text or block comment
     /// opened on an earlier line (see [`may_close`]), after which the note would be code.
     MayCloseAbove,
+    /// The code file may need ASCII where the note's `→` would go (see [`file_fits_note`]).
+    AsciiOnly,
 }
 
 impl Skip {
@@ -104,47 +102,43 @@ impl Skip {
                 "the option holds a character that could end the comment or a string around it"
             }
             Self::MayCloseAbove => "the line may close a string or comment opened above",
+            Self::AsciiOnly => "the file may hold only ASCII where the note would go",
         }
     }
 }
 
-/// The characters that could end a string, template or JSX text: quotes, backticks, `${`/`{`
-/// interpolation braces and JSX's tag brackets (which cover `-->` and `?>` too).
+/// The characters that could end a string, template or JSX text in any language: quotes,
+/// backticks, `${`/`{` interpolation braces and JSX's tag brackets (which cover `-->` and `?>`).
 const STRING_CLOSERS: [char; 6] = ['"', '`', '{', '}', '<', '>'];
 
-/// The texts other than [`STRING_CLOSERS`] that close a string or block comment: `*/`, Lua's
-/// `]]` and `]=`, Python's `'''`, Julia's `=#`, Nim's `]#`, CoffeeScript's `###` and
-/// Postgres's `$$`.
-const OTHER_CLOSERS: [&str; 8] = ["*/", "]]", "]=", "'''", "=#", "]#", "###", "$$"];
+/// The texts that close a block comment or long string: `*/`, Lua's `]]` and `]=`, Julia's
+/// `=#`, Nim's `]#` and CoffeeScript's `###`.
+const OTHER_CLOSERS: [&str; 6] = ["*/", "]]", "]=", "=#", "]#", "###"];
 
-/// Whether `text`, a line of a file in `lang`, could close a string, template, JSX text or block
-/// comment opened on an earlier line: [`STRING_CLOSERS`], [`OTHER_CLOSERS`], and `'` in the
-/// languages whose single-quoted strings span lines (shell, SQL and files of unknown language).
-fn may_close(text: &str, lang: Lang) -> bool {
+/// Whether a comment line of a file in `lang`, `text` as a whole and `body` after its opener,
+/// could close a string, template, JSX text or block comment opened on an earlier line:
+/// [`STRING_CLOSERS`] or [`OTHER_CLOSERS`] in `text`, or one of the language's own
+/// [`Lang::closers`] in `body`.
+fn may_close(text: &str, body: &str, lang: Lang) -> bool {
     text.contains(STRING_CLOSERS)
         || OTHER_CLOSERS.iter().any(|c| text.contains(c))
-        || (lang.single_quotes_span_lines() && text.contains('\''))
+        || body.contains(lang.closers())
 }
 
-/// Whether `c` may be written into a comment of a file in `lang`: a letter, a digit, a space or
-/// one of `. , : ; - _ + = / ! ?`; `%` except where batch files expand it; and `'` where
-/// single-quoted strings stay on one line. Nothing else, so no sigil, bracket, quote or
+/// Whether every character of `option` may be written into a comment of a file in `lang`: a
+/// letter, a digit, a space or one of `. , : ; - _ + = / ! ? '`, and `%` where batch files do
+/// not expand it; never one of the language's [`Lang::closers`]. So no sigil, bracket, quote or
 /// backslash can interpolate into or close a string the comment may sit in.
-fn safe_in_code(c: char, lang: Lang) -> bool {
-    c.is_alphanumeric()
-        || matches!(
-            c,
-            ' ' | '.' | ',' | ':' | ';' | '-' | '_' | '+' | '=' | '/' | '!' | '?'
-        )
-        || (c == '%' && !lang.expands_percent())
-        || (c == '\'' && !lang.single_quotes_span_lines())
-}
-
-/// Whether `option` may be written into a comment of a file in `lang`: every character is
-/// [`safe_in_code`], and it holds no `'''`, which closes Groovy's and Dart's multi-line strings
-/// even where a lone `'` is safe.
 fn safe_option(option: &str, lang: Lang) -> bool {
-    option.chars().all(|c| safe_in_code(c, lang)) && !option.contains("'''")
+    option.chars().all(|c| {
+        let allowed = c.is_alphanumeric()
+            || matches!(
+                c,
+                ' ' | '.' | ',' | ':' | ';' | '-' | '_' | '+' | '=' | '/' | '!' | '?' | '\''
+            )
+            || (c == '%' && !lang.expands_percent());
+        allowed && !lang.closers().contains(&c)
+    })
 }
 
 /// Whether `c` could end a line or a line comment: a control character (`\r` and U+0085
@@ -152,6 +146,62 @@ fn safe_option(option: &str, lang: Lang) -> bool {
 /// JavaScript.
 fn ends_a_line(c: char) -> bool {
     c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')
+}
+
+/// Whether a note may go anywhere in `text`, a whole file read as `reading`: always in prose;
+/// in code only when nothing in it may need ASCII where the note's `→` lands.
+///
+/// # Errors
+/// [`Skip::AsciiOnly`] when the code may hold a byte string ([`holds_byte_string`]), or its
+/// first two lines declare an encoding other than UTF-8 ([`declares_other_coding`]).
+pub(crate) fn file_fits_note(text: &str, reading: Reading) -> Result<(), Skip> {
+    match reading.syntax {
+        Syntax::Code if holds_byte_string(text) || declares_other_coding(text) => {
+            Err(Skip::AsciiOnly)
+        }
+        Syntax::Code | Syntax::Prose => Ok(()),
+    }
+}
+
+/// Whether `text` holds what may open a byte string, which takes only ASCII: `b'`, `b"`, or
+/// `br`/`rb` before a quote (`br#` for Rust), in any case, not glued to a word before it.
+fn holds_byte_string(text: &str) -> bool {
+    const PREFIXES: [&str; 7] = ["b'", "b\"", "br'", "br\"", "br#", "rb'", "rb\""];
+    let mut prev: Option<char> = None;
+    text.char_indices().any(|(at, c)| {
+        let glued = prev.is_some_and(|p| p.is_alphanumeric() || p == '_');
+        prev = Some(c);
+        !glued
+            && text
+                .get(at..)
+                .is_some_and(|rest| starts_with_any(rest, &PREFIXES))
+    })
+}
+
+/// Whether one of the first two lines of `text` declares an encoding other than UTF-8, as
+/// Python's PEP 263 and Ruby read `coding: <name>` or `coding=<name>`.
+fn declares_other_coding(text: &str) -> bool {
+    text.lines().take(2).any(|line| {
+        line.split("coding").skip(1).any(|rest| {
+            rest.strip_prefix([':', '='])
+                .and_then(|r| {
+                    r.trim_start()
+                        .split(|c: char| !(c.is_alphanumeric() || matches!(c, '-' | '_' | '.')))
+                        .next()
+                })
+                .is_some_and(|name| {
+                    !name.is_empty() && !starts_with_any(name, &["utf-8", "utf8", "utf_8"])
+                })
+        })
+    })
+}
+
+/// Whether `text` starts with one of `prefixes`, in any ASCII case.
+fn starts_with_any(text: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|p| {
+        text.get(..p.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(p))
+    })
 }
 
 /// `line` of a file read as `reading`, with the note of `decision` written into it, or why it
@@ -184,16 +234,14 @@ fn annotate_code(line: &str, decision: &Decision<'_>, lang: Lang) -> Result<Stri
     if let Some(&block) = lang.blocks().iter().find(|b| trimmed.starts_with(b.open)) {
         return annotate_block(line, decision, block, lang);
     }
-    if !lang.opens_line_comment(trimmed) {
-        return Err(Skip::NotWholeLine);
-    }
+    let body = lang.line_comment_body(trimmed).ok_or(Skip::NotWholeLine)?;
     if trimmed.contains("?>") {
         return Err(Skip::CodeAfterComment);
     }
     if trimmed.ends_with('\\') || line.chars().any(|c| c != '\t' && ends_a_line(c)) {
         return Err(Skip::RunsOn);
     }
-    if may_close(trimmed, lang) {
+    if may_close(trimmed, body, lang) {
         return Err(Skip::MayCloseAbove);
     }
     Ok(format!("{line} {}", decision.note()))
@@ -208,7 +256,10 @@ fn annotate_block(
     block: Block,
     lang: Lang,
 ) -> Result<String, Skip> {
-    if decision.option.contains(block.option_forbids) {
+    if block
+        .option_forbids
+        .is_some_and(|forbidden| decision.option.contains(forbidden))
+    {
         return Err(Skip::UnsafeText);
     }
     let indent = line.len().saturating_sub(line.trim_start().len());
@@ -225,7 +276,7 @@ fn annotate_block(
     if inner.contains(block.open) {
         return Err(Skip::Nested);
     }
-    if may_close(inner, lang) {
+    if may_close(inner, inner, lang) {
         return Err(Skip::MayCloseAbove);
     }
     let head = line
@@ -385,12 +436,12 @@ mod tests {
     fn a_code_option_of_letters_digits_and_safe_punctuation_is_written() {
         let option = "Größe 4k, max: 50% - a_b + c = d/e! ok? ja; 1.5";
 
-        let out = write(Syntax::Code, Lang::Hash, "# TODO: pick", option);
+        let out = write(Syntax::Code, Lang::CFamily, "// TODO: pick", option);
 
         assert_eq!(
             out,
             Ok(format!(
-                "# TODO: pick → Weigh-In wi-abc123: decided {option} (2026-10-07)"
+                "// TODO: pick → Weigh-In wi-abc123: decided {option} (2026-10-07)"
             ))
         );
     }
@@ -410,26 +461,93 @@ mod tests {
     }
 
     #[test]
-    fn a_code_option_with_an_apostrophe_fits_where_single_quoted_strings_stay_on_one_line() {
+    fn a_code_option_with_an_apostrophe_fits_only_where_a_quote_cannot_close_a_string() {
         let note = "→ Weigh-In wi-abc123: decided don't cache (2026-10-07)";
         let read = |lang: Lang, line: &str| write(Syntax::Code, lang, line, "don't cache");
 
         assert_eq!(
             [
-                read(Lang::CFamily, "// TODO: cache?"),
                 read(Lang::Basic, "' TODO: cache?"),
+                read(Lang::Batch, "REM TODO: cache?"),
+                read(Lang::CFamily, "// TODO: cache?"),
+                read(Lang::HashSlash, "# TODO: cache?"),
                 read(Lang::Hash, "# TODO: cache?"),
                 read(Lang::Sql, "-- TODO: cache?"),
+                read(Lang::Dashes, "-- TODO: cache?"),
                 read(Lang::Unknown, "# TODO: cache?"),
             ],
             [
-                Ok(format!("// TODO: cache? {note}")),
                 Ok(format!("' TODO: cache? {note}")),
+                Ok(format!("REM TODO: cache? {note}")),
+                Err(Skip::MayCloseString),
+                Err(Skip::MayCloseString),
+                Err(Skip::MayCloseString),
                 Err(Skip::MayCloseString),
                 Err(Skip::MayCloseString),
                 Err(Skip::MayCloseString),
             ]
         );
+    }
+
+    #[test]
+    fn a_slash_or_bang_is_refused_where_a_string_may_take_it_as_its_delimiter() {
+        let read = |lang: Lang, line: &str, option: &str| {
+            write(Syntax::Code, lang, line, option).map(|_| ())
+        };
+
+        assert_eq!(
+            [
+                read(Lang::Hash, "# TODO: pick a cap", "a/b"),
+                read(Lang::Hash, "# TODO: pick a cap", "now!"),
+                read(Lang::Unknown, "# TODO: pick a cap", "a/b"),
+                read(Lang::CFamily, "// TODO: pick a cap", "a/b!"),
+            ],
+            [
+                Err(Skip::MayCloseString),
+                Err(Skip::MayCloseString),
+                Err(Skip::MayCloseString),
+                Ok(()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_code_file_that_may_hold_only_ascii_where_the_note_goes_is_refused() {
+        let code = |text: &str| {
+            file_fits_note(
+                text,
+                Reading {
+                    syntax: Syntax::Code,
+                    lang: Lang::Unknown,
+                },
+            )
+        };
+
+        for text in [
+            "data = b'''\n# TODO: pick a cap\n'''\n",
+            "data = B\"\"\"\n# TODO: pick a cap\n\"\"\"\n",
+            "let s = b\"\n// TODO: pick a cap\n\";\n",
+            "let s = br#\"\n// TODO: pick a cap\n\"#;\n",
+            "x = (rb'a\n# TODO: pick a cap\n')\n",
+            "# -*- coding: ascii -*-\n# TODO: pick a cap\n",
+            "#!/usr/bin/env python\n# vim: set fileencoding=latin-1 :\n# TODO: pick\n",
+            "# encoding: us-ascii\n# TODO: pick a cap\n",
+        ] {
+            assert_eq!(code(text), Err(Skip::AsciiOnly), "{text:?}");
+        }
+        for text in [
+            "# TODO: pick a cap\n",
+            "# -*- coding: utf-8 -*-\n# TODO: pick a cap\n",
+            "sub = \"a\"\nverb'x\n// TODO: pick\n",
+            "\n\n# coding: ascii\n# TODO: pick a cap\n",
+        ] {
+            assert_eq!(code(text), Ok(()), "{text:?}");
+        }
+        let prose = Reading {
+            syntax: Syntax::Prose,
+            lang: Lang::Unknown,
+        };
+        assert_eq!(file_fits_note("x = b'a'\n- Shard?\n", prose), Ok(()));
     }
 
     #[test]
@@ -459,7 +577,11 @@ mod tests {
     /// from and where the note should go.
     const CORPUS: &[(&str, &str, Want)] = &[
         ("a.rs", "    // TODO: pick a cap", Want::End),
-        ("a.rs", "    // TODO: don't cache it", Want::End),
+        (
+            "a.rs",
+            "    // TODO: don't cache it",
+            Want::Skipped(Skip::MayCloseAbove),
+        ),
         ("a.rs", "/// TODO: document the cap", Want::End),
         (
             "a.c",
@@ -490,8 +612,18 @@ mod tests {
         ("a.php", "# TODO: pick a cap", Want::End),
         ("a.php", "// TODO: pick a cap", Want::End),
         ("a.jsx", "  // TODO: pick a prop", Want::End),
-        ("run", "# TODO: a // b", Want::End),
-        ("run", "    // TODO: see http://x", Want::End),
+        ("run", "# TODO: a // b", Want::Skipped(Skip::MayCloseAbove)),
+        (
+            "run",
+            "    // TODO: see http://x",
+            Want::Skipped(Skip::MayCloseAbove),
+        ),
+        (
+            "a.py",
+            "# TODO: see http://x",
+            Want::Skipped(Skip::MayCloseAbove),
+        ),
+        ("a.c", "// TODO: see http://x", Want::End),
         ("run", "REM TODO: pick a drive", Want::End),
         ("run", "/* TODO: pick */", Want::BeforeCloser("*/")),
         // Trailing comments and markers that are code or text: left alone.
@@ -743,6 +875,34 @@ mod tests {
         // F4: Visual Basic's and batch's `REM` is not case-sensitive.
         ("a.bat", "rem TODO: pick a drive", Want::End),
         ("a.vb", "Rem TODO: pick a start", Want::End),
+        // Review round 12, F1: a `'` may close a PHP, JavaScript or Lua string opened above.
+        (
+            "a.php",
+            "// TODO: pick a cap';",
+            Want::Skipped(Skip::MayCloseAbove),
+        ),
+        (
+            "a.php",
+            "# TODO: pick a cap';",
+            Want::Skipped(Skip::MayCloseAbove),
+        ),
+        (
+            "a.js",
+            "// TODO: pick a cap';",
+            Want::Skipped(Skip::MayCloseAbove),
+        ),
+        (
+            "init.lua",
+            "-- TODO: x'",
+            Want::Skipped(Skip::MayCloseAbove),
+        ),
+        // F3: Postgres's `$tag$` dollar quote, and a Perl regex's own delimiter.
+        (
+            "a.sql",
+            "-- TODO: x $body$;",
+            Want::Skipped(Skip::MayCloseAbove),
+        ),
+        ("a.pl", "# TODO: x/x;", Want::Skipped(Skip::MayCloseAbove)),
     ];
 
     #[test]
