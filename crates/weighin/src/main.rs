@@ -677,9 +677,12 @@ fn batch(env: &Env, a: BatchArgs, out: &mut impl Write) -> Result<()> {
     for (n, op) in ops.iter().enumerate() {
         let applied = match op {
             Ok(op) => s.apply(op),
-            Err(e) => {
+            Err(bad) => {
+                if bad.raise {
+                    s.skip_raise();
+                }
                 failed += 1;
-                receipts.line(format_args!("✗ op {n}: {e:#}"));
+                receipts.line(format_args!("✗ op {n}: {}", bad.error));
                 continue;
             }
         };

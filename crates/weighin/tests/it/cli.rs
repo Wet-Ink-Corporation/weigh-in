@@ -258,6 +258,34 @@ fn batch_refs_reach_items_raised_in_the_same_call() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_ref_to_an_unparsable_raise_names_no_item() {
+    let (_tmp, repo) = setup();
+    let batch = json!([
+        {"op": "raise", "q": "Retention per record?", "source_line": "twelve"},
+        {"op": "raise", "q": "Which queue, A or B?"},
+        {"op": "dismiss", "id": "@1", "why": "moot", "reason": "r"},
+        {"op": "present", "id": "@2"}
+    ]);
+
+    let (ok, out) = weighin(&repo, "s9", &["batch"], Some(&batch.to_string()));
+
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(!ok, "{out}");
+    assert_eq!(
+        lines.get(2),
+        Some(&"✗ op 2: `@1`: raise 1 in this batch failed, so it names no item"),
+        "{out}"
+    );
+    assert!(
+        lines
+            .get(3)
+            .is_some_and(|l| l.starts_with("✓ presented wi-")),
+        "{out}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn authority_items_are_not_papered_over() {
     let (_tmp, repo) = setup();
     let batch = json!([

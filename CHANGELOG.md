@@ -12,6 +12,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   line break, a control character, `*/` or `-->` is left as it was, and the receipt says
   `not annotated <file> (<reason>)`; before, the arrow went at the end of the line and could
   break the code.
+- In `batch`, `@N` always names the Nth raise in the array. A raise that fails, or cannot be
+  parsed, keeps its place: a ref to it is refused, and later refs still reach their own items;
+  before, every later ref moved to the next item raised, so an op could act on the wrong item.
 ## 0.5.4 — 2026-10-06
 
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development

@@ -261,8 +261,9 @@ pub(crate) struct Session<'a> {
     pub(crate) ledger: Ledger,
     tree: TreeCache,
     actor: String,
-    /// Ids raised earlier in this batch, so later ops can say `@1`, `@2`, ...
-    raised: Vec<ItemId>,
+    /// One slot per raise op earlier in this batch, so later ops can say `@1`, `@2`, ...: the
+    /// raised id, or `None` when that raise failed (it keeps its place, so no ref shifts).
+    raised: Vec<Option<ItemId>>,
     /// The date atoms and source annotations carry (`YYYY-MM-DD`), read once when the session
     /// opens so every write in a batch carries the same day.
     today: String,
@@ -336,12 +337,15 @@ impl<'a> Session<'a> {
             let Ok(k) = n.parse::<usize>() else {
                 bail!("`{needle}`: refs are @1, @2, ... (raises earlier in this batch)");
             };
-            let id = self.raised.get(k.wrapping_sub(1)).ok_or_else(|| {
+            let slot = self.raised.get(k.wrapping_sub(1)).ok_or_else(|| {
                 anyhow!(
                     "`{needle}`: only {} raise(s) so far in this batch",
                     self.raised.len()
                 )
             })?;
+            let Some(id) = slot else {
+                bail!("`{needle}`: raise {k} in this batch failed, so it names no item");
+            };
             return self
                 .ledger
                 .get(id)
@@ -359,6 +363,15 @@ impl<'a> Session<'a> {
     /// # Errors
     /// Fails on an empty question or a store error.
     pub(crate) fn raise(&mut self, input: &RaiseInput) -> Result<RaiseOutcome> {
+        let outcome = self.raise_item(input)?;
+        if let RaiseOutcome::New(id) = &outcome {
+            self.default_acted_call(input, id)?;
+        }
+        Ok(outcome)
+    }
+
+    /// [`Session::raise`] up to the item's existing: its acted-call default is the caller's.
+    fn raise_item(&mut self, input: &RaiseInput) -> Result<RaiseOutcome> {
         let q = input.q.trim();
         if q.is_empty() {
             bail!("a raised item needs a question");
@@ -372,11 +385,7 @@ impl<'a> Session<'a> {
         if let Some(known) = self.already_raised(q, &session, &minted)? {
             return Ok(known);
         }
-        let outcome = self.append_raised(input, minted, &session)?;
-        if let RaiseOutcome::New(id) = &outcome {
-            self.default_acted_call(input, id)?;
-        }
-        Ok(outcome)
+        self.append_raised(input, minted, &session)
     }
 
     /// The item already asking `q`, if any, noting that `session` raised it again.
@@ -564,15 +573,29 @@ impl<'a> Session<'a> {
         }
     }
 
+    /// Raise `r` into the next `@N` slot. The slot is taken even when the raise fails, and is
+    /// filled as soon as the item exists, before its acted-call default is written.
     fn apply_raise(&mut self, r: &RaiseInput) -> Result<String> {
-        let out = self.raise(r)?;
-        self.raised.push(out.id().clone());
+        let raised = self.raise_item(r);
+        // The slot keeps its own copy of the id; the outcome goes on to the receipt.
+        self.raised
+            .push(raised.as_ref().ok().map(|o| o.id().clone()));
+        let out = raised?;
+        if let RaiseOutcome::New(id) = &out {
+            self.default_acted_call(r, id)?;
+        }
         let status = self.ledger.get(out.id()).map_or("?", |i| i.status.as_str());
         Ok(match out {
             RaiseOutcome::New(id) => format!("raised {id} ({status})"),
             RaiseOutcome::Existing(id) => format!("{id} already raised"),
             RaiseOutcome::Duplicate(id) => format!("linked to open {id}"),
         })
+    }
+
+    /// Note a raise op in this batch that could not be parsed: it still takes its `@N` slot, so
+    /// a ref to it is refused and later refs keep their place.
+    pub(crate) fn skip_raise(&mut self) {
+        self.raised.push(None);
     }
 
     /// Resolve `id`, let `build` validate it and name its one event, append that, and return the
@@ -1068,15 +1091,24 @@ fn route_str(r: Route) -> &'static str {
     }
 }
 
+/// An operation that could not be parsed.
+#[derive(Debug)]
+pub(crate) struct BadOp {
+    /// Whether it was tagged `"op": "raise"`: such an op still takes its `@N` slot
+    /// ([`Session::skip_raise`]).
+    pub(crate) raise: bool,
+    /// serde's error, with what it expected.
+    pub(crate) error: serde_json::Error,
+}
+
 /// Parse a JSON array (or single object) of operations.
 ///
-/// # Errors
-/// Returns the serde error with the offending position.
-/// One bad operation does not drop the others: each is parsed on its own.
+/// One bad operation does not drop the others: each is parsed on its own, and its error is
+/// returned in its slot.
 ///
 /// # Errors
-/// Fails only when the text is not JSON at all.
-pub(crate) fn parse_ops(text: &str) -> Result<Vec<Result<Op>>> {
+/// Fails only when the text is not JSON at all, with serde's error and position.
+pub(crate) fn parse_ops(text: &str) -> Result<Vec<Result<Op, BadOp>>> {
     let v: serde_json::Value = serde_json::from_str(text)?;
     let arr = match v {
         serde_json::Value::Array(a) => a,
@@ -1084,7 +1116,10 @@ pub(crate) fn parse_ops(text: &str) -> Result<Vec<Result<Op>>> {
     };
     Ok(arr
         .into_iter()
-        .map(|o| serde_json::from_value(o).map_err(|e| anyhow!("{e}")))
+        .map(|o| {
+            let raise = o.get("op").and_then(serde_json::Value::as_str) == Some("raise");
+            serde_json::from_value(o).map_err(|error| BadOp { raise, error })
+        })
         .collect())
 }
 
@@ -1126,9 +1161,17 @@ mod tests {
     fn run(s: &mut Session<'_>, batch: &serde_json::Value) -> Result<Vec<String>> {
         Ok(parse_ops(&batch.to_string())?
             .into_iter()
-            .map(|op| match op.and_then(|op| s.apply(&op)) {
-                Ok(r) => format!("✓ {r}"),
-                Err(e) => format!("✗ {e:#}"),
+            .map(|op| match op {
+                Ok(op) => match s.apply(&op) {
+                    Ok(r) => format!("✓ {r}"),
+                    Err(e) => format!("✗ {e:#}"),
+                },
+                Err(bad) => {
+                    if bad.raise {
+                        s.skip_raise();
+                    }
+                    format!("✗ {}", bad.error)
+                }
             })
             .collect())
     }
@@ -1359,6 +1402,32 @@ mod tests {
                 "✗ `@x`: refs are @1, @2, ... (raises earlier in this batch)",
                 "✗ `@3`: only 1 raise(s) so far in this batch",
                 "✗ no single item matches `wi-zzzzzz` (try `weighin open --all`)",
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn a_ref_to_a_failed_raise_is_refused_and_later_refs_keep_their_place() -> Result<()> {
+        let out = after(
+            &[],
+            &[
+                serde_json::json!({"op": "raise", "q": "   "}),
+                serde_json::json!({"op": "raise", "q": ONE_WAY}),
+                serde_json::json!({"op": "dismiss", "id": "@1", "why": "moot", "reason": "r"}),
+                serde_json::json!({"op": "triage", "id": "@2", "door": "one-way", "blast": "file", "route": "present", "reason": "r"}),
+            ],
+        )?;
+
+        let id = id_of(ONE_WAY);
+        assert_eq!(
+            out,
+            [
+                "✗ a raised item needs a question".to_owned(),
+                format!("✓ raised {id} (raised)"),
+                "✗ `@1`: raise 1 in this batch failed, so it names no item".to_owned(),
+                format!("✓ triaged {id} · one-way · file · present"),
             ]
         );
         Ok(())
