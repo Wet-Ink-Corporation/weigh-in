@@ -10,9 +10,12 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   last comment: before the closer of a `/* … */` or `<!-- … -->` that ends the line, at the end
   of a line comment as before, whatever that comment holds. Comment markers inside a string
   literal do not count, and `#`, `--` and `REM` open a comment only at the start of the line or
-  after a space, and not right before a word, so `r#"…"#`, `x--` and `#define` stay code. A line
+  after a space, and not right before a word, `[` or `!`, so `r#"…"#`, `x--`, `#define` and
+  `#[derive]` stay code; a `'` that does not close on the line opens a comment only when no other
+  comment marker follows it, so a lifetime such as `'static` stays code. A line
   where code follows its last comment, a line with no comment or only a marker inside a string,
-  or an option holding a line break, a control character, `*/` or `-->` (or `/*` inside a
+  or an option holding a line break (U+2028 and U+2029 included), a control character, `*/` or
+  `-->` (or `/*` inside a
   `/* … */`, `--` inside a `<!-- … -->`) is left as it was, and the receipt says
   `not annotated <file> (<reason>)`; before, the arrow went at the end of the line and could
   break the code. Markdown and plain-text files (`.txt`, `.rst`, `.org`, `.adoc`) still get the

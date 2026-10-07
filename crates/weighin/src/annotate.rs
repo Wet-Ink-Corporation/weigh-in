@@ -23,8 +23,8 @@ pub(crate) enum Syntax {
 /// Why a source line was left as it was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Skip {
-    /// The note holds a line break, another control character or a comment closer, or text
-    /// that would change the block comment it goes in (`/*`, or `--` in `<!-- -->`).
+    /// The note holds a line break (a control character, U+2028 or U+2029) or a comment closer,
+    /// or text that would change the block comment it goes in (`/*`, or `--` in `<!-- -->`).
     UnsafeText,
     /// Code follows the comment's closer on the line.
     CodeAfterComment,
@@ -175,7 +175,8 @@ fn holds_opener(text: &str) -> bool {
 
 /// Reads `line` as code from byte `from`, skipping string literals, up to the next comment.
 /// A `'` that does not close on the line opens a comment (VB) when it follows whitespace or
-/// starts the line, and is an ordinary character (a Rust lifetime) otherwise.
+/// starts the line and no other opener follows it on the line; otherwise it is an ordinary
+/// character (a Rust lifetime or an OCaml type variable).
 fn scan_code(line: &str, from: usize) -> CodeStretch {
     let mut marker_in_string = false;
     let mut at = from;
@@ -200,7 +201,9 @@ fn scan_code(line: &str, from: usize) -> CodeStretch {
                     marker_in_string |= holds_opener(tail);
                     break;
                 }
-                None if line.get(..at).is_some_and(after_space) => {
+                None if line.get(..at).is_some_and(after_space)
+                    && !opener_follows(line, at.saturating_add(1)) =>
+                {
                     return CodeStretch {
                         comment: Some((at.saturating_add(1), Comment::Line)),
                         marker_in_string,
@@ -219,6 +222,20 @@ fn scan_code(line: &str, from: usize) -> CodeStretch {
     }
 }
 
+/// Whether `c` could end a line or a line comment: a control character, or the Unicode line
+/// and paragraph separators, which end a `//` comment in JavaScript.
+fn ends_a_line(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')
+}
+
+/// Whether a comment opener starts anywhere in `line` from byte `from` on.
+fn opener_follows(line: &str, from: usize) -> bool {
+    line.get(from..).is_some_and(|tail| {
+        tail.char_indices()
+            .any(|(i, _)| opener_at(line, from.saturating_add(i)).is_some())
+    })
+}
+
 /// `line` with `note` written into its comment, or why it cannot be.
 ///
 /// # Errors
@@ -227,7 +244,7 @@ fn scan_code(line: &str, from: usize) -> CodeStretch {
 /// markers sit inside a string; [`Skip::CodeAfterComment`] when its last comment closes before
 /// the end of the line.
 pub(crate) fn annotate_line(line: &str, note: &str, syntax: Syntax) -> Result<String, Skip> {
-    if note.chars().any(char::is_control) || CLOSERS.iter().any(|c| note.contains(c)) {
+    if note.chars().any(ends_a_line) || CLOSERS.iter().any(|c| note.contains(c)) {
         return Err(Skip::UnsafeText);
     }
     match syntax {
@@ -246,10 +263,10 @@ fn annotate_code(line: &str, note: &str) -> Result<String, Skip> {
         let stretch = scan_code(line, from);
         marker_in_string |= stretch.marker_in_string;
         let Some((body_at, kind)) = stretch.comment else {
-            return Err(if marker_in_string {
-                Skip::InString
-            } else if closed_one {
+            return Err(if closed_one {
                 Skip::CodeAfterComment
+            } else if marker_in_string {
+                Skip::InString
             } else {
                 Skip::NoComment
             });
@@ -408,6 +425,8 @@ mod tests {
             "→ Weigh-In wi-abc123: decided a\tb (2026-10-07)",
             "→ Weigh-In wi-abc123: decided 1 */ int z (2026-10-07)",
             "→ Weigh-In wi-abc123: decided --> <b>x</b> (2026-10-07)",
+            "→ Weigh-In wi-abc123: decided a\u{2028}alert(1); (2026-10-07)",
+            "→ Weigh-In wi-abc123: decided a\u{2029}alert(1); (2026-10-07)",
         ] {
             for syntax in [Syntax::Code, Syntax::Prose] {
                 let out = annotate_line("// TODO: pick a cap", note, syntax);
@@ -486,5 +505,28 @@ mod tests {
         let out = annotate_line("// TODO: pick", note, Syntax::Code);
 
         assert_eq!(out, Ok(format!("// TODO: pick {note}")));
+    }
+
+    #[test]
+    fn a_lifetime_before_a_block_comment_does_not_open_a_comment() {
+        let ok = annotate_line("fn f<T: 'static>() {} /* TODO: x */", NOTE, Syntax::Code);
+        let skipped = annotate_line(
+            "impl<T: 'static> X for T { /* TODO: x */ }",
+            NOTE,
+            Syntax::Code,
+        );
+
+        assert_eq!(
+            ok,
+            Ok(format!("fn f<T: 'static>() {{}} /* TODO: x {NOTE} */"))
+        );
+        assert_eq!(skipped, Err(Skip::CodeAfterComment));
+    }
+
+    #[test]
+    fn code_after_a_comment_is_the_reason_even_when_a_later_string_holds_a_marker() {
+        let out = annotate_line(r#"/* TODO: x */ s = "//";"#, NOTE, Syntax::Code);
+
+        assert_eq!(out, Err(Skip::CodeAfterComment));
     }
 }
