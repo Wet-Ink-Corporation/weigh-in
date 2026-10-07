@@ -240,6 +240,31 @@ pub(crate) fn scan_one(repo: &Path, file: &str) -> String {
     out.split_whitespace().nth(1).unwrap().to_owned()
 }
 
+/// The receipt's note on a code file.
+pub(crate) const CODE_FILE: &str = "code file: the decision is in the ledger";
+
+/// Decides the one item scanned from `file`, written with `source`, as `option`, and checks the
+/// receipt says the code file was not annotated and the file is unchanged.
+pub(crate) fn decide_leaves_code_alone(file: &str, source: &str, option: &str) {
+    let (_tmp, repo) = setup();
+    std::fs::write(repo.join(file), source).unwrap();
+    let id = scan_one(&repo, file);
+
+    let (ok, out) = weighin(&repo, "s1", &["decide", &id, option], None);
+
+    assert!(
+        ok && out.contains(&format!("decided {id} → {option}"))
+            && out.contains(&format!("not annotated {file} ({CODE_FILE})"))
+            && out.contains(&format!("trailer `Weigh-In: {id} decided {option}`")),
+        "{file} {option:?}: {out}"
+    );
+    assert_eq!(
+        std::fs::read(repo.join(file)).unwrap(),
+        source.as_bytes(),
+        "{file} {option:?}"
+    );
+}
+
 /// The date `decide` stamped on `id`'s arrow in `text`.
 pub(crate) fn stamped_date(text: &str, id: &str, option: &str) -> String {
     text.split(&format!("{id}: decided {option} ("))

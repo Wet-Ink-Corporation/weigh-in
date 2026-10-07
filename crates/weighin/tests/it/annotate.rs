@@ -1,75 +1,29 @@
-//! The source write-back of `decide`, end to end: a comment that is the whole line gets the
-//! arrow, anything else is left as it was.
+//! The source write-back of `decide`, end to end: a line of prose (markdown or plain text) gets
+//! the arrow; a code file is left byte for byte as it was, and the decision lives in the ledger,
+//! the atom and the trailer.
 
-use crate::support::{scan_one, setup, stamped_date, weighin};
+use crate::support::{decide_leaves_code_alone, scan_one, setup, stamped_date, weighin};
 use serde_json::json;
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_line_comment_todo_is_annotated_at_the_end() {
+fn a_markdown_question_is_annotated_at_the_end_of_its_line() {
     let (_tmp, repo) = setup();
-    std::fs::write(
-        repo.join("src/cap.py"),
-        "def f():\n    # TODO: pick a cap\n    return 1\n",
-    )
-    .unwrap();
-    let id = scan_one(&repo, "src/cap.py");
+    let source = "# Plan\n\n## Open questions\n- Should we shard by tenant?\n- tail\n";
+    std::fs::write(repo.join("docs/q.md"), source).unwrap();
+    let id = scan_one(&repo, "docs/q.md");
 
-    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "4096"], None);
+    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "no"], None);
 
-    assert!(ok && out.contains("annotated src/cap.py"), "{out}");
-    let after = std::fs::read_to_string(repo.join("src/cap.py")).unwrap();
-    let today = stamped_date(&after, &id, "4096");
+    assert!(ok && out.contains("annotated docs/q.md"), "{out}");
+    let after = std::fs::read_to_string(repo.join("docs/q.md")).unwrap();
+    let today = stamped_date(&after, &id, "no");
     assert_eq!(
         after,
         format!(
-            "def f():\n    # TODO: pick a cap → Weigh-In {id}: decided 4096 ({today})\n    return 1\n"
+            "# Plan\n\n## Open questions\n- Should we shard by tenant? → Weigh-In {id}: decided no ({today})\n- tail\n"
         )
     );
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_block_comment_alone_on_its_line_is_annotated_inside() {
-    let (_tmp, repo) = setup();
-    std::fs::write(repo.join("src/x.c"), "/* TODO: pick a cap */\n").unwrap();
-    let id = scan_one(&repo, "src/x.c");
-
-    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "y"], None);
-
-    assert!(ok && out.contains("annotated src/x.c"), "{out}");
-    let after = std::fs::read_to_string(repo.join("src/x.c")).unwrap();
-    let today = stamped_date(&after, &id, "y");
-    assert_eq!(
-        after,
-        format!("/* TODO: pick a cap → Weigh-In {id}: decided y ({today}) */\n")
-    );
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_trailing_comment_after_code_is_decided_but_not_annotated() {
-    for (file, source) in [
-        ("src/t.py", "x = 1  # TODO: pick a start\n"),
-        ("src/f.c", "/* a */ int x; // TODO: pick a width\n"),
-        (
-            "src/c.js",
-            "const s = \"// TODO: decide later what this is\"; console.log(s);\n",
-        ),
-    ] {
-        let (_tmp, repo) = setup();
-        std::fs::write(repo.join(file), source).unwrap();
-        let id = scan_one(&repo, file);
-
-        let (ok, out) = weighin(&repo, "s1", &["decide", &id, "1"], None);
-
-        assert!(
-            ok && out.contains(&format!("decided {id} → 1"))
-                && out.contains(&format!("not annotated {file} (")),
-            "{file}: {out}"
-        );
-        assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
-    }
 }
 
 #[test]
@@ -100,135 +54,87 @@ fn a_question_quoted_from_a_text_file_is_annotated_at_the_end_of_its_line() {
     );
 }
 
-/// Source lines whose marker is code, inside a string or in a comment that is not the whole
-/// line, with the reason the receipt gives for leaving each alone; among them every line reviews
-/// found (a triple quote, a regex with a quote, a lifetime, a digit separator, a verbatim string,
-/// PHP's `?>` and JSX text).
-const LEFT_ALONE: &[(&str, &str, &str)] = &[
+/// Code lines a decision must not touch: every line the five review rounds found (a triple
+/// quote, a regex with a quote, a lifetime, a digit separator, a verbatim string, PHP's `?>`,
+/// JSX text, byte strings, a declared coding), and the whole-line comments the old per-line rule
+/// did annotate.
+const LEFT_ALONE: &[(&str, &str)] = &[
+    (
+        "src/cap.py",
+        "def f():\n    # TODO: pick a cap\n    return 1\n",
+    ),
+    ("src/x.c", "/* TODO: pick a cap */\n"),
+    (
+        "src/a.c",
+        "int main(void) {\n    /* TODO: pick a buffer size */\n    return 0;\n}\n",
+    ),
+    ("src/c.rs", "fn f() {\n    // TODO: pick a cap\n}\n"),
+    ("src/t.py", "x = 1  # TODO: pick a start\n"),
+    ("src/f.c", "/* a */ int x; // TODO: pick a width\n"),
+    (
+        "src/c.js",
+        "const s = \"// TODO: decide later what this is\"; console.log(s);\n",
+    ),
+    (
+        "src/crlf.rs",
+        "fn f() {\r\n    // TODO: pick a cap\r\n}\r\n",
+    ),
     (
         "src/l.rs",
         "fn f(x: impl Fn() + 'static) { panic!(\"TODO: pick a limit\") }\n",
-        "the comment is not the whole line",
     ),
-    (
-        "src/d.rs",
-        "    *limit = todo!(\"pick a cap\");\n",
-        "the comment is not the whole line",
-    ),
+    ("src/d.rs", "    *limit = todo!(\"pick a cap\");\n"),
     (
         "src/half.py",
         "half = len(items) // 2 if use_temporary_cache else 0\n",
-        "the comment is not the whole line",
     ),
     (
         "src/get.sh",
         "curl -s https://jsonplaceholder.typicode.com/todo/items | jq .\n",
-        "the comment is not the whole line",
     ),
-    (
-        "src/a.py",
-        "help = '''Don't use # TODO: explain'''\n",
-        "the comment is not the whole line",
-    ),
-    (
-        "src/a.js",
-        "s.replace(/'/g, '// TODO: pick a separator')\n",
-        "the comment is not the whole line",
-    ),
+    ("src/a.py", "help = '''Don't use # TODO: explain'''\n"),
+    ("src/a.js", "s.replace(/'/g, '// TODO: pick a separator')\n"),
     (
         "src/a.rs",
         "let v: &'a str = pick(\"' // TODO: decide\", '\"');\n",
-        "the comment is not the whole line",
     ),
     (
         "src/a.cpp",
         "int x = 1'000; const char* s = \"' // TODO: q\"; char c = '\"';\n",
-        "the comment is not the whole line",
     ),
     (
         "src/a.cs",
         "var p = @\"C:\\\"; Log(\"// TODO: x\" + '\"');\n",
-        "the comment is not the whole line",
     ),
-    (
-        "src/a.php",
-        "// TODO: pick ?> <p>\n",
-        "code follows the comment",
-    ),
-    (
-        "src/a.jsx",
-        "  return <p>// TODO: x</p>;\n",
-        "the comment is not the whole line",
-    ),
-    (
-        "src/s.c",
-        "#define X 1 // TODO: q9 word9 \\\n",
-        "the comment is not the whole line",
-    ),
-    (
-        "src/t.c",
-        "// TODO: q9 word9 \\\n",
-        "the comment runs on to the next line",
-    ),
-    (
-        "src/sep.js",
-        "// TODO: pick \u{2028} let x=1;\n",
-        "the comment runs on to the next line",
-    ),
-    (
-        "src/w.c",
-        "/*\n// TODO: pick a width */\nint x;\n",
-        "the line may close a string or comment opened above",
-    ),
+    ("src/a.php", "// TODO: pick ?> <p>\n"),
+    ("src/a.jsx", "  return <p>// TODO: x</p>;\n"),
+    ("src/s.c", "#define X 1 // TODO: q9 word9 \\\n"),
+    ("src/t.c", "// TODO: q9 word9 \\\n"),
+    ("src/sep.js", "// TODO: pick \u{2028} let x=1;\n"),
+    ("src/w.c", "/*\n// TODO: pick a width */\nint x;\n"),
     (
         "src/doc.py",
         "def f():\n    \"\"\"Doc.\n    # TODO: pick a cap\"\"\"\n",
-        "the line may close a string or comment opened above",
     ),
-    (
-        "src/t.js",
-        "const s = `\n// TODO: pick a tag`;\n",
-        "the line may close a string or comment opened above",
-    ),
-    (
-        "src/e.sh",
-        "echo 'a\n# TODO: pick a word'\n",
-        "the line may close a string or comment opened above",
-    ),
-    (
-        "src/q.php",
-        "<?php\n$s = 'a\n// TODO: pick a cap';\n",
-        "the line may close a string or comment opened above",
-    ),
-    (
-        "src/h.php",
-        "<?php\n$s = 'a\n# TODO: pick a cap';\n",
-        "the line may close a string or comment opened above",
-    ),
-    (
-        "src/q.js",
-        "const s = 'a\\\n// TODO: pick a cap';\n",
-        "the line may close a string or comment opened above",
-    ),
-    (
-        "src/b.py",
-        "data = b\"\"\"\n# TODO: pick a cap\n\"\"\"\n",
-        "the file may hold only ASCII where the note would go",
-    ),
+    ("src/t.js", "const s = `\n// TODO: pick a tag`;\n"),
+    ("src/e.sh", "echo 'a\n# TODO: pick a word'\n"),
+    ("src/q.php", "<?php\n$s = 'a\n// TODO: pick a cap';\n"),
+    ("src/h.php", "<?php\n$s = 'a\n# TODO: pick a cap';\n"),
+    ("src/q.js", "const s = 'a\\\n// TODO: pick a cap';\n"),
+    ("src/b.py", "data = b\"\"\"\n# TODO: pick a cap\n\"\"\"\n"),
     (
         "src/b.rs",
         "const S: &[u8] = br#\"\n// TODO: pick a cap\n\"#;\n",
-        "the file may hold only ASCII where the note would go",
     ),
     (
         "src/ascii.py",
         "# -*- coding: ascii -*-\n# TODO: pick a cap\n",
-        "the file may hold only ASCII where the note would go",
     ),
 ];
 
 /// Whole-line comments inside a string opened on an earlier line, with an option that would
-/// close or interpolate into that string (review: bash, PHP, Ruby and Perl).
+/// close or interpolate into that string (review: bash, PHP, Ruby and Perl). A code file is
+/// never annotated, so none of these options reaches the file.
 const SIGIL_OPTIONS: &[(&str, &str, &str)] = &[
     (
         "src/s.py",
@@ -264,42 +170,16 @@ const SIGIL_OPTIONS: &[(&str, &str, &str)] = &[
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn an_option_that_could_close_a_string_is_decided_but_not_annotated_in_code() {
-    for &(file, source, option) in SIGIL_OPTIONS {
-        let (_tmp, repo) = setup();
-        std::fs::write(repo.join(file), source).unwrap();
-        let id = scan_one(&repo, file);
-
-        let (ok, out) = weighin(&repo, "s1", &["decide", &id, option], None);
-
-        assert!(
-            ok && out.contains(&format!(
-                "not annotated {file} (the option holds a character that could end the comment or a string around it)"
-            )),
-            "{file} {option}: {out}"
-        );
-        assert_eq!(
-            std::fs::read_to_string(repo.join(file)).unwrap(),
-            source,
-            "{file} {option}"
-        );
+fn a_code_file_is_decided_but_left_byte_for_byte_unchanged() {
+    for &(file, source) in LEFT_ALONE {
+        decide_leaves_code_alone(file, source, "X");
     }
 }
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_marker_that_is_code_or_inside_a_string_is_decided_but_not_annotated() {
-    for &(file, source, reason) in LEFT_ALONE {
-        let (_tmp, repo) = setup();
-        std::fs::write(repo.join(file), source).unwrap();
-        let id = scan_one(&repo, file);
-
-        let (ok, out) = weighin(&repo, "s1", &["decide", &id, "X"], None);
-
-        assert!(
-            ok && out.contains(&format!("not annotated {file} ({reason})")),
-            "{file}: {out}"
-        );
-        assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
+fn an_option_that_could_close_a_string_never_reaches_a_code_file() {
+    for &(file, source, option) in SIGIL_OPTIONS {
+        decide_leaves_code_alone(file, source, option);
     }
 }

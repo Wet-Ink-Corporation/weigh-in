@@ -5,8 +5,7 @@ use crate::support::{
     LAUNCHER_LIMIT, MESSAGE, Run, annotate_scanned_and_rescan, bin, capture_both_markers,
     context_pack_for, hook, in_a_folder_with_no_ledger, isolated_launcher,
     items_seen_from_a_worktree, launcher_target, reopen_default_from_the_board, run_within,
-    scan_one, scan_written_plan, settle_crlf_question, setup, sit_and_decide, stamped_date,
-    weighin, weighin_env,
+    scan_one, scan_written_plan, settle_crlf_question, setup, sit_and_decide, weighin, weighin_env,
 };
 use serde_json::{Value, json};
 use std::io::Write as _;
@@ -998,68 +997,20 @@ fn read_only_commands_leave_no_ledger_behind() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn deciding_a_c_block_comment_todo_changes_only_the_comment() {
-    let (_tmp, repo) = setup();
-    let source = "int main(void) {\n    /* TODO: pick a buffer size */\n    return 0;\n}\n";
-    std::fs::write(repo.join("src/a.c"), source).unwrap();
-    let id = scan_one(&repo, "src/a.c");
-
-    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "4096"], None);
-
-    assert!(ok && out.contains("annotated src/a.c"), "{out}");
-    let after = std::fs::read_to_string(repo.join("src/a.c")).unwrap();
-    let today = stamped_date(&after, &id, "4096");
-    assert_eq!(
-        after,
-        format!(
-            "int main(void) {{\n    /* TODO: pick a buffer size → Weigh-In {id}: decided 4096 ({today}) */\n    return 0;\n}}\n"
-        )
-    );
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_todo_comment_followed_by_code_is_decided_but_not_annotated() {
-    let (_tmp, repo) = setup();
-    let source = "int f(void) {\n    /* TODO: pick a buffer size */ return 0;\n}\n";
-    std::fs::write(repo.join("src/b.c"), source).unwrap();
-    let id = scan_one(&repo, "src/b.c");
-
-    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "4096"], None);
-
-    assert!(
-        ok && out.contains(&format!("decided {id} → 4096"))
-            && out.contains("not annotated src/b.c (code follows the comment)")
-            && !out.contains(" annotated src/b.c ·"),
-        "{out}"
-    );
-    assert_eq!(
-        std::fs::read_to_string(repo.join("src/b.c")).unwrap(),
-        source
-    );
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn an_option_spanning_lines_is_decided_but_not_annotated() {
     let (_tmp, repo) = setup();
-    let source = "fn f() {\n    // TODO: pick a cap\n}\n";
-    std::fs::write(repo.join("src/c.rs"), source).unwrap();
-    let id = scan_one(&repo, "src/c.rs");
+    let source = "# Plan\n\n## Open questions\n- Should the cap be fixed?\n";
+    std::fs::write(repo.join("docs/cap.md"), source).unwrap();
+    let id = scan_one(&repo, "docs/cap.md");
 
-    let (ok, out) = weighin(
-        &repo,
-        "s1",
-        &["decide", &id, "10\nreturn 99; */ int z"],
-        None,
-    );
+    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "10\n- Ship it?"], None);
 
     assert!(
-        ok && out.contains("not annotated src/c.rs (the option does not fit on one comment line)"),
+        ok && out.contains("not annotated docs/cap.md (the option does not fit on one line)"),
         "{out}"
     );
     assert_eq!(
-        std::fs::read_to_string(repo.join("src/c.rs")).unwrap(),
+        std::fs::read_to_string(repo.join("docs/cap.md")).unwrap(),
         source
     );
 }

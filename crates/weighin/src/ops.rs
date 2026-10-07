@@ -17,9 +17,7 @@ use weighin_core::id::{EXTENDED_HEX_LEN, ItemId};
 use weighin_core::marker::{Authority, Door, Kind, Marker, authority_tripwire};
 use weighin_core::{Item, Ledger, Status};
 
-use crate::annotate::{
-    Decision, Lang, Reading, Skip, Syntax, annotate_source_line, file_fits_note,
-};
+use crate::annotate::{Decision, Skip, Syntax, annotate_source_line};
 use crate::env::{self, Env};
 use crate::git;
 use crate::store::{Appended, Guard, Store};
@@ -849,9 +847,8 @@ impl<'a> Session<'a> {
     }
 
     /// spec-kit's write-back: the line the question came from gets an arrow, so it is not raised
-    /// again. In a code file the arrow goes only into a comment that is the whole line
-    /// ([`annotate_source_line`]), read in the file's language ([`Lang::of`]); a line it cannot
-    /// go in is left as it was, and the receipt says so.
+    /// again. Only prose is written into ([`syntax_of`], [`annotate_source_line`]); a code file,
+    /// or a line the option cannot go on, is left as it was, and the receipt says so.
     fn annotate_source(&self, id: &ItemId, option: &str) -> Result<Option<Annotation>> {
         let Some(item) = self.ledger.get(id) else {
             return Ok(None);
@@ -867,17 +864,12 @@ impl<'a> Session<'a> {
         if first.is_empty() {
             return Ok(None);
         }
-        let reading = Reading {
-            syntax: syntax_of(src),
-            lang: Lang::of(src),
-        };
+        let syntax = syntax_of(src);
         let decision = Decision {
             id: id.as_str(),
             option,
             date: &self.today,
         };
-        // The line's own skip, when it has one, is the more precise reason; the file's comes next.
-        let fits = file_fits_note(&text, reading);
         // Rebuild with each line's own terminator so a CRLF file stays CRLF. `found` is the
         // outcome on the question's line: `None` until it is found, then the skip, if any.
         let mut found = None;
@@ -891,8 +883,7 @@ impl<'a> Session<'a> {
                 },
             };
             if found.is_none() && body.trim() == first && !body.contains("→ Weigh-In") {
-                let rewritten = annotate_source_line(body, &decision, reading)
-                    .and_then(|line| fits.map(|()| line));
+                let rewritten = annotate_source_line(body, &decision, syntax);
                 joined.push_str(rewritten.as_deref().unwrap_or(body));
                 found = Some(rewritten.err());
             } else {
@@ -984,19 +975,13 @@ pub(crate) fn is_markdown(rel: &str) -> bool {
         .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "md" | "mdx" | "markdown"))
 }
 
-/// How `rel` reads when a decision is written back into it: markdown and plain-text formats
-/// (`.txt`, `.text`, `.rst`, `.org`, `.adoc`, `.asciidoc`) are prose; anything else is code.
+/// How `rel` reads when a decision is written back into it: markdown ([`is_markdown`]) and
+/// `.txt` are prose; anything else is code, and is never annotated.
 fn syntax_of(rel: &str) -> Syntax {
-    let prose_text = Path::new(rel)
+    let txt = Path::new(rel)
         .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| {
-            matches!(
-                e.to_ascii_lowercase().as_str(),
-                "txt" | "text" | "rst" | "org" | "adoc" | "asciidoc"
-            )
-        });
-    if prose_text || is_markdown(rel) {
+        .is_some_and(|e| e.eq_ignore_ascii_case("txt"));
+    if txt || is_markdown(rel) {
         Syntax::Prose
     } else {
         Syntax::Code
@@ -1498,14 +1483,15 @@ mod tests {
     }
 
     #[test]
-    fn plain_text_and_markdown_are_annotated_as_prose_and_the_rest_as_code() {
+    fn only_markdown_and_txt_files_read_as_prose() {
         let read: Vec<(&str, Syntax)> = [
-            "notes.txt",
-            "doc/guide.RST",
-            "plan.org",
-            "a.adoc",
+            "notes.TXT",
             "spec.md",
+            "docs/a.mdx",
+            "README.markdown",
             "src/c.js",
+            "src/a.rs",
+            "doc/guide.rst",
             "Makefile",
         ]
         .into_iter()
@@ -1515,12 +1501,13 @@ mod tests {
         assert_eq!(
             read,
             [
-                ("notes.txt", Syntax::Prose),
-                ("doc/guide.RST", Syntax::Prose),
-                ("plan.org", Syntax::Prose),
-                ("a.adoc", Syntax::Prose),
+                ("notes.TXT", Syntax::Prose),
                 ("spec.md", Syntax::Prose),
+                ("docs/a.mdx", Syntax::Prose),
+                ("README.markdown", Syntax::Prose),
                 ("src/c.js", Syntax::Code),
+                ("src/a.rs", Syntax::Code),
+                ("doc/guide.rst", Syntax::Code),
                 ("Makefile", Syntax::Code),
             ]
         );
