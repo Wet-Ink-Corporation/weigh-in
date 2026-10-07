@@ -203,60 +203,129 @@ impl Marker {
 #[must_use]
 pub fn parse_markers(text: &str) -> Vec<Marker> {
     let mut out = Vec::new();
-    let mut lines = text.lines().peekable();
+    let mut unclosed = Unclosed::default();
+    let mut lines = text.lines();
     while let Some(line) = lines.next() {
         let trimmed = line.trim_start();
-        let Some((fence, info)) = opening_fence(trimmed) else {
+        let Some(fence) = Fence::open(trimmed) else {
             continue;
         };
-        if !matches!(
-            info.to_ascii_lowercase().as_str(),
-            "weigh-in" | "weighin" | "weigh_in"
-        ) {
+        if fence.is_weigh_in() {
+            let body: Vec<&str> = lines
+                .by_ref()
+                .take_while(|inner| !fence.is_closed_by(inner))
+                .collect();
+            if let Some(m) = parse_body(&body) {
+                out.push(m);
+            }
             continue;
         }
-        let mut body = Vec::new();
-        for inner in lines.by_ref() {
-            if inner.trim_start().starts_with(&fence)
-                && inner
-                    .trim()
-                    .chars()
-                    .all(|c| c == fence.chars().next().unwrap_or('`'))
-            {
-                break;
+        // Any other fence is consumed whole, so a `weigh-in` block shown inside it (a ````markdown
+        // example) is its content, not an item. Two departures keep later blocks capturable.
+        // CommonMark: a line indented four spaces or more is indented code, not a fence. And,
+        // unlike CommonMark, which runs an unclosed fence to the end of the document, a fence with
+        // no closer is read as an ordinary line: a stray or truncated example must not swallow a
+        // real block after it.
+        if indent_opens_fence(line, trimmed) && !unclosed.rules_out(&fence) {
+            let mut rest = lines.clone();
+            if rest.any(|inner| fence.is_closed_by(inner)) {
+                lines = rest;
+            } else {
+                unclosed.record(&fence);
             }
-            body.push(inner);
-        }
-        if let Some(m) = parse_body(&body) {
-            out.push(m);
         }
     }
     out
 }
 
-fn opening_fence(line: &str) -> Option<(String, String)> {
-    let ch = line.chars().next()?;
-    if ch != '`' && ch != '~' {
-        return None;
+/// Whether the indentation before a fence's marks (`line` minus `trimmed`) lets it open one: at
+/// most three spaces, as `CommonMark` allows.
+fn indent_opens_fence(line: &str, trimmed: &str) -> bool {
+    line.strip_suffix(trimmed)
+        .is_some_and(|indent| indent.len() <= 3 && indent.bytes().all(|b| b == b' '))
+}
+
+/// The shortest backtick and tilde fences already found to have no closer in the rest of the
+/// text. A later fence of the same mark, at least as long, has none either (its closer would have
+/// closed the earlier one), so each run of unclosed fences is scanned to the end only once.
+#[derive(Default)]
+struct Unclosed {
+    backtick: Option<usize>,
+    tilde: Option<usize>,
+}
+
+impl Unclosed {
+    fn slot(&mut self, mark: char) -> &mut Option<usize> {
+        if mark == '`' {
+            &mut self.backtick
+        } else {
+            &mut self.tilde
+        }
     }
-    let n = line.chars().take_while(|c| *c == ch).count();
-    if n < 3 {
-        return None;
+
+    fn rules_out(&mut self, fence: &Fence<'_>) -> bool {
+        self.slot(fence.mark).is_some_and(|len| fence.len >= len)
     }
-    let fence: String = std::iter::repeat_n(ch, n).collect();
-    // The fence marks are one byte each, so trimming them leaves what `line[n..]` would.
-    let info = line
-        .trim_start_matches(ch)
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_owned();
-    Some((fence, info))
+
+    fn record(&mut self, fence: &Fence<'_>) {
+        let slot = self.slot(fence.mark);
+        *slot = Some(slot.map_or(fence.len, |len| len.min(fence.len)));
+    }
+}
+
+/// An opening code fence: three or more backticks or tildes, then an info string.
+struct Fence<'a> {
+    mark: char,
+    len: usize,
+    info: &'a str,
+}
+
+impl<'a> Fence<'a> {
+    fn open(line: &'a str) -> Option<Self> {
+        let mark = line.chars().next()?;
+        if mark != '`' && mark != '~' {
+            return None;
+        }
+        let len = line.chars().take_while(|c| *c == mark).count();
+        if len < 3 {
+            return None;
+        }
+        // The fence marks are one byte each, so trimming them leaves what `line[len..]` would.
+        let rest = line.trim_start_matches(mark);
+        // CommonMark: a backtick fence's info string has no backticks; such a line is inline code.
+        if mark == '`' && rest.contains('`') {
+            return None;
+        }
+        let info = rest.split_whitespace().next().unwrap_or("");
+        Some(Self { mark, len, info })
+    }
+
+    fn is_weigh_in(&self) -> bool {
+        ["weigh-in", "weighin", "weigh_in"]
+            .iter()
+            .any(|name| self.info.eq_ignore_ascii_case(name))
+    }
+
+    /// The `CommonMark` rule: a fence closes on a line of the same mark, at least as many of them,
+    /// and nothing else but whitespace.
+    fn is_closed_by(&self, line: &str) -> bool {
+        let t = line.trim();
+        t.chars().all(|c| c == self.mark) && t.chars().count() >= self.len
+    }
 }
 
 fn strip_comment(v: &str) -> &str {
-    // A comment is ` #` preceded by whitespace; a `#` inside a value (C#, #123) is kept.
-    v.split_once(" #").map_or(v, |(head, _)| head).trim_end()
+    // A comment is a ` #` followed by whitespace or the end of the value; a `#` inside a value
+    // (C#, a#b) or starting a word (#123) is kept.
+    v.match_indices(" #")
+        .find(|(i, m)| {
+            v.get(i + m.len()..)
+                .and_then(|rest| rest.chars().next())
+                .is_none_or(char::is_whitespace)
+        })
+        .and_then(|(i, _)| v.get(..i))
+        .unwrap_or(v)
+        .trim_end()
 }
 
 /// Collect `key: value` lines into a map; an indented or key-less line continues the value above.
@@ -413,6 +482,82 @@ mod tests {
     }
 
     #[test]
+    fn issue_refs_are_not_comments() {
+        let m = &parse_markers(
+            "```weigh-in\nq: Should we fix #123 before #124?\nflip: if #76 recurs\n```",
+        )[0];
+        assert_eq!(m.question, "Should we fix #123 before #124?");
+        assert_eq!(m.flip.as_deref(), Some("if #76 recurs"));
+        let m = &parse_markers("```weigh-in\nq: Pick A? # a comment\ndid: A #\n```")[0];
+        assert_eq!(m.question, "Pick A?");
+        assert_eq!(m.did.as_deref(), Some("A"));
+    }
+
+    #[test]
+    fn blocks_inside_an_outer_fence_are_examples() {
+        assert!(
+            parse_markers("````markdown\n```weigh-in\nq: example?\n```\n````\nafter").is_empty()
+        );
+        assert!(parse_markers("~~~~text\n```weigh-in\nq: example?\n```\n~~~~").is_empty());
+        assert!(parse_markers("```text\n~~~weigh-in\nq: example?\n~~~\n```").is_empty());
+        let m = parse_markers(
+            "````markdown\n```weigh-in\nq: example?\n```\n````\n```weigh-in\nq: real?\n```",
+        );
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].question, "real?");
+        let m = parse_markers("```rust\nlet x = 1;\n```\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].question, "real?");
+        // As CommonMark renders it: a ```weigh-in line cannot close an open ```rust fence
+        // (a closer carries no info), so the block is that fence's content.
+        assert!(parse_markers("```rust\nlet x;\n```weigh-in\nq: lost?\n```").is_empty());
+    }
+
+    #[test]
+    fn an_outer_fence_indented_four_spaces_is_indented_code() {
+        let m = parse_markers("    ```rust\n    let x = 1;\n\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!(m[0].question, "real?");
+    }
+
+    #[test]
+    fn an_outer_fence_that_never_closes_does_not_hide_later_blocks() {
+        let m = parse_markers("````markdown\nan example\n```weigh-in\nq: real?\n```\nafter");
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!(m[0].question, "real?");
+        let m = parse_markers("~~~~rust\n~~~~rust\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!(m[0].question, "real?");
+    }
+
+    #[test]
+    fn a_shorter_fence_after_an_unclosed_longer_one_is_still_a_fence() {
+        let m = parse_markers("`````md\n```rust\nx\n```\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!(m[0].question, "real?");
+        let m = parse_markers("`````md\n```md\n```weigh-in\nq: example?\n```\n```\nafter");
+        assert!(
+            m.is_empty(),
+            "the shorter fence closes and hides its example: {m:?}"
+        );
+    }
+
+    #[test]
+    fn a_closed_outer_fence_still_hides_its_example() {
+        let m = parse_markers("  ````markdown\n```weigh-in\nq: example?\n```\n   ````\nafter");
+        assert!(m.is_empty(), "{m:?}");
+    }
+
+    #[test]
+    fn a_backtick_line_with_backticks_in_its_info_is_not_a_fence() {
+        let m = parse_markers("```x``` is inline code\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!(m[0].question, "real?");
+        let m = parse_markers("~~~x`y\nq: inside a tilde fence\n~~~\n```weigh-in\nq: real?\n```");
+        assert_eq!(m.len(), 1, "a tilde fence may carry backticks in its info");
+    }
+
+    #[test]
     fn unterminated_blocks_run_to_the_end() {
         let m = parse_markers("```weigh-in\nq: open ended?\nkind: call");
         assert_eq!(m.len(), 1);
@@ -430,7 +575,9 @@ mod tests {
 /// Words that mark a question as authority-bound whatever the agent classified it as.
 ///
 /// A hit keeps a "two-way, judgment" marker open for the sitting instead of logging it as a
-/// default: the cheap deterministic half of a two-key rule, erring towards asking.
+/// default: the cheap deterministic half of a two-key rule, erring towards asking. Most entries
+/// are stems matched at the start of a word; the acronyms must be whole words
+/// ([`authority_tripwire`]).
 pub const AUTHORITY_WORDS: &[&str] = &[
     "compliance",
     "compliant",
@@ -472,22 +619,37 @@ pub const AUTHORITY_WORDS: &[&str] = &[
     "customer data",
 ];
 
-/// The first authority word found in `text`, if any, matched at the start of a word.
+/// The [`AUTHORITY_WORDS`] that are acronyms, matched as whole words (a plural `s` allowed). The
+/// rest are stems matched at a word start, so `regulat` catches `regulated` and `licen` both
+/// spellings of licence; an acronym as a prefix would fire on ordinary words (`sla` in `slack`).
+const WHOLE_WORDS: &[&str] = &["sla", "pii", "gdpr", "hipaa", "fedramp", "cjis"];
+
+/// The first authority word found in `text`, if any, matched at the start of a word; the
+/// acronyms among them must also end one.
 #[must_use]
 pub fn authority_tripwire(text: &str) -> Option<&'static str> {
     let lower = text.to_lowercase();
+    let is_boundary = |b: Option<&u8>| b.is_none_or(|b| !b.is_ascii_alphanumeric());
     AUTHORITY_WORDS.iter().copied().find(|w| {
         lower.match_indices(w).any(|(i, _)| {
-            i.checked_sub(1)
-                .and_then(|before| lower.as_bytes().get(before))
-                .is_none_or(|b| !b.is_ascii_alphanumeric())
+            let starts = is_boundary(i.checked_sub(1).and_then(|p| lower.as_bytes().get(p)));
+            starts && (!WHOLE_WORDS.contains(w) || ends_word(lower.get(i + w.len()..)))
         })
     })
 }
 
+/// Whether `rest`, the text after an acronym, ends the word there or after a plural `s`.
+fn ends_word(rest: Option<&str>) -> bool {
+    let rest = rest.unwrap_or("");
+    let rest = rest.strip_prefix('s').unwrap_or(rest);
+    rest.bytes()
+        .next()
+        .is_none_or(|b| !b.is_ascii_alphanumeric())
+}
+
 #[cfg(test)]
 mod tripwire_tests {
-    use super::authority_tripwire;
+    use super::{AUTHORITY_WORDS, WHOLE_WORDS, authority_tripwire};
 
     #[test]
     fn catches_authority_words_at_word_starts() {
@@ -516,5 +678,43 @@ mod tripwire_tests {
         assert_eq!(authority_tripwire("9privacy"), None);
         assert_eq!(authority_tripwire("a legal and an xlegal"), Some("legal"));
         assert_eq!(authority_tripwire(""), None);
+    }
+
+    #[test]
+    fn acronyms_match_only_as_whole_words() {
+        for text in [
+            "Name the slash command /sync or /pull?",
+            "Post to Slack?",
+            "slate gray",
+            "a slab of text",
+            "piiece",
+        ] {
+            assert_eq!(authority_tripwire(text), None, "{text}");
+        }
+        for text in ["Check the SLA", "an SLA.", "two SLAs for the API", "sla"] {
+            assert_eq!(authority_tripwire(text), Some("sla"), "{text}");
+        }
+        assert_eq!(authority_tripwire("Log the PII?"), Some("pii"));
+        assert_eq!(authority_tripwire("GDPR-safe?"), Some("gdpr"));
+    }
+
+    #[test]
+    fn every_whole_word_is_an_authority_word() {
+        for w in WHOLE_WORDS {
+            assert!(AUTHORITY_WORDS.contains(w), "{w} is not in AUTHORITY_WORDS");
+        }
+    }
+
+    #[test]
+    fn stems_still_match_their_longer_forms() {
+        assert_eq!(authority_tripwire("Is it regulated?"), Some("regulat"));
+        assert_eq!(authority_tripwire("Which licence?"), Some("licen"));
+        assert_eq!(authority_tripwire("Encrypted at rest?"), Some("encrypt"));
+        assert_eq!(
+            authority_tripwire("Rotate the credentials?"),
+            Some("credential")
+        );
+        assert_eq!(authority_tripwire("Run the migrations?"), Some("migration"));
+        assert_eq!(authority_tripwire("Who migrated it?"), Some("migrate"));
     }
 }

@@ -76,7 +76,8 @@ impl Stability {
     /// Stable means at least three of four picks agreed (design: Opus plus three Sonnet samples).
     #[must_use]
     pub fn is_stable(&self) -> bool {
-        self.of > 0 && self.agree * 4 >= self.of * 3
+        // Widened so agent-supplied counts near `u32::MAX` cannot overflow.
+        self.of > 0 && u64::from(self.agree) * 4 >= u64::from(self.of) * 3
     }
 }
 
@@ -276,5 +277,20 @@ mod tests {
             ..Default::default()
         });
         assert!(c.recommendation_earned());
+    }
+
+    #[test]
+    fn stability_counts_near_the_top_of_u32_do_not_overflow() {
+        let s = |agree, of| Stability {
+            agree,
+            of,
+            ..Default::default()
+        };
+        assert!(s(2_000_000_000, 4).is_stable());
+        assert!(s(u32::MAX, 4).is_stable());
+        assert!(s(u32::MAX, u32::MAX).is_stable());
+        assert!(!s(1, u32::MAX).is_stable());
+        assert!(!s(1, 1_431_655_766).is_stable());
+        assert!(!s(u32::MAX, 0).is_stable());
     }
 }

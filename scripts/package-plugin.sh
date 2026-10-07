@@ -57,6 +57,11 @@ for t in x86_64-pc-windows-msvc x86_64-pc-windows-gnu; do
 done
 if [ -n "$win" ]; then
   cp "$win" "$stage/libexec/weighin.exe"
+elif [ -f "$stage/libexec/weighin.exe" ]; then
+  # A leftover from an earlier build, with no target build to check it against: an old exe would
+  # open the ledger under its own journal mode (B-05), so it stays out of the zip.
+  rm -f "$stage/libexec/weighin.exe"
+  echo "note: no Windows build under plugin/libexec/<target>/; left plugin/libexec/weighin.exe out of the zip" >&2
 fi
 skill="$stage/skills/weigh-in/SKILL.md"
 [ "$(grep -c 'V=[^;]*; S=[^;]*;' "$skill")" = 1 ] || { echo "SKILL.md must hold exactly one 'V=…; S=…;' stamp" >&2; exit 1; }

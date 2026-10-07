@@ -9,7 +9,15 @@
 # The binary is $WEIGHIN, else the newest installed plugin's launcher, else `weighin` on PATH.
 # Folders whose ledger was moved with `init --ledger` are read through that setting by weighin,
 # but their hook-error count is looked for at the default location only.
+#
+# Each row is a folder's own ledger, so $WEIGHIN_STORE is ignored here: it names one ledger for
+# every folder, which would repeat in each row and be counted again in the pooled row. To include
+# a ledger kept outside a folder, set it with `init --ledger` in that folder instead.
 set -eu
+if [ -n "${WEIGHIN_STORE:-}" ]; then
+  echo "note: ignoring \$WEIGHIN_STORE ($WEIGHIN_STORE); each folder is read through its own ledger" >&2
+fi
+unset WEIGHIN_STORE
 
 if [ $# -eq 0 ]; then
   echo "usage: $0 <folder>..." >&2
@@ -55,9 +63,9 @@ for dir in "$@"; do
   else
     state="$dir/.weighin"
   fi
-  # Reads never create a ledger; this only says "no ledger" rather than a row of zeros, unless a
-  # ledger is named elsewhere (the config's `store`, or $WEIGHIN_STORE).
-  if [ ! -f "$state/ledger.sqlite3" ] && [ -z "${WEIGHIN_STORE:-}" ] \
+  # Reads never create a ledger; this only says "no ledger" rather than a row of zeros, unless the
+  # config's `store` names the ledger elsewhere.
+  if [ ! -f "$state/ledger.sqlite3" ] \
     && ! grep -qs '"store"' "$dir/.kb/_ledger/config.json"; then
     echo "| $name | no ledger | | | | | | | |"
     continue
