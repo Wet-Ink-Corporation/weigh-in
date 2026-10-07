@@ -8,6 +8,7 @@
 use serde::Serialize;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use weighin_core::Item;
 
 use crate::env::{self, Env};
@@ -98,11 +99,18 @@ fn has(cmd: &str) -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
+/// Whether ripgrep runs here, checked once per process: `open --with-context` builds a pack per
+/// item, and each would otherwise spawn its own `rg --version`.
+fn has_rg() -> bool {
+    static RG: OnceLock<bool> = OnceLock::new();
+    *RG.get_or_init(|| has("rg"))
+}
+
 /// `path:line` hits for a whole-word symbol, excluding generated trees.
 fn references(root: &Path, sym: &str) -> Vec<String> {
     // An explicit `.` and a null stdin: ripgrep searches stdin, not the tree, whenever stdin is
     // not a terminal, which is always the case inside hooks and tool calls.
-    let out = if has("rg") {
+    let out = if has_rg() {
         Command::new("rg")
             .current_dir(root)
             .stdin(Stdio::null())
@@ -166,7 +174,13 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
         for e in rd.flatten() {
             let p = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
-            if p.is_dir() {
+            // The entry's own type: a symlinked directory is not descended into, so a link back
+            // up the tree cannot loop (H-13). An entry whose type cannot be read is skipped, as
+            // an unreadable directory is.
+            let Ok(kind) = e.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
                 if !name.starts_with('_') {
                     stack.push(p);
                 }
@@ -243,7 +257,7 @@ pub(crate) fn build(env: &Env, item: &Item) -> Pack {
             },
             |(s, l)| LineSpan {
                 first: *s,
-                last: s + l.len().saturating_sub(1),
+                last: s.saturating_add(l.len().saturating_sub(1)),
             },
         );
         p.permalink = git::permalink(&root, sha, &rel, span);
@@ -277,14 +291,18 @@ fn read_source(p: &mut Pack, rel: &str, abs: &Path) -> Option<String> {
 fn excerpt(text: &str, line: usize) -> (usize, Vec<String>, String) {
     let lines: Vec<&str> = text.lines().collect();
     let start = line.saturating_sub(3).max(1);
-    let end = (line + 7).min(lines.len()).max(start);
+    let end = line.saturating_add(7).min(lines.len()).max(start);
     let body = lines
-        .get(start - 1..end)
+        .get(start.saturating_sub(1)..end)
         .unwrap_or_default()
         .iter()
         .map(|l| clip(l, 140))
         .collect();
-    let anchor = lines.get(line - 1).copied().unwrap_or_default().to_owned();
+    let anchor = lines
+        .get(line.saturating_sub(1))
+        .copied()
+        .unwrap_or_default()
+        .to_owned();
     (start, body, anchor)
 }
 
@@ -314,7 +332,7 @@ fn add_references(p: &mut Pack, root: &Path, rel: &str, line: usize) {
 
 /// One line of history for the lines around the anchor.
 fn add_history(p: &mut Pack, root: &Path, rel: &str, line: usize) {
-    let range = format!("-L{line},{}:{rel}", line + 5);
+    let range = format!("-L{line},{}:{rel}", line.saturating_add(5));
     let args = [
         "log",
         "--no-patch",
@@ -344,7 +362,6 @@ fn add_churn(p: &mut Pack, root: &Path, rel: &str) {
     }
 }
 
-/// Append `label: value` and a newline.
 /// A pack as compact text, uncapped; [`render`] caps it.
 struct Text<'p>(&'p Pack);
 
@@ -416,6 +433,34 @@ mod tests {
         assert_eq!(parse_anchor("src/a.rs:88:4"), ("src/a.rs", Some(88)));
         assert_eq!(parse_anchor("C:/r/a.cs:12"), ("C:/r/a.cs", Some(12)));
         assert_eq!(parse_anchor("docs/plan.md"), ("docs/plan.md", None));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[cfg_attr(miri, ignore = "makes directories and symlinks on the file system")]
+    fn atoms_under_a_symlinked_directory_loop_are_matched_once() -> std::io::Result<()> {
+        let root = tempfile::tempdir()?;
+        let kb = root.path().join(".kb");
+        std::fs::create_dir_all(&kb)?;
+        std::fs::write(
+            kb.join("a.md"),
+            "id: kb-a\nstatus: accepted\ntitle: Ledger home\nThe ledger lives in git.\n",
+        )?;
+        // One link, so a walk that follows it fails fast (on duplicates, at the kernel's 40-link
+        // limit) rather than hanging as two links make it.
+        std::os::unix::fs::symlink(&kb, kb.join("loop"))?;
+
+        let hits = matching_atoms(root.path(), &["ledger lives"]);
+
+        assert_eq!(hits, ["kb-a [accepted] Ledger home"]);
+        Ok(())
+    }
+
+    #[test]
+    fn an_anchor_past_any_line_gives_an_empty_excerpt() {
+        let out = excerpt("a\nb\n", usize::MAX);
+
+        assert_eq!(out, (usize::MAX - 3, Vec::new(), String::new()));
     }
 
     #[test]

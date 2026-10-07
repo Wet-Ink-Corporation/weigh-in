@@ -110,7 +110,7 @@ checkout of the `marketplace` branch.
 ```
 weighin [--store <file>] [--dir <folder>] [--session <id>] <command>
 weighin prime                            the marker convention and open counts
-weighin init --class own|client [--board artifact|local|off] [--board-url <url>] [--owner <who>]
+weighin init [--class own|client] [--board artifact|local|off] [--board-url <url>] [--owner <who>]
              [--ledger <path>]
 weighin open [--repo | --all] [--with-context] [--top <n>] [--json]
                                          open items, ranked (one-way, blocking, authority first);

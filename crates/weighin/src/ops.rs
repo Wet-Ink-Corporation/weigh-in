@@ -17,6 +17,7 @@ use weighin_core::id::{EXTENDED_HEX_LEN, ItemId};
 use weighin_core::marker::{Authority, Door, Kind, Marker, authority_tripwire};
 use weighin_core::{Item, Ledger, Status};
 
+use crate::annotate::{Decision, Skip, Syntax, annotate_source_line};
 use crate::env::{self, Env};
 use crate::git;
 use crate::store::{Appended, Guard, Store};
@@ -145,12 +146,17 @@ impl RaiseOutcome {
 /// Fails when the store's path cannot be checked (so an unreadable ledger is never taken for a
 /// missing one), or when an existing store cannot be opened or read.
 pub(crate) fn stored_ledger(env: &Env) -> Result<Option<Ledger>> {
+    existing_store(env)?.map(|s| s.ledger()).transpose()
+}
+
+/// The store, opened only when it exists already. See [`stored_ledger`].
+fn existing_store(env: &Env) -> Result<Option<Store>> {
     let path = env.store_path();
     if path
         .try_exists()
         .with_context(|| format!("checking {}", path.display()))?
     {
-        Store::open(&path)?.ledger().map(Some)
+        Store::open(&path).map(Some)
     } else {
         Ok(None)
     }
@@ -256,23 +262,32 @@ impl Hints {
 
 pub(crate) struct Session<'a> {
     pub(crate) env: &'a Env,
-    pub(crate) store: Store,
+    /// The store, once one exists: it is created by the first append, so a command that fails
+    /// before writing anything leaves no ledger behind (B-01).
+    store: Option<Store>,
     pub(crate) ledger: Ledger,
     tree: TreeCache,
     actor: String,
-    /// Ids raised earlier in this batch, so later ops can say `@1`, `@2`, ...
-    raised: Vec<ItemId>,
+    /// One slot per raise op earlier in this batch, so later ops can say `@1`, `@2`, ...: the
+    /// raised id, or `None` when that raise failed (it keeps its place, so no ref shifts).
+    raised: Vec<Option<ItemId>>,
     /// The date atoms and source annotations carry (`YYYY-MM-DD`), read once when the session
     /// opens so every write in a batch carries the same day.
     today: String,
 }
 
 impl<'a> Session<'a> {
+    /// Open the session on the store, if there is one yet; it is created by the first append.
+    ///
     /// # Errors
-    /// Fails when the store cannot be opened or read.
+    /// Fails when the store's path cannot be checked, or an existing store cannot be opened or
+    /// read.
     pub(crate) fn open(env: &'a Env, actor: &str) -> Result<Self> {
-        let store = Store::open(&env.store_path())?;
-        let ledger = store.ledger()?;
+        let store = existing_store(env)?;
+        let ledger = match &store {
+            Some(s) => s.ledger()?,
+            None => Ledger::default(),
+        };
         Ok(Self {
             env,
             store,
@@ -301,6 +316,15 @@ impl<'a> Session<'a> {
         t
     }
 
+    /// The store, created on the first call when there was none.
+    fn store(&mut self) -> Result<&Store> {
+        let env = self.env;
+        match &mut self.store {
+            Some(store) => Ok(store),
+            slot @ None => Ok(slot.insert(Store::open(&env.store_path())?)),
+        }
+    }
+
     /// Append events for `id` guarded on the item being unchanged since this session read it.
     fn write(&mut self, id: &ItemId, events: Vec<LedgerEvent>) -> Result<()> {
         let since = self.ledger.get(id).map_or(0, |i| i.last_position);
@@ -309,7 +333,7 @@ impl<'a> Session<'a> {
             .map(|e| self.env.envelope(e, &self.actor))
             .collect();
         match self
-            .store
+            .store()?
             .append(&envs, &Guard::ItemUnchangedSince(id.clone(), since))?
         {
             Appended::At(last) => {
@@ -321,7 +345,7 @@ impl<'a> Session<'a> {
                 Ok(())
             }
             Appended::Conflict => {
-                self.ledger = self.store.ledger()?;
+                self.ledger = self.store()?.ledger()?;
                 bail!(
                     "{id} changed while this was being written (another session acted on it); re-read with `weighin show {id}` and retry"
                 )
@@ -335,12 +359,15 @@ impl<'a> Session<'a> {
             let Ok(k) = n.parse::<usize>() else {
                 bail!("`{needle}`: refs are @1, @2, ... (raises earlier in this batch)");
             };
-            let id = self.raised.get(k.wrapping_sub(1)).ok_or_else(|| {
+            let slot = self.raised.get(k.wrapping_sub(1)).ok_or_else(|| {
                 anyhow!(
                     "`{needle}`: only {} raise(s) so far in this batch",
                     self.raised.len()
                 )
             })?;
+            let Some(id) = slot else {
+                bail!("`{needle}`: raise {k} in this batch failed, so it names no item");
+            };
             return self
                 .ledger
                 .get(id)
@@ -358,6 +385,16 @@ impl<'a> Session<'a> {
     /// # Errors
     /// Fails on an empty question or a store error.
     pub(crate) fn raise(&mut self, input: &RaiseInput) -> Result<RaiseOutcome> {
+        let outcome = self.raise_item(input)?;
+        if let RaiseOutcome::New(id) = &outcome {
+            self.default_acted_call(input, id)?;
+        }
+        Ok(outcome)
+    }
+
+    /// Raise `input` without the acted-call default [`Session::raise`] then writes, so a caller
+    /// can note the new id before that second write.
+    fn raise_item(&mut self, input: &RaiseInput) -> Result<RaiseOutcome> {
         let q = input.q.trim();
         if q.is_empty() {
             bail!("a raised item needs a question");
@@ -371,11 +408,7 @@ impl<'a> Session<'a> {
         if let Some(known) = self.already_raised(q, &session, &minted)? {
             return Ok(known);
         }
-        let outcome = self.append_raised(input, minted, &session)?;
-        if let RaiseOutcome::New(id) = &outcome {
-            self.default_acted_call(input, id)?;
-        }
-        Ok(outcome)
+        self.append_raised(input, minted, &session)
     }
 
     /// The item already asking `q`, if any, noting that `session` raised it again.
@@ -447,7 +480,7 @@ impl<'a> Session<'a> {
                 .env
                 .envelope(self.raised_event(input, id.clone()), &self.actor);
             match self
-                .store
+                .store()?
                 .append(std::slice::from_ref(&env), &Guard::NotYetRaised(id.clone()))?
             {
                 Appended::At(p) => {
@@ -455,7 +488,7 @@ impl<'a> Session<'a> {
                     return Ok(RaiseOutcome::New(id));
                 }
                 Appended::Conflict => {
-                    self.ledger = self.store.ledger()?;
+                    self.ledger = self.store()?.ledger()?;
                     let same = self.ledger.get(&id).is_some_and(|i| {
                         weighin_core::id::question_key(&i.question)
                             == weighin_core::id::question_key(q)
@@ -563,15 +596,41 @@ impl<'a> Session<'a> {
         }
     }
 
+    /// Raise `r` into the next `@N` slot. The slot is taken even when the raise fails, and is
+    /// filled as soon as the item exists, before its acted-call default is written.
     fn apply_raise(&mut self, r: &RaiseInput) -> Result<String> {
-        let out = self.raise(r)?;
-        self.raised.push(out.id().clone());
+        let raised = self.raise_item(r);
+        // The slot keeps its own copy of the id; the outcome goes on to the receipt.
+        self.raised
+            .push(raised.as_ref().ok().map(|o| o.id().clone()));
+        let out = raised?;
+        if let RaiseOutcome::New(id) = &out {
+            self.default_acted_call(r, id)?;
+        }
         let status = self.ledger.get(out.id()).map_or("?", |i| i.status.as_str());
         Ok(match out {
             RaiseOutcome::New(id) => format!("raised {id} ({status})"),
             RaiseOutcome::Existing(id) => format!("{id} already raised"),
             RaiseOutcome::Duplicate(id) => format!("linked to open {id}"),
         })
+    }
+
+    /// Apply one op of a batch as [`parse_ops`] returned it, and return its receipt. An op that
+    /// did not parse fails with serde's error; a raise among them still takes its `@N` slot, so
+    /// a ref to it is refused and later refs keep their place.
+    ///
+    /// # Errors
+    /// Fails when the op did not parse, or as [`Session::apply`] does.
+    pub(crate) fn apply_parsed(&mut self, op: Result<Op, BadOp>) -> Result<String> {
+        match op {
+            Ok(op) => self.apply(&op),
+            Err(bad) => {
+                if bad.raise {
+                    self.raised.push(None);
+                }
+                Err(bad.error.into())
+            }
+        }
     }
 
     /// Resolve `id`, let `build` validate it and name its one event, append that, and return the
@@ -686,9 +745,16 @@ impl<'a> Session<'a> {
         }
         if let Some(path) = self.write_decision_atom(id)? {
             write!(receipt, " · atom {path}")?;
+            if let Some(tracking) = self.supersede_open_question(id, option)? {
+                write!(receipt, " · superseded {tracking}")?;
+            }
         }
-        if let Some(src) = self.annotate_source(id, option)? {
-            write!(receipt, " · annotated {src}")?;
+        match self.annotate_source(id, option)? {
+            Some(Annotation::Written(src)) => write!(receipt, " · annotated {src}")?,
+            Some(Annotation::Skipped(src, skip)) => {
+                write!(receipt, " · not annotated {src} ({})", skip.reason())?;
+            }
+            None => {}
         }
         write!(receipt, " · trailer `Weigh-In: {id} decided {option}`")?;
         Ok(receipt)
@@ -747,8 +813,43 @@ impl<'a> Session<'a> {
         Ok(Some(rel))
     }
 
-    /// spec-kit's write-back: the line the question came from gets an arrow, so it is not raised again.
-    fn annotate_source(&self, id: &ItemId, option: &str) -> Result<Option<String>> {
+    /// Mark the open-question atom a deferral wrote for `id`, if any, as superseded by the
+    /// decision atom just written, so it no longer reads as open. The file is overwritten in place
+    /// (B-01); one already closed, or no longer there, is left alone.
+    fn supersede_open_question(&self, id: &ItemId, option: &str) -> Result<Option<String>> {
+        let Some(item) = self.ledger.get(id) else {
+            return Ok(None);
+        };
+        let Some(record) = item
+            .records
+            .iter()
+            .rev()
+            .find(|r| r.atom_kind == "open_question")
+        else {
+            return Ok(None);
+        };
+        let path = self.env.root().join(&record.path);
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        };
+        let settled = Settled {
+            option,
+            decision_atom: &atom::decision_atom_id(item),
+            date: &self.today,
+        };
+        let Some(closed) = superseded_open_question(&text, &settled)? else {
+            return Ok(None);
+        };
+        self.write_file(&record.path, &closed)?;
+        Ok(Some(record.path.clone()))
+    }
+
+    /// spec-kit's write-back: the line the question came from gets an arrow, so it is not raised
+    /// again. Only prose is written into ([`syntax_of`], [`annotate_source_line`]); a code file,
+    /// or a line the option cannot go on, is left as it was, and the receipt says so.
+    fn annotate_source(&self, id: &ItemId, option: &str) -> Result<Option<Annotation>> {
         let Some(item) = self.ledger.get(id) else {
             return Ok(None);
         };
@@ -763,8 +864,15 @@ impl<'a> Session<'a> {
         if first.is_empty() {
             return Ok(None);
         }
-        // Rebuild with each line's own terminator so a CRLF file stays CRLF.
-        let mut done = false;
+        let syntax = syntax_of(src);
+        let decision = Decision {
+            id: id.as_str(),
+            option,
+            date: &self.today,
+        };
+        // Rebuild with each line's own terminator so a CRLF file stays CRLF. `found` is the
+        // outcome on the question's line: `None` until it is found, then the skip, if any.
+        let mut found = None;
         let mut joined = String::with_capacity(text.len() + 64);
         for chunk in text.split_inclusive('\n') {
             let (body, end) = match chunk.strip_suffix("\r\n") {
@@ -774,23 +882,109 @@ impl<'a> Session<'a> {
                     None => (chunk, ""),
                 },
             };
-            if !done && body.trim() == first && !body.contains("→ Weigh-In") {
-                done = true;
-                write!(
-                    joined,
-                    "{body} → Weigh-In {id}: decided {option} ({})",
-                    self.today
-                )?;
+            if found.is_none() && body.trim() == first && !body.contains("→ Weigh-In") {
+                let rewritten = annotate_source_line(body, &decision, syntax);
+                joined.push_str(rewritten.as_deref().unwrap_or(body));
+                found = Some(rewritten.err());
             } else {
                 joined.push_str(body);
             }
             joined.push_str(end);
         }
-        if !done {
-            return Ok(None);
+        let annotation = match found {
+            None => return Ok(None),
+            Some(Some(skip)) => Annotation::Skipped(src.clone(), skip),
+            Some(None) => {
+                std::fs::write(&path, joined)
+                    .with_context(|| format!("writing {}", path.display()))?;
+                Annotation::Written(src.clone())
+            }
+        };
+        Ok(Some(annotation))
+    }
+}
+
+/// What settled a deferred item, as its open-question atom records it.
+struct Settled<'a> {
+    option: &'a str,
+    decision_atom: &'a str,
+    date: &'a str,
+}
+
+/// `text`, an open-question atom, rewritten as superseded by the decision `s`: `.kb`'s
+/// `status: superseded` with `superseded_by` and `resolution_ref`, a settled summary and a
+/// Resolution section. `None` when `text` is not an open one (no `status: proposed` in its
+/// frontmatter).
+fn superseded_open_question(text: &str, s: &Settled<'_>) -> Result<Option<String>> {
+    let Some((front, body)) = text
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+    else {
+        return Ok(None);
+    };
+    if !front.lines().any(|l| l == "status: proposed") {
+        return Ok(None);
+    }
+    let summary = format!(
+        "Settled on {}: decided {} ({}).",
+        s.date, s.option, s.decision_atom
+    );
+    // YAML strings are written as JSON strings, as the atoms write them.
+    let yaml = serde_json::to_string;
+    let mut out = String::with_capacity(text.len().saturating_add(256));
+    out.push_str("---\n");
+    for line in front.lines() {
+        if line == "status: proposed" {
+            writeln!(out, "status: superseded")?;
+            writeln!(out, "superseded_by: {}", yaml(s.decision_atom)?)?;
+            // The key the design and redkiln's `.kb` schema name for an open question's answer.
+            writeln!(out, "resolution_ref: {}", yaml(s.decision_atom)?)?;
+            continue;
         }
-        std::fs::write(&path, joined)?;
-        Ok(Some(src.clone()))
+        match line.split_once(':').map(|(key, _)| key) {
+            Some("summary") => writeln!(out, "summary: {}", yaml(&summary)?)?,
+            Some("last_reviewed") => writeln!(out, "last_reviewed: {}", yaml(s.date)?)?,
+            _ => writeln!(out, "{line}")?,
+        }
+    }
+    out.push_str("---\n");
+    out.push_str(body.trim_end());
+    write!(
+        out,
+        "\n\n## Resolution\n\nSettled on {}: decided **{}**, recorded in `{}`. The deferral above no longer applies.\n",
+        s.date, s.option, s.decision_atom
+    )?;
+    Ok(Some(out))
+}
+
+/// What a decision did to the line its question came from.
+enum Annotation {
+    /// The arrow was written into this file.
+    Written(String),
+    /// This file was left as it was, for this reason.
+    Skipped(String, Skip),
+}
+
+/// Whether `rel` is markdown: scanned for question bullets rather than TODO comments, and
+/// annotated as prose.
+#[must_use]
+pub(crate) fn is_markdown(rel: &str) -> bool {
+    Path::new(rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "md" | "mdx" | "markdown"))
+}
+
+/// How `rel` reads when a decision is written back into it: markdown ([`is_markdown`]) and
+/// `.txt` are prose; anything else is code, and is never annotated.
+fn syntax_of(rel: &str) -> Syntax {
+    let txt = Path::new(rel)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("txt"));
+    if txt || is_markdown(rel) {
+        Syntax::Prose
+    } else {
+        Syntax::Code
     }
 }
 
@@ -1035,15 +1229,24 @@ fn route_str(r: Route) -> &'static str {
     }
 }
 
+/// An operation that could not be parsed.
+#[derive(Debug)]
+pub(crate) struct BadOp {
+    /// Whether it was tagged `"op": "raise"`: such an op still takes its `@N` slot
+    /// ([`Session::apply_parsed`]).
+    pub(crate) raise: bool,
+    /// serde's error, with what it expected.
+    pub(crate) error: serde_json::Error,
+}
+
 /// Parse a JSON array (or single object) of operations.
 ///
-/// # Errors
-/// Returns the serde error with the offending position.
-/// One bad operation does not drop the others: each is parsed on its own.
+/// One bad operation does not drop the others: each is parsed on its own, and its error is
+/// returned in its slot.
 ///
 /// # Errors
-/// Fails only when the text is not JSON at all.
-pub(crate) fn parse_ops(text: &str) -> Result<Vec<Result<Op>>> {
+/// Fails only when the text is not JSON at all, with serde's error and position.
+pub(crate) fn parse_ops(text: &str) -> Result<Vec<Result<Op, BadOp>>> {
     let v: serde_json::Value = serde_json::from_str(text)?;
     let arr = match v {
         serde_json::Value::Array(a) => a,
@@ -1051,7 +1254,10 @@ pub(crate) fn parse_ops(text: &str) -> Result<Vec<Result<Op>>> {
     };
     Ok(arr
         .into_iter()
-        .map(|o| serde_json::from_value(o).map_err(|e| anyhow!("{e}")))
+        .map(|o| {
+            let raise = o.get("op").and_then(serde_json::Value::as_str) == Some("raise");
+            serde_json::from_value(o).map_err(|error| BadOp { raise, error })
+        })
         .collect())
 }
 
@@ -1093,7 +1299,7 @@ mod tests {
     fn run(s: &mut Session<'_>, batch: &serde_json::Value) -> Result<Vec<String>> {
         Ok(parse_ops(&batch.to_string())?
             .into_iter()
-            .map(|op| match op.and_then(|op| s.apply(&op)) {
+            .map(|op| match s.apply_parsed(op) {
                 Ok(r) => format!("✓ {r}"),
                 Err(e) => format!("✗ {e:#}"),
             })
@@ -1242,6 +1448,88 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn deciding_a_deferred_one_way_door_supersedes_its_tracking_atom() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let batch = serde_json::json!([
+            {"op": "raise", "q": ONE_WAY, "door": "one-way"},
+            {"op": "triage", "id": "@1", "door": "one-way", "blast": "module", "route": "present", "reason": "r"},
+            {"op": "defer", "id": "@1", "flip": "a tenant asks", "trigger": "the tenant survey", "resolve_by": "2026-12-01", "default": "A"},
+            {"op": "decide", "id": "@1", "option": "B"}
+        ]);
+
+        let out = run(
+            &mut Session::open(&env, "t")?.with_today("2026-10-07"),
+            &batch,
+        )?;
+
+        let id = id_of(ONE_WAY);
+        let rel = format!(
+            ".kb/_intake/open_questions/{id}-should-retention-attach-per-record-or-per-series.md"
+        );
+        assert!(
+            out.get(3)
+                .is_some_and(|r| r.contains(&format!(" · superseded {rel} · trailer"))),
+            "{out:?}"
+        );
+        let atom = std::fs::read_to_string(dir.path().join(&rel))?;
+        assert_eq!(
+            atom,
+            format!(
+                "---\nid: \"kb-open-question-{id}\"\ntitle: \"{ONE_WAY}\"\nkind: open_question\nstatus: superseded\nsuperseded_by: \"kb-decision-{id}\"\nresolution_ref: \"kb-decision-{id}\"\nauthority_tier: note\nsummary: \"Settled on 2026-10-07: decided B (kb-decision-{id}).\"\ndepends_on: []\nrelated: []\nsource_paths: []\nlast_reviewed: \"2026-10-07\"\ntracks: \"{id}\"\nresolve_by: \"2026-12-01\"\ntrigger: \"the tenant survey\"\ndefault_if_unresolved: \"A\"\nowner: \"ryan\"\nflip_condition: \"a tenant asks\"\n---\n\n# {ONE_WAY}\n\nDeferred on purpose. Waiting for: the tenant survey. Resolve by: 2026-12-01. If nobody acts, **A** applies.\n\n## Resolution\n\nSettled on 2026-10-07: decided **B**, recorded in `kb-decision-{id}`. The deferral above no longer applies.\n"
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn only_markdown_and_txt_files_read_as_prose() {
+        let read: Vec<(&str, Syntax)> = [
+            "notes.TXT",
+            "spec.md",
+            "docs/a.mdx",
+            "README.markdown",
+            "src/c.js",
+            "src/a.rs",
+            "doc/guide.rst",
+            "Makefile",
+        ]
+        .into_iter()
+        .map(|p| (p, syntax_of(p)))
+        .collect();
+
+        assert_eq!(
+            read,
+            [
+                ("notes.TXT", Syntax::Prose),
+                ("spec.md", Syntax::Prose),
+                ("docs/a.mdx", Syntax::Prose),
+                ("README.markdown", Syntax::Prose),
+                ("src/c.js", Syntax::Code),
+                ("src/a.rs", Syntax::Code),
+                ("doc/guide.rst", Syntax::Code),
+                ("Makefile", Syntax::Code),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tracking_atom_already_superseded_is_left_alone() -> Result<()> {
+        let atom = "---\nid: \"kb-open-question-wi-1\"\nstatus: superseded\nsuperseded_by: \"kb-decision-wi-1\"\n---\n\n# Q\n";
+        let settled = Settled {
+            option: "A",
+            decision_atom: "kb-decision-wi-1",
+            date: "2026-10-08",
+        };
+
+        let out = superseded_open_question(atom, &settled)?;
+
+        assert_eq!(out, None);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn defaults_and_dismissals_print_their_cause() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let env = env_in(dir.path(), "s1");
@@ -1326,6 +1614,32 @@ mod tests {
                 "✗ `@x`: refs are @1, @2, ... (raises earlier in this batch)",
                 "✗ `@3`: only 1 raise(s) so far in this batch",
                 "✗ no single item matches `wi-zzzzzz` (try `weighin open --all`)",
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn a_ref_to_a_failed_raise_is_refused_and_later_refs_keep_their_place() -> Result<()> {
+        let out = after(
+            &[],
+            &[
+                serde_json::json!({"op": "raise", "q": "   "}),
+                serde_json::json!({"op": "raise", "q": ONE_WAY}),
+                serde_json::json!({"op": "dismiss", "id": "@1", "why": "moot", "reason": "r"}),
+                serde_json::json!({"op": "triage", "id": "@2", "door": "one-way", "blast": "file", "route": "present", "reason": "r"}),
+            ],
+        )?;
+
+        let id = id_of(ONE_WAY);
+        assert_eq!(
+            out,
+            [
+                "✗ a raised item needs a question".to_owned(),
+                format!("✓ raised {id} (raised)"),
+                "✗ `@1`: raise 1 in this batch failed, so it names no item".to_owned(),
+                format!("✓ triaged {id} · one-way · file · present"),
             ]
         );
         Ok(())

@@ -46,6 +46,33 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - `scripts/package-plugin.sh` leaves a leftover `plugin/libexec/weighin.exe` out of the zip when
   there is no Windows build under `plugin/libexec/<target>/`, and says so; before, it shipped it
   unchecked.
+- `decide` writes `→ Weigh-In <id>: decided <option> (<date>)` only into markdown (`.md`, `.mdx`,
+  `.markdown`) and `.txt` files, and not when the option holds a control character or line
+  separator; before, it appended the note to the source line of any file, which could break the
+  code. Code files are no longer annotated: the decision stays in the ledger, its atom and the
+  commit trailer, and the receipt says `not annotated <file> (code file: the decision is in the
+  ledger)`.
+- In `batch`, `@N` always names the Nth raise in the array. A raise that fails, or cannot be
+  parsed, keeps its place: a ref to it is refused, and later refs still reach their own items;
+  before, every later ref moved to the next item raised, so an op could act on the wrong item.
+- `weighin init` changes only what its flags name: `init --ledger <path>` or `init --owner <name>`
+  on a client repo keeps its class and its `local` board; before, any `init` without `--class`
+  reset the repo to `own` on the `artifact` board. A first `init` is still `own` on `artifact`.
+- `weighin --dir <folder> scan <path>` reads a relative path under `<folder>`, as it already
+  anchored it; before, it read the path against the shell's own directory, so it failed or raised
+  another file's questions into the folder's ledger.
+- A command that changes the ledger creates it only when it first writes: `decide`, `defer`,
+  `dismiss` or `reopen` that names no item, an empty `batch`, or `board apply` with no answers no
+  longer leaves an empty ledger in a folder that had none (B-01).
+- Deciding a deferred one-way item now closes its tracking atom in
+  `.kb/_intake/open_questions/`: `status: superseded`, `superseded_by` and `resolution_ref`
+  naming the decision atom, a settled summary and a Resolution section, and the receipt says
+  `superseded <path>`; before, it stayed `status: proposed` and read as still open.
+- `weighin context` and `open --with-context` no longer panic on an item whose `at:` line number
+  is near the largest integer; the pack is built with an empty excerpt.
+- `board apply <dir>` and the `.kb` matches in context packs no longer follow symlinked
+  directories, so a link back up the tree no longer reads the same answers many times over or
+  hangs the command.
 
 ## 0.5.4 — 2026-10-06
 
