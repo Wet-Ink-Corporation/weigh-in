@@ -8,6 +8,7 @@
 use serde::Serialize;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use weighin_core::Item;
 
 use crate::env::{self, Env};
@@ -98,11 +99,18 @@ fn has(cmd: &str) -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
+/// Whether ripgrep runs here, checked once per process: `open --with-context` builds a pack per
+/// item, and each would otherwise spawn its own `rg --version`.
+fn has_rg() -> bool {
+    static RG: OnceLock<bool> = OnceLock::new();
+    *RG.get_or_init(|| has("rg"))
+}
+
 /// `path:line` hits for a whole-word symbol, excluding generated trees.
 fn references(root: &Path, sym: &str) -> Vec<String> {
     // An explicit `.` and a null stdin: ripgrep searches stdin, not the tree, whenever stdin is
     // not a terminal, which is always the case inside hooks and tool calls.
-    let out = if has("rg") {
+    let out = if has_rg() {
         Command::new("rg")
             .current_dir(root)
             .stdin(Stdio::null())
@@ -354,7 +362,6 @@ fn add_churn(p: &mut Pack, root: &Path, rel: &str) {
     }
 }
 
-/// Append `label: value` and a newline.
 /// A pack as compact text, uncapped; [`render`] caps it.
 struct Text<'p>(&'p Pack);
 
