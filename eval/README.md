@@ -107,3 +107,14 @@ One JSON object per line:
   first item stays raised. The seed is 60 items, 15 labelled `capture`, 9 captured (precision
   100%, recall 60%). After 0.5.2, recall is 8 of 8 across s8 to s11. One more captured item
   brings the 80% bar into force (wi-a9df17).
+
+  Added 2026-10-07: ten end-of-turn messages from s12, the overnight review session (#90 to
+  #96), saved by the session itself (`rs12-01` to `rs12-10`). Two carry one block each (calls on
+  how a decision is written back into source files) and are captured as logged defaults. One
+  (`rs12-03`) states two calls in prose with no block (two review findings kept as they were) and
+  is a miss. Six are true negatives (status notes and CI acknowledgements; the session ended
+  about 50 turns of that kind, and only a share is kept). The last, `rs12-10`, is the hand-off,
+  written into the seed before it was sent, word for word; it carries 20 blocks and its first
+  item stays raised. The seed is 70 items, 19 labelled `capture`, 12 captured (precision 100%,
+  recall 63%). With 12 captured items the 80% bar is now in force (wi-a9df17), and it passes.
+  After 0.5.2, recall is 11 of 12 across s8 to s12.
