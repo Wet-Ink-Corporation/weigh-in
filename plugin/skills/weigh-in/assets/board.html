@@ -622,15 +622,16 @@
     });
   }
   function copyPrompt(it, picked, note){
+    // Plain language for the next sitting, which maps it to `weighin decide` or `weighin defer`
+    // (the "Waiting for" field is the trigger, as a saved deferral records it).
     var mode = st.mode[it.id] || "choose", txt;
-    function q(s){ return '"' + String(s).replace(/"/g,"'") + '"'; }
+    function one(s){ return String(s || "").replace(/\s+/g," ").trim(); }
+    var tail = note ? " (note: " + one(note) + ")" : "";
     if (mode === "defer"){
       var tr = document.getElementById("trig-" + it.id), by = document.getElementById("by-" + it.id), df = document.getElementById("def-" + it.id);
-      txt = "/weigh-in defer " + it.id + " --flip " + q(tr ? tr.value : "") + " --by " + q(by ? by.value : "") + " --default " + (df ? df.value : recOf(it).option);
-    } else if (picked){
-      txt = "/weigh-in decide " + it.id + " " + picked + (note ? " --note " + q(note) : "");
+      txt = "/weigh-in defer " + it.id + " — trigger: " + one(tr ? tr.value : "") + "; resolve by: " + one(by ? by.value : "") + "; default: " + (df ? df.value : recOf(it).option) + tail;
     } else {
-      txt = "/weigh-in decide " + it.id + " " + (recOf(it).option || "") + (note ? " --note " + q(note) : "");
+      txt = "/weigh-in decide " + it.id + ": " + (picked || recOf(it).option || "") + tail;
     }
     function done(ok){ setMsg(it.id, ok ? "ok" : "warn", ok ? "Copied: " + txt : "Copy blocked here. Select and copy: " + txt); }
     try { navigator.clipboard.writeText(txt).then(function(){ done(true); }, function(){ done(false); }); } catch(e){ done(false); }
