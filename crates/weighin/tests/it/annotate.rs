@@ -175,28 +175,51 @@ const LEFT_ALONE: &[(&str, &str, &str)] = &[
         "// TODO: pick \u{2028} let x=1;\n",
         "the comment runs on to the next line",
     ),
+    (
+        "src/w.c",
+        "/*\n// TODO: pick a width */\nint x;\n",
+        "the line may close a string or comment opened above",
+    ),
+    (
+        "src/doc.py",
+        "def f():\n    \"\"\"Doc.\n    # TODO: pick a cap\"\"\"\n",
+        "the line may close a string or comment opened above",
+    ),
+    (
+        "src/t.js",
+        "const s = `\n// TODO: pick a tag`;\n",
+        "the line may close a string or comment opened above",
+    ),
+    (
+        "src/e.sh",
+        "echo 'a\n# TODO: pick a word'\n",
+        "the line may close a string or comment opened above",
+    ),
 ];
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn an_option_that_could_close_a_string_is_decided_but_not_annotated_in_code() {
-    let (_tmp, repo) = setup();
-    let source = "s = \"\"\"\n# TODO: pick a cap\n\"\"\"\n";
-    std::fs::write(repo.join("src/s.py"), source).unwrap();
-    let id = scan_one(&repo, "src/s.py");
+    for option in ["x \"\"\" y", r"C:\N", r"use \x1"] {
+        let (_tmp, repo) = setup();
+        let source = "s = \"\"\"\n# TODO: pick a cap\n\"\"\"\n";
+        std::fs::write(repo.join("src/s.py"), source).unwrap();
+        let id = scan_one(&repo, "src/s.py");
 
-    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "x \"\"\" y"], None);
+        let (ok, out) = weighin(&repo, "s1", &["decide", &id, option], None);
 
-    assert!(
-        ok && out.contains(
-            "not annotated src/s.py (the option holds a quote or bracket that could end a string around the comment)"
-        ),
-        "{out}"
-    );
-    assert_eq!(
-        std::fs::read_to_string(repo.join("src/s.py")).unwrap(),
-        source
-    );
+        assert!(
+            ok && out.contains(
+                "not annotated src/s.py (the option holds a quote, bracket or backslash that could end or change a string around the comment)"
+            ),
+            "{option}: {out}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo.join("src/s.py")).unwrap(),
+            source,
+            "{option}"
+        );
+    }
 }
 
 #[test]

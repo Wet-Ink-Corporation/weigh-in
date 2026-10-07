@@ -15,16 +15,16 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   a `\` line splice, or already holds a line break (a lone CR, U+0085, U+2028 or U+2029). A line
   that is exactly one `/* … */` or `<!-- … -->`, with nothing before the opener or after the
   closer, gets it just before the closer. Anything else is left as it was, a comment after code
-  (`x = 1  # TODO`) included. A code line is also left alone when the option holds `*/`, `-->`,
-  `?>` (or `/*` inside a `/* … */`, `--` inside a `<!-- … -->`), or a quote or bracket that
-  could end a string around the comment: `"`, a backtick, `'''`, `{`, `}`, `]]`, `<` or `>`.
-  Any line is left alone when the option holds a line break or a control character. The receipt
-  then says `not annotated <file> (<reason>)`. Before, the arrow went at the end of the line and
-  could break the code. Markdown and plain-text files (`.txt`, `.rst`, `.org`, `.adoc`) still get
-  the arrow at the end of the line, whatever the option holds apart from a line break. The
-  reading is per line, so a whole-line comment that really sits inside a string opened on an
-  earlier line is annotated too; an option holding a lone `'` can then end a single-quoted
-  string there (SQL, shell) and break the file.
+  (`x = 1  # TODO`) included. As the reading is per line, a whole-line comment may really sit
+  inside a string or block comment opened on an earlier line, so a code line is also left alone
+  when the line itself could close one (a `"`, a backtick, `{`, `}`, `<`, `>`, `*/`, `]]`, `]=`
+  or `'''`, and `'` in shell, the other `#` languages, SQL and files of unknown language), or when
+  the option holds a comment opener or closer (`/*`, `*/`, `<!--`, `-->`, PHP's `?>`, or `--`
+  inside a `<!-- … -->`), a backslash, or any of those quotes and brackets. Any line is left alone
+  when the option holds a line break or a control character. The receipt then says
+  `not annotated <file> (<reason>)`. Before, the arrow went at the end of the line and could
+  break the code. Markdown and plain-text files (`.txt`, `.rst`, `.org`, `.adoc`) still get the
+  arrow at the end of the line, whatever the option holds apart from a line break.
 - In `batch`, `@N` always names the Nth raise in the array. A raise that fails, or cannot be
   parsed, keeps its place: a ref to it is refused, and later refs still reach their own items;
   before, every later ref moved to the next item raised, so an op could act on the wrong item.

@@ -89,14 +89,20 @@ impl Lang {
             Self::Dashes => opens("--", &['[']),
             Self::Basic => opens("'", &[]) || opens_rem(trimmed),
             Self::Batch => opens_rem(trimmed),
-            Self::Unknown => ["//", "#", "--", "REM "].into_iter().any(|opener| {
-                trimmed.strip_prefix(opener).is_some_and(|rest| {
-                    opener.ends_with(' ')
-                        || rest.is_empty()
-                        || rest.starts_with(char::is_whitespace)
-                })
-            }),
+            Self::Unknown => {
+                ["//", "#", "--"]
+                    .into_iter()
+                    .any(|opener| opens_before_space(trimmed, opener))
+                    || trimmed.starts_with("REM ")
+            }
         }
+    }
+
+    /// Whether a single-quoted string in this language may run over several lines, so a `'`
+    /// on a comment line could close one opened above: shell and the other `#` languages, SQL,
+    /// and a file whose language is not known.
+    pub(super) fn single_quotes_span_lines(self) -> bool {
+        matches!(self, Self::Hash | Self::Sql | Self::Unknown)
     }
 
     /// The block comments of this language.
@@ -115,6 +121,14 @@ fn opens_rem(trimmed: &str) -> bool {
     trimmed
         .get(..4)
         .is_some_and(|head| head.eq_ignore_ascii_case("REM "))
+}
+
+/// Whether `trimmed` starts with `opener` followed by whitespace or the line's end, as a file
+/// of unknown language needs (`#define` is not a comment there).
+fn opens_before_space(trimmed: &str, opener: &str) -> bool {
+    trimmed
+        .strip_prefix(opener)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
 }
 
 /// The language of a file known by its whole (lowercased) name.
