@@ -243,7 +243,7 @@ pub(crate) fn build(env: &Env, item: &Item) -> Pack {
             },
             |(s, l)| LineSpan {
                 first: *s,
-                last: s + l.len().saturating_sub(1),
+                last: s.saturating_add(l.len().saturating_sub(1)),
             },
         );
         p.permalink = git::permalink(&root, sha, &rel, span);
@@ -277,14 +277,18 @@ fn read_source(p: &mut Pack, rel: &str, abs: &Path) -> Option<String> {
 fn excerpt(text: &str, line: usize) -> (usize, Vec<String>, String) {
     let lines: Vec<&str> = text.lines().collect();
     let start = line.saturating_sub(3).max(1);
-    let end = (line + 7).min(lines.len()).max(start);
+    let end = line.saturating_add(7).min(lines.len()).max(start);
     let body = lines
-        .get(start - 1..end)
+        .get(start.saturating_sub(1)..end)
         .unwrap_or_default()
         .iter()
         .map(|l| clip(l, 140))
         .collect();
-    let anchor = lines.get(line - 1).copied().unwrap_or_default().to_owned();
+    let anchor = lines
+        .get(line.saturating_sub(1))
+        .copied()
+        .unwrap_or_default()
+        .to_owned();
     (start, body, anchor)
 }
 
@@ -314,7 +318,7 @@ fn add_references(p: &mut Pack, root: &Path, rel: &str, line: usize) {
 
 /// One line of history for the lines around the anchor.
 fn add_history(p: &mut Pack, root: &Path, rel: &str, line: usize) {
-    let range = format!("-L{line},{}:{rel}", line + 5);
+    let range = format!("-L{line},{}:{rel}", line.saturating_add(5));
     let args = [
         "log",
         "--no-patch",
@@ -416,6 +420,13 @@ mod tests {
         assert_eq!(parse_anchor("src/a.rs:88:4"), ("src/a.rs", Some(88)));
         assert_eq!(parse_anchor("C:/r/a.cs:12"), ("C:/r/a.cs", Some(12)));
         assert_eq!(parse_anchor("docs/plan.md"), ("docs/plan.md", None));
+    }
+
+    #[test]
+    fn an_anchor_past_any_line_gives_an_empty_excerpt() {
+        let out = excerpt("a\nb\n", usize::MAX);
+
+        assert_eq!(out, (usize::MAX - 3, Vec::new(), String::new()));
     }
 
     #[test]

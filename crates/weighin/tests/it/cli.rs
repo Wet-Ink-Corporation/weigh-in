@@ -914,6 +914,32 @@ fn a_board_apply_with_no_answers_leaves_no_ledger_behind() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn an_anchor_line_past_usize_max_does_not_crash_a_context_pack() {
+    let (_tmp, repo) = setup();
+    for (q, at) in [
+        (
+            "Is the huge anchor fine?",
+            "src/retention.rs:18446744073709551615",
+        ),
+        (
+            "Is a missing file fine?",
+            "src/nope.rs:18446744073709551615",
+        ),
+    ] {
+        let (ok, out) = weighin(&repo, "s1", &["raise", "--q", q, "--at", at], None);
+        assert!(ok, "{out}");
+        let id = out.split_whitespace().nth(1).unwrap().to_owned();
+
+        let (ok, out) = weighin(&repo, "s1", &["context", &id], None);
+
+        assert!(ok && out.contains(&format!("## {id} context")), "{out}");
+    }
+    let (ok, out) = weighin(&repo, "s1", &["open", "--with-context"], None);
+    assert!(ok && out.contains("2 open in this session"), "{out}");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn read_only_commands_leave_no_ledger_behind() {
     // A non-git folder, reached with `--dir` as Cowork does, and a git repository.
     let tmp = tempfile::tempdir().unwrap();

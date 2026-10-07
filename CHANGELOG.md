@@ -28,6 +28,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   `.kb/_intake/open_questions/`: `status: superseded`, `superseded_by` naming the decision atom,
   a settled summary and a Resolution section, and the receipt says `superseded <path>`; before, it
   stayed `status: proposed` and read as still open.
+- `weighin context` and `open --with-context` no longer panic on an item whose `at:` line number
+  is near the largest integer; the pack is built with an empty excerpt.
 ## 0.5.4 — 2026-10-06
 
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development
