@@ -615,10 +615,22 @@ impl<'a> Session<'a> {
         })
     }
 
-    /// Note a raise op in this batch that could not be parsed: it still takes its `@N` slot, so
+    /// Apply one op of a batch as [`parse_ops`] returned it, and return its receipt. An op that
+    /// did not parse fails with serde's error; a raise among them still takes its `@N` slot, so
     /// a ref to it is refused and later refs keep their place.
-    pub(crate) fn skip_raise(&mut self) {
-        self.raised.push(None);
+    ///
+    /// # Errors
+    /// Fails when the op did not parse, or as [`Session::apply`] does.
+    pub(crate) fn apply_parsed(&mut self, op: Result<Op, BadOp>) -> Result<String> {
+        match op {
+            Ok(op) => self.apply(&op),
+            Err(bad) => {
+                if bad.raise {
+                    self.raised.push(None);
+                }
+                Err(bad.error.into())
+            }
+        }
     }
 
     /// Resolve `id`, let `build` validate it and name its one event, append that, and return the
@@ -895,8 +907,9 @@ struct Settled<'a> {
 }
 
 /// `text`, an open-question atom, rewritten as superseded by the decision `s`: `.kb`'s
-/// `status: superseded` with `superseded_by` and `resolution_ref`, a settled summary and a Resolution section. `None`
-/// when `text` is not an open one (no `status: proposed` in its frontmatter).
+/// `status: superseded` with `superseded_by` and `resolution_ref`, a settled summary and a
+/// Resolution section. `None` when `text` is not an open one (no `status: proposed` in its
+/// frontmatter).
 fn superseded_open_question(text: &str, s: &Settled<'_>) -> Result<Option<String>> {
     let Some((front, body)) = text
         .strip_prefix("---\n")
@@ -1221,7 +1234,7 @@ fn route_str(r: Route) -> &'static str {
 #[derive(Debug)]
 pub(crate) struct BadOp {
     /// Whether it was tagged `"op": "raise"`: such an op still takes its `@N` slot
-    /// ([`Session::skip_raise`]).
+    /// ([`Session::apply_parsed`]).
     pub(crate) raise: bool,
     /// serde's error, with what it expected.
     pub(crate) error: serde_json::Error,
@@ -1287,17 +1300,9 @@ mod tests {
     fn run(s: &mut Session<'_>, batch: &serde_json::Value) -> Result<Vec<String>> {
         Ok(parse_ops(&batch.to_string())?
             .into_iter()
-            .map(|op| match op {
-                Ok(op) => match s.apply(&op) {
-                    Ok(r) => format!("✓ {r}"),
-                    Err(e) => format!("✗ {e:#}"),
-                },
-                Err(bad) => {
-                    if bad.raise {
-                        s.skip_raise();
-                    }
-                    format!("✗ {}", bad.error)
-                }
+            .map(|op| match s.apply_parsed(op) {
+                Ok(r) => format!("✓ {r}"),
+                Err(e) => format!("✗ {e:#}"),
             })
             .collect())
     }

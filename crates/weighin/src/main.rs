@@ -683,22 +683,12 @@ fn batch(env: &Env, a: BatchArgs, out: &mut impl Write) -> Result<()> {
         None => stdin()?,
     };
     let ops = ops::parse_ops(&text)?;
+    let total = ops.len();
     let mut s = Session::open(env, "cli")?;
     let mut receipts = Receipts::new(out);
     let mut failed = 0;
-    for (n, op) in ops.iter().enumerate() {
-        let applied = match op {
-            Ok(op) => s.apply(op),
-            Err(bad) => {
-                if bad.raise {
-                    s.skip_raise();
-                }
-                failed += 1;
-                receipts.line(format_args!("✗ op {n}: {}", bad.error));
-                continue;
-            }
-        };
-        match applied {
+    for (n, op) in ops.into_iter().enumerate() {
+        match s.apply_parsed(op) {
             Ok(r) => receipts.line(format_args!("✓ {r}")),
             Err(e) => {
                 failed += 1;
@@ -708,8 +698,7 @@ fn batch(env: &Env, a: BatchArgs, out: &mut impl Write) -> Result<()> {
     }
     let outcome = if failed > 0 {
         Err(anyhow!(
-            "{failed} of {} operations failed; the rest were applied",
-            ops.len()
+            "{failed} of {total} operations failed; the rest were applied"
         ))
     } else {
         Ok(())
