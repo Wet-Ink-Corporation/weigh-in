@@ -6,11 +6,12 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
-- `decide` writes `→ Weigh-In <id>: decided <option> (<date>)` only into markdown (`.md`,
-  `.mdx`, `.markdown`) and `.txt` files, and not when the option holds a control character or line separator; before, it
-  appended the note to the source line of any file, which could break the code. Code files are
-  no longer annotated: the decision stays in the ledger, its atom and the commit trailer, and
-  the receipt says `not annotated <file> (code file: the decision is in the ledger)`.
+- `decide` writes `→ Weigh-In <id>: decided <option> (<date>)` only into markdown (`.md`, `.mdx`,
+  `.markdown`) and `.txt` files, and not when the option holds a control character or line
+  separator; before, it appended the note to the source line of any file, which could break the
+  code. Code files are no longer annotated: the decision stays in the ledger, its atom and the
+  commit trailer, and the receipt says `not annotated <file> (code file: the decision is in the
+  ledger)`.
 - In `batch`, `@N` always names the Nth raise in the array. A raise that fails, or cannot be
   parsed, keeps its place: a ref to it is refused, and later refs still reach their own items;
   before, every later ref moved to the next item raised, so an op could act on the wrong item.
