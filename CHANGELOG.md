@@ -19,7 +19,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - An apostrophe counts as a comment only at the start of a line, so a string such as
   `"can't connect for now"` no longer raises a deferral.
 - Questions ending in `#`, `+` or `%` (`C#?`, `C++?`, `100%?`) keep that character when they are
-  matched against earlier raises, so `C#` and `C++` questions are no longer merged.
+  matched against earlier raises, so `C#` and `C++` questions are no longer merged. Such a
+  question now mints a different `wi-` id than before, so one raised before the upgrade and again
+  after it in the same session becomes a second item.
 - A card's stability counts near the `u32` limit no longer overflow, which wrapped to the wrong
   "earned" verdict for its recommendation.
 
