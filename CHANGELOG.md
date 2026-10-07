@@ -30,6 +30,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   stayed `status: proposed` and read as still open.
 - `weighin context` and `open --with-context` no longer panic on an item whose `at:` line number
   is near the largest integer; the pack is built with an empty excerpt.
+- `board apply <dir>` and the `.kb` matches in context packs no longer follow symlinked
+  directories, so a link back up the tree no longer reads the same answers many times over or
+  hangs the command.
 ## 0.5.4 — 2026-10-06
 
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development

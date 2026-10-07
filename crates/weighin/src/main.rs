@@ -1095,7 +1095,13 @@ fn read_answers(path: &std::path::Path) -> Result<Vec<(String, Answer)>> {
         while let Some(d) = stack.pop() {
             for e in std::fs::read_dir(&d)?.flatten() {
                 let p = e.path();
-                if p.is_dir() {
+                // The entry's own type: a symlinked directory is not descended into, so a link
+                // back up the tree cannot loop (H-13).
+                let is_dir = e
+                    .file_type()
+                    .with_context(|| format!("reading {}", p.display()))?
+                    .is_dir();
+                if is_dir {
                     stack.push(p);
                 } else if p.extension().is_some_and(|x| x == "json") {
                     files.push(p);
@@ -1232,6 +1238,24 @@ mod tests {
             },
         );
         l
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[cfg_attr(miri, ignore = "makes directories and symlinks on the file system")]
+    fn answers_under_a_symlinked_directory_loop_are_read_once() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let answer = r#"{"item_id": "wi-000001", "action": "reopen"}"#;
+        std::fs::write(dir.path().join("a.json"), answer)?;
+        // One link, so a walk that follows it fails fast (on duplicates, at the kernel's 40-link
+        // limit) rather than hanging as two links make it.
+        std::os::unix::fs::symlink(dir.path(), dir.path().join("loop"))?;
+
+        let answers = super::read_answers(dir.path())?;
+
+        let ids: Vec<&str> = answers.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["a"]);
+        Ok(())
     }
 
     #[test]

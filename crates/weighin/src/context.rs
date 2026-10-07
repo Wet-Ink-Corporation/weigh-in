@@ -166,7 +166,13 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
         for e in rd.flatten() {
             let p = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
-            if p.is_dir() {
+            // The entry's own type: a symlinked directory is not descended into, so a link back
+            // up the tree cannot loop (H-13). An entry whose type cannot be read is skipped, as
+            // an unreadable directory is.
+            let Ok(kind) = e.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
                 if !name.starts_with('_') {
                     stack.push(p);
                 }
@@ -420,6 +426,27 @@ mod tests {
         assert_eq!(parse_anchor("src/a.rs:88:4"), ("src/a.rs", Some(88)));
         assert_eq!(parse_anchor("C:/r/a.cs:12"), ("C:/r/a.cs", Some(12)));
         assert_eq!(parse_anchor("docs/plan.md"), ("docs/plan.md", None));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    #[cfg_attr(miri, ignore = "makes directories and symlinks on the file system")]
+    fn atoms_under_a_symlinked_directory_loop_are_matched_once() -> std::io::Result<()> {
+        let root = tempfile::tempdir()?;
+        let kb = root.path().join(".kb");
+        std::fs::create_dir_all(&kb)?;
+        std::fs::write(
+            kb.join("a.md"),
+            "id: kb-a\nstatus: accepted\ntitle: Ledger home\nThe ledger lives in git.\n",
+        )?;
+        // One link, so a walk that follows it fails fast (on duplicates, at the kernel's 40-link
+        // limit) rather than hanging as two links make it.
+        std::os::unix::fs::symlink(&kb, kb.join("loop"))?;
+
+        let hits = matching_atoms(root.path(), &["ledger lives"]);
+
+        assert_eq!(hits, ["kb-a [accepted] Ledger home"]);
+        Ok(())
     }
 
     #[test]
