@@ -458,6 +458,9 @@ mod tests {
         let m = parse_markers("```rust\nlet x = 1;\n```\n```weigh-in\nq: real?\n```");
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].question, "real?");
+        // As CommonMark renders it: a ```weigh-in line cannot close an open ```rust fence
+        // (a closer carries no info), so the block is that fence's content.
+        assert!(parse_markers("```rust\nlet x;\n```weigh-in\nq: lost?\n```").is_empty());
     }
 
     #[test]
