@@ -269,35 +269,59 @@ fn after_tag_and_owner(tail: &str) -> &str {
 
 /// The first comment in `line` that carries a tag or a prose hint, with the text from its tag on
 /// when it has one. A block comment that closes without either (`/* verbose */`) does not hide a
-/// later comment on the same line.
+/// later comment on the same line; that one is looked for in code, outside string literals.
 fn flagged_comment(line: &str) -> Option<(&str, Option<&str>)> {
-    let mut from = 0;
+    let mut start = comment_start(line)?;
     loop {
-        let start = comment_start(line, from)?;
         let (comment, after) = up_to_closer(line.get(start..)?);
         // Uppercasing ASCII keeps byte offsets, so an offset found in `upper` is valid in `comment`.
         let tag_tail = tag_offset(&comment.to_ascii_uppercase()).and_then(|p| comment.get(p..));
         if tag_tail.is_some() || has_prose_hint(comment) {
             return Some((comment, tag_tail));
         }
-        // `after` is a suffix of `line`, and empty once the comment runs to the end of it.
-        from = line.len().checked_sub(after?.len())?;
+        // `after` is a suffix of `line`, and absent once the comment runs to the end of it.
+        let after = after?;
+        start = line.len().checked_sub(after.len())? + comment_start_in_code(after)?;
     }
 }
 
-/// Byte offset where a comment starts in `line`, at or after `from`. A `*` (a wrapped block
-/// comment) or a `'` (a VB-style comment) counts only at the start of the line: mid-line they are
-/// multiplication, string quotes or contractions.
-fn comment_start(line: &str, from: usize) -> Option<usize> {
-    let tail = line.get(from..)?;
-    ["//", "#", "--", "/*", "<!--", "*", "'", "REM "]
-        .iter()
-        .filter_map(|m| {
-            tail.find(m).map(|p| from + p).filter(|&p| {
-                !matches!(*m, "*" | "'") || line.get(..p).is_some_and(|s| s.trim().is_empty())
-            })
-        })
-        .min()
+/// Markers that start a comment anywhere on a line. A `*` (a wrapped block comment) or a `'` (a
+/// VB-style comment) counts only at the start of one: mid-line they are multiplication, string
+/// quotes or contractions.
+const MID_LINE_COMMENTS: &[&str] = &["//", "#", "--", "/*", "<!--", "REM "];
+
+/// Byte offset where the first comment in `line` starts.
+fn comment_start(line: &str) -> Option<usize> {
+    let body = line.trim_start();
+    let indent = line.len().checked_sub(body.len())?;
+    if body.starts_with(['*', '\'']) {
+        return Some(indent);
+    }
+    MID_LINE_COMMENTS.iter().filter_map(|m| line.find(m)).min()
+}
+
+/// Byte offset of the next comment in `code`, the rest of a line after a block comment closed on
+/// it. That text is code, so a marker inside a `"…"` or `` `…` `` string literal (a URL's `//`, a
+/// `#` fragment) does not start a comment.
+fn comment_start_in_code(code: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (i, c) in code.char_indices() {
+        match quote {
+            Some(_) if escaped => escaped = false,
+            Some(_) if c == '\\' => escaped = true,
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if c == '"' || c == '`' => quote = Some(c),
+            None => {
+                let rest = code.get(i..)?;
+                if MID_LINE_COMMENTS.iter().any(|m| rest.starts_with(m)) {
+                    return Some(i);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// `comment` up to the closer of its block comment (`*/`, `-->`), so code after a comment that
@@ -509,6 +533,15 @@ mod tests {
             scan_todos("/* a */ x = b * TODO;\n").is_empty(),
             "a mid-line star after a closed comment is not a comment"
         );
+    }
+
+    #[test]
+    fn a_comment_marker_inside_a_string_after_a_closed_comment_is_not_a_comment() {
+        let c = scan_todos("/* TODOx */ let url = \"http://x/# TODO: fix\";\n");
+        assert!(c.is_empty(), "{c:?}");
+        let c = scan_todos("/* a */ s = \"q\\\"// TODO: no\"; // TODO: keep this\n");
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].question, "keep this");
     }
 
     #[test]
