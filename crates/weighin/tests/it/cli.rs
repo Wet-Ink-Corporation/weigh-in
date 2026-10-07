@@ -775,6 +775,37 @@ fn the_ledger_goes_where_the_folder_says() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn scan_reads_a_relative_path_under_dir_not_the_process_cwd() {
+    let (tmp, repo) = setup();
+    std::fs::write(
+        repo.join("docs/a.md"),
+        "# A\n\n## Open questions\n- Should the ledger use Postgres?\n",
+    )
+    .unwrap();
+    let other = tmp.path().join("other");
+    std::fs::create_dir_all(other.join("docs")).unwrap();
+    std::fs::write(
+        other.join("docs/a.md"),
+        "# A\n\n## Open questions\n- Should the OTHER file decide on tabs?\n",
+    )
+    .unwrap();
+    let dir = repo.to_str().unwrap();
+
+    let (ok, out) = weighin(&other, "s1", &["--dir", dir, "scan", "docs/a.md"], None);
+
+    assert!(ok && out.starts_with("raised "), "{out}");
+    let (_, open) = weighin(&repo, "s1", &["open", "--repo"], None);
+    assert!(
+        open.contains("Should the ledger use Postgres?") && !open.contains("OTHER"),
+        "{open}"
+    );
+    let (_, json) = weighin(&repo, "s1", &["open", "--repo", "--json"], None);
+    let items: Vec<Value> = serde_json::from_str(json.trim()).unwrap();
+    assert_eq!(items[0]["at"], json!("docs/a.md:4"), "{json}");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn init_without_class_or_board_keeps_the_existing_ones() {
     let (_tmp, repo) = setup();
     let (ok, out) = weighin(&repo, "s1", &["init", "--class", "client"], None);

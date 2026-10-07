@@ -18,6 +18,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - `weighin init` changes only what its flags name: `init --ledger <path>` or `init --owner <name>`
   on a client repo keeps its class and its `local` board; before, any `init` without `--class`
   reset the repo to `own` on the `artifact` board. A first `init` is still `own` on `artifact`.
+- `weighin --dir <folder> scan <path>` reads a relative path under `<folder>`, as it already
+  anchored it; before, it read the path against the shell's own directory, so it failed or raised
+  another file's questions into the folder's ledger.
 ## 0.5.4 — 2026-10-06
 
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development

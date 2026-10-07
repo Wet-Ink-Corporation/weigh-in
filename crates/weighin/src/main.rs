@@ -881,9 +881,10 @@ fn scan(env: &Env, a: ScanArgs, out: &mut impl Write) -> Result<()> {
     let mut receipts = Receipts::new(out);
     let mut total = 0;
     let outcome = a.paths.into_iter().try_for_each(|p| {
-        let text =
-            std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
+        // Relative to `--dir`, for the text read and for the anchor alike.
         let abs = if p.is_absolute() { p } else { env.cwd.join(&p) };
+        let text =
+            std::fs::read_to_string(&abs).with_context(|| format!("reading {}", abs.display()))?;
         for o in hooks::scan_text(env, &abs.to_string_lossy(), &[text], "cli")? {
             total += 1;
             match o {
