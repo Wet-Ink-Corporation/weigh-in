@@ -170,7 +170,34 @@ const LEFT_ALONE: &[(&str, &str, &str)] = &[
         "// TODO: q9 word9 \\\n",
         "the comment runs on to the next line",
     ),
+    (
+        "src/sep.js",
+        "// TODO: pick \u{2028} let x=1;\n",
+        "the comment runs on to the next line",
+    ),
 ];
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn an_option_that_could_close_a_string_is_decided_but_not_annotated_in_code() {
+    let (_tmp, repo) = setup();
+    let source = "s = \"\"\"\n# TODO: pick a cap\n\"\"\"\n";
+    std::fs::write(repo.join("src/s.py"), source).unwrap();
+    let id = scan_one(&repo, "src/s.py");
+
+    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "x \"\"\" y"], None);
+
+    assert!(
+        ok && out.contains(
+            "not annotated src/s.py (the option holds a quote or bracket that could end a string around the comment)"
+        ),
+        "{out}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.join("src/s.py")).unwrap(),
+        source
+    );
+}
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]

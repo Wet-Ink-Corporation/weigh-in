@@ -48,9 +48,9 @@ pub(crate) enum Lang {
     Dashes,
     /// `<!-- -->`: HTML, XML, SVG.
     Markup,
-    /// `'` and `REM `: Visual Basic.
+    /// `'` and `REM ` (in any case): Visual Basic.
     Basic,
-    /// `REM `: Windows batch files.
+    /// `REM ` (in any case): Windows batch files.
     Batch,
     /// A file whose language is not known: `//`, `#`, `--` and `REM ` before whitespace, and
     /// both block comments.
@@ -87,8 +87,8 @@ impl Lang {
             Self::Hash => opens("#", &[]),
             Self::Sql => opens("--", &[]),
             Self::Dashes => opens("--", &['[']),
-            Self::Basic => opens("'", &[]) || opens("REM ", &[]),
-            Self::Batch => opens("REM ", &[]),
+            Self::Basic => opens("'", &[]) || opens_rem(trimmed),
+            Self::Batch => opens_rem(trimmed),
             Self::Unknown => ["//", "#", "--", "REM "].into_iter().any(|opener| {
                 trimmed.strip_prefix(opener).is_some_and(|rest| {
                     opener.ends_with(' ')
@@ -108,6 +108,13 @@ impl Lang {
             Self::Hash | Self::Dashes | Self::Basic | Self::Batch => &[],
         }
     }
+}
+
+/// Whether `trimmed` starts with `REM ` in any case, as Visual Basic and batch files read it.
+fn opens_rem(trimmed: &str) -> bool {
+    trimmed
+        .get(..4)
+        .is_some_and(|head| head.eq_ignore_ascii_case("REM "))
 }
 
 /// The language of a file known by its whole (lowercased) name.

@@ -10,18 +10,21 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   the whole line. A line that starts with a line comment of the file's language, judged by its
   name (`//` in C, Rust, JavaScript and the like; `#` in Python, shell, YAML, TOML, Dockerfiles
   and Makefiles; `#` and `//` in PHP and Terraform; `--` in SQL and Lua; `'` and `REM ` in
-  Visual Basic; `REM ` in batch files; in a file of unknown language `//`, `#`, `--` or `REM `
-  before a space), gets the arrow at its end, unless it holds PHP's `?>` or ends in a `\` line
-  splice. A line that is exactly one `/* … */` or `<!-- … -->`, with nothing before the opener
-  or after the closer, gets it just before the closer. Anything else is left as it was, a
-  comment after code (`x = 1  # TODO`) included, and so is any line when the option holds a
-  line break (U+2028 and U+2029 included), a control character, `*/` or `-->`, and any code
-  line when it holds `?>` (or `/*` inside a `/* … */`, `--` inside a `<!-- … -->`); the
-  receipt then says
-  `not annotated <file> (<reason>)`. Before, the arrow went at the end of the line and could
-  break the code. Markdown and plain-text files (`.txt`, `.rst`, `.org`, `.adoc`) still get the
-  arrow at the end of the line. The reading is per line: a line inside a string or block
-  comment opened on an earlier line can still be misread.
+  Visual Basic; `REM ` in batch files, in any case; in a file of unknown language `//`, `#`,
+  `--` or `REM ` before a space), gets the arrow at its end, unless it holds PHP's `?>`, ends in
+  a `\` line splice, or already holds a line break (a lone CR, U+0085, U+2028 or U+2029). A line
+  that is exactly one `/* … */` or `<!-- … -->`, with nothing before the opener or after the
+  closer, gets it just before the closer. Anything else is left as it was, a comment after code
+  (`x = 1  # TODO`) included. A code line is also left alone when the option holds `*/`, `-->`,
+  `?>` (or `/*` inside a `/* … */`, `--` inside a `<!-- … -->`), or a quote or bracket that
+  could end a string around the comment: `"`, a backtick, `'''`, `{`, `}`, `]]`, `<` or `>`.
+  Any line is left alone when the option holds a line break or a control character. The receipt
+  then says `not annotated <file> (<reason>)`. Before, the arrow went at the end of the line and
+  could break the code. Markdown and plain-text files (`.txt`, `.rst`, `.org`, `.adoc`) still get
+  the arrow at the end of the line, whatever the option holds apart from a line break. The
+  reading is per line, so a whole-line comment that really sits inside a string opened on an
+  earlier line is annotated too; an option holding a lone `'` can then end a single-quoted
+  string there (SQL, shell) and break the file.
 - In `batch`, `@N` always names the Nth raise in the array. A raise that fails, or cannot be
   parsed, keeps its place: a ref to it is refused, and later refs still reach their own items;
   before, every later ref moved to the next item raised, so an op could act on the wrong item.

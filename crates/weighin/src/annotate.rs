@@ -5,13 +5,16 @@
 //! A prose line (markdown, plain text) gets the note at its end. A code line gets it only when
 //! a comment is the whole line, read in the file's language ([`Lang`], from its name):
 //! - a line that starts with one of the language's line comment openers gets it at the end,
-//!   unless the line holds PHP's `?>`, which ends the comment, or ends in a `\` line splice;
+//!   unless the line holds PHP's `?>`, which ends the comment, ends in a `\` line splice, or
+//!   already holds a line break (a lone CR, U+0085, U+2028 or U+2029) that ends the comment;
 //! - a line that is exactly one block comment, `/* … */` or `<!-- … -->`, with nothing before
 //!   its opener or after its closer, gets it just before the closer.
 //!
 //! Anything else is left as it was, a comment after code (`x = 1  # TODO`) included, so a
-//! decision never breaks the code around its question. The reading is per line: a line inside a
-//! string or block comment opened on an earlier line is read as if it started in code.
+//! decision never breaks the code around its question. The reading is per line: a whole-line
+//! comment inside a string opened on an earlier line is annotated too, so a code note holding a
+//! quote or bracket that could end such a string is refused ([`Skip::MayCloseString`]). A lone
+//! `'` is let through, as prose uses it; it can end a single-quoted string opened above.
 
 mod lang;
 
@@ -53,6 +56,10 @@ pub(crate) enum Skip {
     RunsOn,
     /// The block comment holds another opener, which nests in some languages.
     Nested,
+    /// The note holds a quote or bracket (`"`, a backtick, `'''`, `{`, `}`, `]]`, `<`, `>`) that
+    /// would end a string, template or JSX text opened on an earlier line, should the comment
+    /// sit inside one.
+    MayCloseString,
 }
 
 impl Skip {
@@ -64,12 +71,22 @@ impl Skip {
             Self::CodeAfterComment => "code follows the comment",
             Self::RunsOn => "the comment runs on to the next line",
             Self::Nested => "the comment holds another comment opener",
+            Self::MayCloseString => {
+                "the option holds a quote or bracket that could end a string around the comment"
+            }
         }
     }
 }
 
-/// Whether `c` could end a line or a line comment: a control character, or the Unicode line
-/// and paragraph separators, which end a `//` comment in JavaScript.
+/// The characters a code note must not hold, because one could end a string, template or JSX
+/// text the comment line sits in: quotes, backticks, `${`/`{` interpolation braces and JSX's
+/// tag brackets; Python's `'''` and Lua's `]]` are checked as text. A lone `'` is allowed, as
+/// prose uses it.
+const STRING_CLOSERS: [char; 6] = ['"', '`', '{', '}', '<', '>'];
+
+/// Whether `c` could end a line or a line comment: a control character (`\r` and U+0085
+/// included), or the Unicode line and paragraph separators, which end a `//` comment in
+/// JavaScript.
 fn ends_a_line(c: char) -> bool {
     c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')
 }
@@ -77,14 +94,15 @@ fn ends_a_line(c: char) -> bool {
 /// `line` of a file read as `reading`, with `note` written into it, or why it cannot be.
 ///
 /// # Errors
-/// [`Skip::UnsafeText`] when the note could end the line or a comment; for a code line, the
-/// [`Skip`] that says why its comment is not the whole line or could not hold the note.
+/// [`Skip::UnsafeText`] when the note could end the line (or, in code, a comment);
+/// [`Skip::MayCloseString`] when a code note could end a string around the comment; for a code
+/// line, the [`Skip`] that says why its comment is not the whole line or could not hold the note.
 pub(crate) fn annotate_source_line(
     line: &str,
     note: &str,
     reading: Reading,
 ) -> Result<String, Skip> {
-    if note.chars().any(ends_a_line) || ["*/", "-->"].iter().any(|c| note.contains(c)) {
+    if note.chars().any(ends_a_line) {
         return Err(Skip::UnsafeText);
     }
     match reading.syntax {
@@ -95,8 +113,11 @@ pub(crate) fn annotate_source_line(
 
 /// [`annotate_source_line`] for a code line in `lang`.
 fn annotate_code(line: &str, note: &str, lang: Lang) -> Result<String, Skip> {
-    if note.contains("?>") {
+    if ["*/", "-->", "?>"].iter().any(|c| note.contains(c)) {
         return Err(Skip::UnsafeText);
+    }
+    if note.contains(STRING_CLOSERS) || ["'''", "]]"].iter().any(|c| note.contains(c)) {
+        return Err(Skip::MayCloseString);
     }
     let trimmed = line.trim();
     if let Some(&block) = lang.blocks().iter().find(|b| trimmed.starts_with(b.open)) {
@@ -108,7 +129,7 @@ fn annotate_code(line: &str, note: &str, lang: Lang) -> Result<String, Skip> {
     if trimmed.contains("?>") {
         return Err(Skip::CodeAfterComment);
     }
-    if trimmed.ends_with('\\') {
+    if trimmed.ends_with('\\') || line.chars().any(|c| c != '\t' && ends_a_line(c)) {
         return Err(Skip::RunsOn);
     }
     Ok(format!("{line} {note}"))
@@ -275,6 +296,58 @@ mod tests {
             .map(|r| r.map(|_| ())),
             [Err(Skip::UnsafeText), Err(Skip::UnsafeText), Ok(())]
         );
+    }
+
+    #[test]
+    fn a_code_note_that_could_close_a_string_around_its_comment_is_refused() {
+        for option in [
+            r#"x """ y"#,
+            "a ` b",
+            "a ${ b",
+            "f{x}",
+            r##"a "# b"##,
+            r#"a )" b"#,
+            "a ]] b",
+            "a > b",
+            "a < b",
+            "a ''' b",
+        ] {
+            let note = format!("→ Weigh-In wi-abc123: decided {option} (2026-10-07)");
+            let reading = Reading {
+                syntax: Syntax::Code,
+                lang: Lang::CFamily,
+            };
+
+            let out = annotate_source_line("// TODO: pick a cap", &note, reading);
+
+            assert_eq!(out, Err(Skip::MayCloseString), "{option:?}");
+        }
+    }
+
+    #[test]
+    fn a_code_note_with_an_apostrophe_still_fits() {
+        let note = "→ Weigh-In wi-abc123: decided don't cache (2026-10-07)";
+        let reading = Reading {
+            syntax: Syntax::Code,
+            lang: Lang::Hash,
+        };
+
+        let out = annotate_source_line("# TODO: cache?", note, reading);
+
+        assert_eq!(out, Ok(format!("# TODO: cache? {note}")));
+    }
+
+    #[test]
+    fn a_prose_note_may_hold_comment_closers_and_quotes() {
+        let note = r#"→ Weigh-In wi-abc123: decided "a */ b --> c ?>" <d> (2026-10-07)"#;
+        let reading = Reading {
+            syntax: Syntax::Prose,
+            lang: Lang::Unknown,
+        };
+
+        let out = annotate_source_line("- Shard?", note, reading);
+
+        assert_eq!(out, Ok(format!("- Shard? {note}")));
     }
 
     /// Where the note should go in a corpus line: at the end, before the line's closer, or
@@ -492,6 +565,24 @@ mod tests {
             Want::Skipped(Skip::CodeAfterComment),
         ),
         ("a.c", "/*/ TODO: pick", Want::Skipped(Skip::RunsOn)),
+        // Review round 9, F1: a line comment that already holds a line break (JavaScript's
+        // U+2028, Python's lone CR, C#'s U+0085) ends there; the rest of the line is code.
+        (
+            "a.js",
+            "// TODO: q \u{2028} let x=1;",
+            Want::Skipped(Skip::RunsOn),
+        ),
+        ("a.py", "# TODO: q\rx = 1", Want::Skipped(Skip::RunsOn)),
+        (
+            "a.cs",
+            "// TODO: q\u{85}int x;",
+            Want::Skipped(Skip::RunsOn),
+        ),
+        ("a.c", "//\tTODO: pick a tab", Want::End),
+        ("a.js", "/* TODO: q \u{2028} x */", Want::BeforeCloser("*/")),
+        // F4: Visual Basic's and batch's `REM` is not case-sensitive.
+        ("a.bat", "rem TODO: pick a drive", Want::End),
+        ("a.vb", "Rem TODO: pick a start", Want::End),
     ];
 
     #[test]
