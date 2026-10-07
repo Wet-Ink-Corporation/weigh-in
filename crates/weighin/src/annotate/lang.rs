@@ -1,48 +1,50 @@
-//! The comment syntax of a source file, from its name: which of the markers `weighin-core`'s TODO
-//! scan recognises open a comment in it. The scan reads every marker in every file, so a line it
-//! raised from may hold a marker that is code in that file's language (Python's `a // b`, a
-//! shell URL); the write-back reads only the markers the language has.
+//! The comment syntax of a source file, from its name: which line comment openers and which
+//! block comments it has. The TODO scan reads every marker in every file, so a line it raised
+//! from may hold a marker that is code in that file's language (Python's `a // b`); the
+//! write-back trusts only the language's own.
 
 use std::path::Path;
 
-/// A comment marker the TODO scan recognises.
+/// A block comment: its opener, its closer and the text a note inside it must not hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Marker {
-    /// `<!-- … -->`.
-    Html,
-    /// `/* … */`, and a block comment's middle line that starts with `*`.
-    Star,
-    /// `//`.
-    Slash,
-    /// `--`.
-    Dashes,
-    /// `#`.
-    Hash,
-    /// `REM `.
-    Rem,
-    /// Visual Basic's standalone `'`.
-    Quote,
+pub(super) struct Block {
+    /// `/*` or `<!--`.
+    pub(super) open: &'static str,
+    /// `*/` or `-->`.
+    pub(super) close: &'static str,
+    /// `/*`, which opens a nested comment in Rust, Swift and Kotlin; or `--`, which XML does not
+    /// allow inside `<!-- -->`.
+    pub(super) note_forbids: &'static str,
 }
+
+/// `/* … */`.
+const STAR: Block = Block {
+    open: "/*",
+    close: "*/",
+    note_forbids: "/*",
+};
+
+/// `<!-- … -->`.
+const HTML: Block = Block {
+    open: "<!--",
+    close: "-->",
+    note_forbids: "--",
+};
 
 /// The comment syntax of a source file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Lang {
-    /// `//` and `/* */`: C, C++, C#, Java, JavaScript, TypeScript, Go, Swift, Kotlin and the like.
+    /// `//` and `/* */`: C, C++, C#, Java, JavaScript, TypeScript, Rust, Go, Swift and the like.
     CFamily,
-    /// Rust: the C family's comments, and raw strings (`r#"…"#`).
-    Rust,
-    /// JSX and TSX: the C family's comments, in a file where element text (`<p>// x</p>`) may
-    /// hold a `//` that is no comment.
-    Jsx,
     /// `/* */` only: CSS.
     Css,
-    /// `#`, `//` and `/* */`: PHP, Terraform and HCL.
+    /// `#` (not PHP's `#[` attribute), `//` and `/* */`: PHP, Terraform and HCL.
     HashSlash,
     /// `#`: Python, shell, Ruby, Perl, R, YAML, TOML, Dockerfiles, Makefiles and the like.
     Hash,
     /// `--` and `/* */`: SQL.
     Sql,
-    /// `--`: Lua, Haskell, Elm, Ada, VHDL.
+    /// `--` (not Lua's `--[[` block): Lua, Haskell, Elm, Ada, VHDL.
     Dashes,
     /// `<!-- -->`: HTML, XML, SVG.
     Markup,
@@ -50,8 +52,8 @@ pub(crate) enum Lang {
     Basic,
     /// `REM `: Windows batch files.
     Batch,
-    /// A file whose language is not known: every marker counts, and one that may be code is
-    /// trusted only where nothing else could stand (at the start of the line).
+    /// A file whose language is not known: `//`, `#`, `--` and `REM ` before whitespace, and
+    /// both block comments.
     Unknown,
 }
 
@@ -70,27 +72,41 @@ impl Lang {
         })
     }
 
-    /// Whether `marker` opens a comment in this language.
-    pub(super) fn allows(self, marker: Marker) -> bool {
-        use Marker::{Dashes, Hash, Html, Quote, Rem, Slash, Star};
+    /// Whether `trimmed`, a line without its surrounding whitespace, starts with a line comment
+    /// opener of this language.
+    pub(super) fn opens_line_comment(self, trimmed: &str) -> bool {
+        let opens = |opener: &str, refused: &[char]| {
+            trimmed
+                .strip_prefix(opener)
+                .is_some_and(|rest| !rest.starts_with(refused))
+        };
         match self {
-            Self::CFamily | Self::Rust | Self::Jsx => matches!(marker, Slash | Star),
-            Self::Css => marker == Star,
-            Self::HashSlash => matches!(marker, Hash | Slash | Star),
-            Self::Hash => marker == Hash,
-            Self::Sql => matches!(marker, Dashes | Star),
-            Self::Dashes => marker == Dashes,
-            Self::Markup => marker == Html,
-            Self::Basic => matches!(marker, Quote | Rem),
-            Self::Batch => marker == Rem,
-            Self::Unknown => true,
+            Self::CFamily => opens("//", &[]),
+            Self::Css | Self::Markup => false,
+            Self::HashSlash => opens("//", &[]) || opens("#", &['[']),
+            Self::Hash => opens("#", &[]),
+            Self::Sql => opens("--", &[]),
+            Self::Dashes => opens("--", &['[']),
+            Self::Basic => opens("'", &[]) || opens("REM ", &[]),
+            Self::Batch => opens("REM ", &[]),
+            Self::Unknown => ["//", "#", "--", "REM "].into_iter().any(|opener| {
+                trimmed.strip_prefix(opener).is_some_and(|rest| {
+                    opener.ends_with(' ')
+                        || rest.is_empty()
+                        || rest.starts_with(char::is_whitespace)
+                })
+            }),
         }
     }
 
-    /// Whether the language is known, so a marker it allows is a comment wherever it stands
-    /// outside a string.
-    pub(super) fn known(self) -> bool {
-        self != Self::Unknown
+    /// The block comments of this language.
+    pub(super) fn blocks(self) -> &'static [Block] {
+        match self {
+            Self::CFamily | Self::Css | Self::HashSlash | Self::Sql => &[STAR],
+            Self::Markup => &[HTML],
+            Self::Unknown => &[STAR, HTML],
+            Self::Hash | Self::Dashes | Self::Basic | Self::Batch => &[],
+        }
     }
 }
 
@@ -123,12 +139,10 @@ fn by_name(name: &str) -> Option<Lang> {
 /// The language of a file with the (lowercased) extension `ext`.
 fn by_extension(ext: &str) -> Lang {
     match ext {
-        "rs" => Lang::Rust,
-        "c" | "h" | "cc" | "cpp" | "cxx" | "c++" | "hh" | "hpp" | "hxx" | "m" | "mm" | "cs"
-        | "java" | "js" | "mjs" | "cjs" | "ts" | "mts" | "cts" | "go" | "swift" | "kt" | "kts"
-        | "scala" | "sc" | "dart" | "groovy" | "gradle" | "proto" | "zig" | "sol" | "scss"
-        | "less" | "jsonc" | "json5" => Lang::CFamily,
-        "jsx" | "tsx" => Lang::Jsx,
+        "rs" | "c" | "h" | "cc" | "cpp" | "cxx" | "c++" | "hh" | "hpp" | "hxx" | "m" | "mm"
+        | "cs" | "java" | "js" | "mjs" | "cjs" | "ts" | "mts" | "cts" | "go" | "swift" | "kt"
+        | "kts" | "scala" | "sc" | "dart" | "groovy" | "gradle" | "proto" | "zig" | "sol"
+        | "scss" | "less" | "jsonc" | "json5" | "jsx" | "tsx" => Lang::CFamily,
         "css" => Lang::Css,
         "php" | "tf" | "tfvars" | "hcl" => Lang::HashSlash,
         "py" | "pyi" | "pyw" | "sh" | "bash" | "zsh" | "ksh" | "fish" | "rb" | "pl" | "pm"
@@ -174,9 +188,9 @@ mod tests {
         assert_eq!(
             read,
             [
-                ("src/main.rs", Lang::Rust),
+                ("src/main.rs", Lang::CFamily),
                 ("web/app.TS", Lang::CFamily),
-                ("web/App.tsx", Lang::Jsx),
+                ("web/App.tsx", Lang::CFamily),
                 ("style.css", Lang::Css),
                 ("infra/main.tf", Lang::HashSlash),
                 ("tools/run.py", Lang::Hash),
@@ -194,10 +208,28 @@ mod tests {
     }
 
     #[test]
-    fn a_known_language_allows_only_its_own_markers() {
-        assert!(Lang::Hash.allows(Marker::Hash) && !Lang::Hash.allows(Marker::Slash));
-        assert!(Lang::Rust.allows(Marker::Slash) && !Lang::Rust.allows(Marker::Quote));
-        assert!(Lang::Basic.allows(Marker::Quote) && !Lang::Basic.allows(Marker::Hash));
-        assert!(Lang::Unknown.allows(Marker::Quote) && !Lang::Unknown.known());
+    fn a_language_opens_a_line_comment_only_with_its_own_openers() {
+        let opens: Vec<_> = [
+            (Lang::Hash, "# TODO"),
+            (Lang::Hash, "// TODO"),
+            (Lang::CFamily, "// TODO"),
+            (Lang::CFamily, "# TODO"),
+            (Lang::HashSlash, "#[Route] TODO"),
+            (Lang::Dashes, "--[[ TODO ]]"),
+            (Lang::Basic, "' TODO"),
+            (Lang::Unknown, "#define TODO"),
+            (Lang::Unknown, "REM TODO"),
+            (Lang::Unknown, "' TODO"),
+        ]
+        .into_iter()
+        .map(|(lang, line)| lang.opens_line_comment(line))
+        .collect();
+
+        assert_eq!(
+            opens,
+            [
+                true, false, true, false, false, false, true, false, true, false
+            ]
+        );
     }
 }

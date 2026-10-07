@@ -1,49 +1,75 @@
-//! The source write-back of `decide`, end to end: which lines get the arrow and which are left
-//! as they were.
+//! The source write-back of `decide`, end to end: a comment that is the whole line gets the
+//! arrow, anything else is left as it was.
 
 use crate::support::{scan_one, setup, stamped_date, weighin};
 use serde_json::json;
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_todo_inside_a_string_is_decided_but_not_annotated() {
+fn a_line_comment_todo_is_annotated_at_the_end() {
     let (_tmp, repo) = setup();
-    let source = "const s = \"// TODO: decide later what this is\"; console.log(s);\n";
-    std::fs::write(repo.join("src/c.js"), source).unwrap();
-    let id = scan_one(&repo, "src/c.js");
+    std::fs::write(
+        repo.join("src/cap.py"),
+        "def f():\n    # TODO: pick a cap\n    return 1\n",
+    )
+    .unwrap();
+    let id = scan_one(&repo, "src/cap.py");
 
-    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "keep"], None);
+    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "4096"], None);
 
-    assert!(
-        ok && out.contains("not annotated src/c.js (the comment marker is inside a string)"),
-        "{out}"
-    );
+    assert!(ok && out.contains("annotated src/cap.py"), "{out}");
+    let after = std::fs::read_to_string(repo.join("src/cap.py")).unwrap();
+    let today = stamped_date(&after, &id, "4096");
     assert_eq!(
-        std::fs::read_to_string(repo.join("src/c.js")).unwrap(),
-        source
+        after,
+        format!(
+            "def f():\n    # TODO: pick a cap → Weigh-In {id}: decided 4096 ({today})\n    return 1\n"
+        )
     );
 }
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_line_comment_after_a_closed_block_comment_is_annotated_at_the_end() {
+fn a_block_comment_alone_on_its_line_is_annotated_inside() {
     let (_tmp, repo) = setup();
-    std::fs::write(
-        repo.join("src/f.c"),
-        "/* a */ int x; // TODO: pick a width\n",
-    )
-    .unwrap();
-    let id = scan_one(&repo, "src/f.c");
+    std::fs::write(repo.join("src/x.c"), "/* TODO: pick a cap */\n").unwrap();
+    let id = scan_one(&repo, "src/x.c");
 
-    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "32"], None);
+    let (ok, out) = weighin(&repo, "s1", &["decide", &id, "y"], None);
 
-    assert!(ok && out.contains("annotated src/f.c"), "{out}");
-    let after = std::fs::read_to_string(repo.join("src/f.c")).unwrap();
-    let today = stamped_date(&after, &id, "32");
+    assert!(ok && out.contains("annotated src/x.c"), "{out}");
+    let after = std::fs::read_to_string(repo.join("src/x.c")).unwrap();
+    let today = stamped_date(&after, &id, "y");
     assert_eq!(
         after,
-        format!("/* a */ int x; // TODO: pick a width → Weigh-In {id}: decided 32 ({today})\n")
+        format!("/* TODO: pick a cap → Weigh-In {id}: decided y ({today}) */\n")
     );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_trailing_comment_after_code_is_decided_but_not_annotated() {
+    for (file, source) in [
+        ("src/t.py", "x = 1  # TODO: pick a start\n"),
+        ("src/f.c", "/* a */ int x; // TODO: pick a width\n"),
+        (
+            "src/c.js",
+            "const s = \"// TODO: decide later what this is\"; console.log(s);\n",
+        ),
+    ] {
+        let (_tmp, repo) = setup();
+        std::fs::write(repo.join(file), source).unwrap();
+        let id = scan_one(&repo, file);
+
+        let (ok, out) = weighin(&repo, "s1", &["decide", &id, "1"], None);
+
+        assert!(
+            ok && out.contains(&format!("decided {id} → 1"))
+                && out.contains(&format!("not annotated {file} (")),
+            "{file}: {out}"
+        );
+        assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
+    }
 }
 
 #[test]
@@ -74,113 +100,82 @@ fn a_question_quoted_from_a_text_file_is_annotated_at_the_end_of_its_line() {
     );
 }
 
+/// Source lines whose marker is code, inside a string or in a comment that is not the whole
+/// line, with the reason the receipt gives for leaving each alone; among them every line reviews
+/// found (a triple quote, a regex with a quote, a lifetime, a digit separator, a verbatim string,
+/// PHP's `?>` and JSX text).
+const LEFT_ALONE: &[(&str, &str, &str)] = &[
+    (
+        "src/l.rs",
+        "fn f(x: impl Fn() + 'static) { panic!(\"TODO: pick a limit\") }\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/d.rs",
+        "    *limit = todo!(\"pick a cap\");\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/half.py",
+        "half = len(items) // 2 if use_temporary_cache else 0\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/get.sh",
+        "curl -s https://jsonplaceholder.typicode.com/todo/items | jq .\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/a.py",
+        "help = '''Don't use # TODO: explain'''\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/a.js",
+        "s.replace(/'/g, '// TODO: pick a separator')\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/a.rs",
+        "let v: &'a str = pick(\"' // TODO: decide\", '\"');\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/a.cpp",
+        "int x = 1'000; const char* s = \"' // TODO: q\"; char c = '\"';\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/a.cs",
+        "var p = @\"C:\\\"; Log(\"// TODO: x\" + '\"');\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/a.php",
+        "// TODO: pick ?> <p>\n",
+        "code follows the comment",
+    ),
+    (
+        "src/a.jsx",
+        "  return <p>// TODO: x</p>;\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/s.c",
+        "#define X 1 // TODO: q9 word9 \\\n",
+        "the comment is not the whole line",
+    ),
+    (
+        "src/t.c",
+        "// TODO: q9 word9 \\\n",
+        "the comment runs on to the next line",
+    ),
+];
+
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_todo_after_a_lifetime_or_a_deref_is_decided_but_not_annotated() {
-    for (file, source) in [
-        (
-            "src/l.rs",
-            "fn f(x: impl Fn() + 'static) { panic!(\"TODO: pick a limit\") }\n",
-        ),
-        ("src/d.rs", "    *limit = todo!(\"pick a cap\");\n"),
-    ] {
-        let (_tmp, repo) = setup();
-        std::fs::write(repo.join(file), source).unwrap();
-        let id = scan_one(&repo, file);
-
-        let (ok, out) = weighin(&repo, "s1", &["decide", &id, "4096"], None);
-
-        assert!(
-            ok && out.contains(&format!("not annotated {file} (no comment on the line)")),
-            "{out}"
-        );
-        assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
-    }
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_comment_marker_that_is_code_is_decided_but_not_annotated() {
-    for (file, source) in [
-        (
-            "src/half.py",
-            "half = len(items) // 2 if use_temporary_cache else 0\n",
-        ),
-        (
-            "src/get.sh",
-            "curl -s https://jsonplaceholder.typicode.com/todo/items | jq .\n",
-        ),
-        (
-            "src/Dockerfile",
-            "RUN curl -fsSL https://example.com/temporary-install.sh | sh\n",
-        ),
-        ("src/ci.yml", "- run: wget http://host/todo/list.txt\n"),
-        ("src/conf.yaml", "url: http://example.com/temporary\n"),
-        ("src/count.c", "x = y -- TODO_count;\n"),
-        ("src/scale.c", "x = a\n    * TODO_FACTOR;\n"),
-        ("src/raw.rs", "let s = r#\"a\"b // TODO \"x\"#;\n"),
-        ("src/pick.sh", "echo ' TODO: pick\n"),
-        ("src/run", "half = n // 2 if temporary else 0\n"),
-    ] {
-        let (_tmp, repo) = setup();
-        std::fs::write(repo.join(file), source).unwrap();
-        let id = scan_one(&repo, file);
-
-        let (ok, out) = weighin(&repo, "s1", &["decide", &id, "X"], None);
-
-        assert!(
-            ok && out.contains(&format!("not annotated {file} (")),
-            "{file}: {out}"
-        );
-        assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
-    }
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_marker_a_mispaired_quote_php_close_or_jsx_text_may_hide_is_decided_but_not_annotated() {
-    for (file, source, reason) in [
-        (
-            "src/a.py",
-            "help = '''Don't use # TODO: explain'''\n",
-            "inside a string",
-        ),
-        (
-            "src/a.js",
-            "s.replace(/'/g, '// TODO: pick a separator')\n",
-            "inside a string",
-        ),
-        (
-            "src/b.js",
-            "s.replace(/\"/g, \"x // TODO: y\").replace(/\"/g, \"\")\n",
-            "inside a string",
-        ),
-        (
-            "src/a.rs",
-            "let v: &'a str = pick(\"' // TODO: decide\", '\"');\n",
-            "inside a string",
-        ),
-        (
-            "src/a.cpp",
-            "int x = 1'000; const char* s = \"' // TODO: q\"; char c = '\"';\n",
-            "inside a string",
-        ),
-        (
-            "src/a.cs",
-            "var p = @\"C:\\\"; Log(\"// TODO: x\" + '\"');\n",
-            "inside a string",
-        ),
-        (
-            "src/a.php",
-            "<?php // TODO: pick ?>\n",
-            "code follows the comment",
-        ),
-        (
-            "src/a.jsx",
-            "  return <p>// TODO: x</p>;\n",
-            "the comment marker may be code",
-        ),
-    ] {
+fn a_marker_that_is_code_or_inside_a_string_is_decided_but_not_annotated() {
+    for &(file, source, reason) in LEFT_ALONE {
         let (_tmp, repo) = setup();
         std::fs::write(repo.join(file), source).unwrap();
         let id = scan_one(&repo, file);
@@ -188,7 +183,7 @@ fn a_marker_a_mispaired_quote_php_close_or_jsx_text_may_hide_is_decided_but_not_
         let (ok, out) = weighin(&repo, "s1", &["decide", &id, "X"], None);
 
         assert!(
-            ok && out.contains(&format!("not annotated {file} (")) && out.contains(reason),
+            ok && out.contains(&format!("not annotated {file} ({reason})")),
             "{file}: {out}"
         );
         assert_eq!(std::fs::read_to_string(repo.join(file)).unwrap(), source);
