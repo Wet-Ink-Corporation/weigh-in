@@ -41,7 +41,7 @@ Run with `cargo test -p weighin`.
 
 ## Do not
 - Write to the ledger outside `ops::Session`.
-- Create, rename or delete files beside the ledger (B-01).
+- Delete files beside the ledger (B-01): Cowork's connected folders refuse deletes. Overwrite a file there instead (as `hook-errors.seen` is, B-11), and set a stale one aside by renaming it (as `Store::open` does with a `-wal`).
 - Let a hook return a non-zero exit code or print an error to the session.
 - Ship binaries in a top-level `plugin/bin/` (B-03), or keep an old binary next to a rebuilt one (B-05).
 
