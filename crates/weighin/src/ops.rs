@@ -732,6 +732,9 @@ impl<'a> Session<'a> {
         }
         if let Some(path) = self.write_decision_atom(id)? {
             write!(receipt, " · atom {path}")?;
+            if let Some(tracking) = self.supersede_open_question(id, option)? {
+                write!(receipt, " · superseded {tracking}")?;
+            }
         }
         match self.annotate_source(id, option)? {
             Some(Annotation::Written(src)) => write!(receipt, " · annotated {src}")?,
@@ -797,6 +800,39 @@ impl<'a> Session<'a> {
         Ok(Some(rel))
     }
 
+    /// Mark the open-question atom a deferral wrote for `id`, if any, as superseded by the
+    /// decision atom just written, so it no longer reads as open. The file is overwritten in place
+    /// (B-01); one already closed, or no longer there, is left alone.
+    fn supersede_open_question(&self, id: &ItemId, option: &str) -> Result<Option<String>> {
+        let Some(item) = self.ledger.get(id) else {
+            return Ok(None);
+        };
+        let Some(record) = item
+            .records
+            .iter()
+            .rev()
+            .find(|r| r.atom_kind == "open_question")
+        else {
+            return Ok(None);
+        };
+        let path = self.env.root().join(&record.path);
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        };
+        let settled = Settled {
+            option,
+            decision_atom: &atom::decision_atom_id(item),
+            date: &self.today,
+        };
+        let Some(closed) = superseded_open_question(&text, &settled)? else {
+            return Ok(None);
+        };
+        self.write_file(&record.path, &closed)?;
+        Ok(Some(record.path.clone()))
+    }
+
     /// spec-kit's write-back: the line the question came from gets an arrow, so it is not raised
     /// again. The arrow goes only inside the line's comment ([`annotate_line`]); a line it cannot
     /// go in is left as it was, and the receipt says so.
@@ -852,6 +888,56 @@ impl<'a> Session<'a> {
         };
         Ok(Some(annotation))
     }
+}
+
+/// What settled a deferred item, as its open-question atom records it.
+struct Settled<'a> {
+    option: &'a str,
+    decision_atom: &'a str,
+    date: &'a str,
+}
+
+/// `text`, an open-question atom, rewritten as superseded by the decision `s`: `.kb`'s
+/// `status: superseded` with `superseded_by`, a settled summary and a Resolution section. `None`
+/// when `text` is not an open one (no `status: proposed` in its frontmatter).
+fn superseded_open_question(text: &str, s: &Settled<'_>) -> Result<Option<String>> {
+    let Some((front, body)) = text
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+    else {
+        return Ok(None);
+    };
+    if !front.lines().any(|l| l == "status: proposed") {
+        return Ok(None);
+    }
+    let summary = format!(
+        "Settled on {}: decided {} ({}).",
+        s.date, s.option, s.decision_atom
+    );
+    // YAML strings are written as JSON strings, as the atoms write them.
+    let yaml = serde_json::to_string;
+    let mut out = String::with_capacity(text.len().saturating_add(256));
+    out.push_str("---\n");
+    for line in front.lines() {
+        if line == "status: proposed" {
+            writeln!(out, "status: superseded")?;
+            writeln!(out, "superseded_by: {}", yaml(s.decision_atom)?)?;
+            continue;
+        }
+        match line.split_once(':').map(|(key, _)| key) {
+            Some("summary") => writeln!(out, "summary: {}", yaml(&summary)?)?,
+            Some("last_reviewed") => writeln!(out, "last_reviewed: {}", yaml(s.date)?)?,
+            _ => writeln!(out, "{line}")?,
+        }
+    }
+    out.push_str("---\n");
+    out.push_str(body.trim_end());
+    write!(
+        out,
+        "\n\n## Resolution\n\nSettled on {}: decided **{}**, recorded in `{}`. The deferral above no longer applies.\n",
+        s.date, s.option, s.decision_atom
+    )?;
+    Ok(Some(out))
 }
 
 /// What a decision did to the line its question came from.
@@ -1335,6 +1421,57 @@ mod tests {
                 "✓ deferred {id} until the tenant survey (default A by 2026-12-01) · tracking atom .kb/_intake/open_questions/{id}-should-retention-attach-per-record-or-per-series.md"
             ))
         );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn deciding_a_deferred_one_way_door_supersedes_its_tracking_atom() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let batch = serde_json::json!([
+            {"op": "raise", "q": ONE_WAY, "door": "one-way"},
+            {"op": "triage", "id": "@1", "door": "one-way", "blast": "module", "route": "present", "reason": "r"},
+            {"op": "defer", "id": "@1", "flip": "a tenant asks", "trigger": "the tenant survey", "resolve_by": "2026-12-01", "default": "A"},
+            {"op": "decide", "id": "@1", "option": "B"}
+        ]);
+
+        let out = run(
+            &mut Session::open(&env, "t")?.with_today("2026-10-07"),
+            &batch,
+        )?;
+
+        let id = id_of(ONE_WAY);
+        let rel = format!(
+            ".kb/_intake/open_questions/{id}-should-retention-attach-per-record-or-per-series.md"
+        );
+        assert!(
+            out.get(3)
+                .is_some_and(|r| r.contains(&format!(" · superseded {rel} · trailer"))),
+            "{out:?}"
+        );
+        let atom = std::fs::read_to_string(dir.path().join(&rel))?;
+        assert_eq!(
+            atom,
+            format!(
+                "---\nid: \"kb-open-question-{id}\"\ntitle: \"{ONE_WAY}\"\nkind: open_question\nstatus: superseded\nsuperseded_by: \"kb-decision-{id}\"\nauthority_tier: note\nsummary: \"Settled on 2026-10-07: decided B (kb-decision-{id}).\"\ndepends_on: []\nrelated: []\nsource_paths: []\nlast_reviewed: \"2026-10-07\"\ntracks: \"{id}\"\nresolve_by: \"2026-12-01\"\ntrigger: \"the tenant survey\"\ndefault_if_unresolved: \"A\"\nowner: \"ryan\"\nflip_condition: \"a tenant asks\"\n---\n\n# {ONE_WAY}\n\nDeferred on purpose. Waiting for: the tenant survey. Resolve by: 2026-12-01. If nobody acts, **A** applies.\n\n## Resolution\n\nSettled on 2026-10-07: decided **B**, recorded in `kb-decision-{id}`. The deferral above no longer applies.\n"
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_tracking_atom_already_superseded_is_left_alone() -> Result<()> {
+        let atom = "---\nid: \"kb-open-question-wi-1\"\nstatus: superseded\nsuperseded_by: \"kb-decision-wi-1\"\n---\n\n# Q\n";
+        let settled = Settled {
+            option: "A",
+            decision_atom: "kb-decision-wi-1",
+            date: "2026-10-08",
+        };
+
+        let out = superseded_open_question(atom, &settled)?;
+
+        assert_eq!(out, None);
         Ok(())
     }
 

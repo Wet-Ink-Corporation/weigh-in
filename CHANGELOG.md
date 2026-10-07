@@ -24,6 +24,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - A command that changes the ledger creates it only when it first writes: `decide`, `defer`,
   `dismiss` or `reopen` that names no item, an empty `batch`, or `board apply` with no answers no
   longer leaves an empty ledger in a folder that had none (B-01).
+- Deciding a deferred one-way item now closes its tracking atom in
+  `.kb/_intake/open_questions/`: `status: superseded`, `superseded_by` naming the decision atom,
+  a settled summary and a Resolution section, and the receipt says `superseded <path>`; before, it
+  stayed `status: proposed` and read as still open.
 ## 0.5.4 — 2026-10-06
 
 - On a plugin copy with no build for any platform, such as a claude.ai sync of the development
