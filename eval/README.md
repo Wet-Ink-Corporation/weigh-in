@@ -118,3 +118,10 @@ One JSON object per line:
   item stays raised. The seed is 70 items, 19 labelled `capture`, 12 captured (precision 100%,
   recall 63%). With 12 captured items the 80% bar is now in force (wi-a9df17), and it passes.
   After 0.5.2, recall is 11 of 12 across s8 to s12.
+
+  Added 2026-10-08: two end-of-turn messages from s13, the status-audit session, saved by the
+  session itself (`rs13-01` and `rs13-02`). The first is a status note while a workflow ran and is
+  a true negative. The second is the audit hand-off, which carries one block (a two-way call on the
+  headline progress figure) and is captured as a logged default. The session's other turns were a
+  plan-mode question and close-off steps; the close-off message itself is not saved. The seed is
+  72 items, 20 labelled `capture`, 13 captured (precision 100%, recall 65%).
