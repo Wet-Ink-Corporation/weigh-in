@@ -6,6 +6,14 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- `weighin journal` prints every ledger event as JSON lines, and `weighin stats` now folds the
+  ledger together with every journal committed under `.kb/_ledger/journal/`, counting an event
+  held twice only once. Cloud sessions on this repository write such a journal as they go, so
+  their presentations, dismissals, deferrals and defaults count in the pilot's numbers even
+  after the container is gone (B-21).
+- `scripts/weekly-stats.sh` reads a folder that has committed journals but no ledger, and adds
+  their hook errors to the count. It also finds the organization-synced install, and stops with
+  one message when it finds no binary, where before every row read "stats failed".
 - A `weigh-in` block keeps issue references such as `#123` in its values; before, everything
   from ` #123` on was dropped as a comment. A comment is now a ` #` followed by a space or the
   end of the line.

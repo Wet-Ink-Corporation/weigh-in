@@ -67,7 +67,10 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
   Cowork uses a connected checkout of the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)).
 - **This repository's ledger does not outlive a cloud session** ([D-0014](decisions/build-decisions.md#d-0014)):
   cloud sessions settle or defer everything before they end. Ryan's own clones, now installed from
-  the `marketplace` branch, keep theirs.
+  the `marketplace` branch, keep theirs. Since [B-21](decisions/build-decisions.md#b-21) the
+  event history survives as a committed journal per cloud session, which `weighin stats` folds
+  in, so cloud sittings count toward [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23).
+  Cloud sittings before the change are lost, apart from their decisions.
 - **No board from Cowork:** slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 - **happenstance is held at 0.3.2**, now with a way past it: a schema change is one more ledger
   migration step ([B-10](decisions/build-decisions.md#b-10)).

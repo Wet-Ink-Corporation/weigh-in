@@ -10,8 +10,8 @@ use weighin_core::atom::{self, RenderContext};
 use weighin_core::card::Card;
 use weighin_core::event::{
     Acknowledged, Blast, Channel, Decided, DefaultCause, Defaulted, Deferred, DismissReason,
-    Dismissed, Grounded, LedgerEvent, Linked, Presented, Provenance, Raised, RecordWritten,
-    Reopened, Route, Superseded, Timing, Triaged,
+    Dismissed, EventEnvelope, Grounded, LedgerEvent, Linked, Presented, Provenance, Raised,
+    RecordWritten, Reopened, Route, Superseded, Timing, Triaged,
 };
 use weighin_core::id::{EXTENDED_HEX_LEN, ItemId};
 use weighin_core::marker::{Authority, Door, Kind, Marker, authority_tripwire};
@@ -147,6 +147,18 @@ impl RaiseOutcome {
 /// missing one), or when an existing store cannot be opened or read.
 pub(crate) fn stored_ledger(env: &Env) -> Result<Option<Ledger>> {
     existing_store(env)?.map(|s| s.ledger()).transpose()
+}
+
+/// Every ledger event in position order, or none when no store exists yet. Never creates the
+/// store; see [`stored_ledger`].
+///
+/// # Errors
+/// See [`stored_ledger`].
+pub(crate) fn stored_events(env: &Env) -> Result<Vec<(u64, EventEnvelope)>> {
+    Ok(existing_store(env)?
+        .map(|s| s.read_all())
+        .transpose()?
+        .unwrap_or_default())
 }
 
 /// The store, opened only when it exists already. See [`stored_ledger`].

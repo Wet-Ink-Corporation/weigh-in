@@ -128,7 +128,8 @@ weighin dismiss <id> <why> [--note]      not-useful | recoverable | moot | alrea
                                          duplicate-of:<id> | not-my-call:<who>
 weighin reopen <id> [--note]             reopen a decided, defaulted or dismissed item
 weighin digest [--json]                  defaults taken without you
-weighin stats [--json]                   action rate, not-useful rate, overrides, time to decide
+weighin stats [--json]                   action rate, not-useful rate, overrides, time to decide (ledger + committed journals)
+weighin journal                          every ledger event as JSON lines (cloud sessions commit it, B-21)
 weighin trailer <id>                     the commit trailer for a decided item
 weighin scan <path>…                     backfill from existing documents
 weighin board export [--out <file>]      write the board state document

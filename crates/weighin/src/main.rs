@@ -10,6 +10,7 @@ mod context;
 mod env;
 mod git;
 mod hooks;
+mod journal;
 mod ops;
 mod store;
 mod text;
@@ -102,6 +103,8 @@ enum LedgerCmd {
         #[command(subcommand)]
         cmd: BoardCmd,
     },
+    /// Every ledger event as JSON lines, for a committed journal (.kb/_ledger/journal/).
+    Journal,
 }
 
 #[derive(Args)]
@@ -424,6 +427,7 @@ fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
         LedgerCmd::Board {
             cmd: BoardCmd::Apply(a),
         } => board_apply(&env, &a, out),
+        LedgerCmd::Journal => journal::write(&ops::stored_events(&env)?, out),
     }
 }
 
@@ -819,8 +823,9 @@ fn digest(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
+/// The health numbers over the ledger and every committed journal (`journal.rs`).
 fn stats(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()> {
-    let ledger = read_ledger(env)?;
+    let ledger = journal::pool(ops::stored_events(env)?, journal::read(&env.root())?)?;
     let h = Health::of(&ledger);
     if a.json {
         writeln!(out, "{}", serde_json::to_string(&h)?)?;
