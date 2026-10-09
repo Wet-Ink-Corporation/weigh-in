@@ -72,6 +72,56 @@ fn a_journal_alone_gives_the_stats_of_the_ledger_it_came_from() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_session_resumed_in_a_new_container_folds_the_same_with_or_without_its_ledger() -> TestResult {
+    let (_tmp, repo) = setup();
+    let q = "Name the helper apply or run?";
+    present_and_dismiss(&repo, "s", q)?;
+    let mut kept = journal(&repo, "s")?;
+    // The container is lost; the session resumes with its id and an empty ledger, raises the same
+    // question again (the same item id) and dismisses it differently. The hook script appends
+    // only the lines its journal does not hold yet.
+    std::fs::rename(repo.join(".git/weighin"), repo.join(".git/weighin-lost"))?;
+    let (ok, out) = weighin(&repo, "s", &["raise", "--q", q], None);
+    assert!(ok, "{out}");
+    let id = out.split_whitespace().nth(1).ok_or("no id")?.to_owned();
+    let (ok, out) = weighin(&repo, "s", &["dismiss", &id, "moot"], None);
+    assert!(ok, "{out}");
+    let fresh = journal(&repo, "s")?;
+    let new: Vec<&str> = fresh
+        .lines()
+        .filter(|l| !kept.lines().any(|k| k == *l))
+        .collect();
+    for line in new {
+        kept.push_str(line);
+        kept.push('\n');
+    }
+    commit_journal(&repo, "s.jsonl", &kept)?;
+
+    let with_ledger = stats(&repo)?;
+    std::fs::rename(repo.join(".git/weighin"), repo.join(".git/weighin-gone"))?;
+    let journal_only = stats(&repo)?;
+
+    assert_eq!(with_ledger, journal_only);
+    assert_eq!(journal_only["not_useful"], 0, "the later dismissal stands");
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn journal_with_no_ledger_prints_nothing() {
+    let (_tmp, repo) = setup();
+
+    let run = weighin(&repo, "s1", &["journal"], None);
+
+    assert_eq!(run, (true, String::new()));
+    assert!(
+        !repo.join(".git/weighin").exists(),
+        "journal created a ledger"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_ledger_and_its_own_journals_count_each_event_once() -> TestResult {
     let (_tmp, repo) = setup();
     present_and_dismiss(&repo, "s1", "Name the helper apply or run?")?;

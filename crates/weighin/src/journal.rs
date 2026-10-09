@@ -63,11 +63,13 @@ pub(crate) fn read(root: &Path) -> Result<Vec<EventEnvelope>> {
     Ok(events)
 }
 
-/// The ledger folded from its own events followed by the journals' events, each event once
-/// (the first copy kept). Order is the sources' own, never timestamps: the ledger in position
-/// order, then each journal in its file order, which is its store's position order. A journal
-/// written earlier from the same store holds a prefix of a later one, so either order of the two
-/// folds the same.
+/// The ledger folded from the journals' events followed by its own, each event once (the first
+/// copy kept). Order is the sources' own, never timestamps: each journal in its file order, then
+/// the ledger in position order. Journals come first because they can hold history the ledger
+/// lost: a session resumed in a new container keeps its id but starts an empty ledger, its hook
+/// appends the new ledger's events after the old ones, and a question raised again mints the
+/// same item id. Folding that ledger first would replay the older events after the newer. A
+/// journal of the ledger's own store holds a prefix of it, which this order folds unchanged.
 ///
 /// # Errors
 /// Fails when an event cannot be encoded for comparison.
@@ -80,10 +82,41 @@ pub(crate) fn pool(
     }
     let mut seen = HashSet::new();
     let mut events = Vec::with_capacity(ledger.len().saturating_add(journal.len()));
-    for env in ledger.into_iter().map(|(_, e)| e).chain(journal) {
+    for env in journal
+        .into_iter()
+        .chain(ledger.into_iter().map(|(_, e)| e))
+    {
         if seen.insert(env.to_json()?) {
             events.push(env);
         }
     }
     Ok(Ledger::fold((1_u64..).zip(events.iter())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RAISED: &str = r#"{"type":"item_raised","item_id":"wi-b29e54","kind":"question","question":"Keep the cache warm or cold?","door_hint":"unsure","authority_hint":"authority","channel":"manual","quote":"Keep the cache warm or cold?","actor":"cli","session_id":"s","ts":"2026-10-09T03:29:36Z"}"#;
+    const PRESENTED: &str = r#"{"type":"item_presented","item_id":"wi-b29e54","surface":"chat","reason":"","actor":"cli","session_id":"s","ts":"2026-10-09T03:29:37Z"}"#;
+
+    fn events() -> Result<Vec<EventEnvelope>> {
+        Ok(vec![
+            EventEnvelope::from_json(RAISED.as_bytes())?,
+            EventEnvelope::from_json(PRESENTED.as_bytes())?,
+        ])
+    }
+
+    #[test]
+    fn an_event_in_the_ledger_and_a_journal_folds_once() -> Result<()> {
+        let ledger = (1_u64..).zip(events()?).collect();
+
+        let pooled = pool(ledger, events()?)?;
+
+        let item = pooled
+            .resolve("wi-b29e54")
+            .ok_or_else(|| anyhow::anyhow!("item missing"))?;
+        assert_eq!((pooled.head, item.times_presented), (2, 1));
+        Ok(())
+    }
 }

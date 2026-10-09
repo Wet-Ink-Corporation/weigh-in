@@ -2,8 +2,9 @@
 # Weekly Weigh-In numbers for #23, as markdown to paste into the issue: `weighin stats` for each
 # folder given (a git repository or a Cowork folder), a pooled row, and the hook-error count of
 # each ledger. A folder's row folds its ledger with the journals committed under
-# `.kb/_ledger/journal/` by cloud sessions (B-21), whose ledgers are gone with their containers. Stats are cumulative over a ledger's life, so each week's comment carries totals
-# to date; the change since last week is the difference between two comments.
+# `.kb/_ledger/journal/` by cloud sessions (B-21), whose ledgers are gone with their containers.
+# Stats are cumulative over a ledger's life, so each week's comment carries totals to date; the
+# change since last week is the difference between two comments.
 #
 #   scripts/weekly-stats.sh ~/src/weigh-in ~/src/other-repo ~/Cowork/folder
 #
