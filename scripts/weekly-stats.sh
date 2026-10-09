@@ -1,7 +1,8 @@
 #!/bin/sh
 # Weekly Weigh-In numbers for #23, as markdown to paste into the issue: `weighin stats` for each
 # folder given (a git repository or a Cowork folder), a pooled row, and the hook-error count of
-# each ledger. Stats are cumulative over a ledger's life, so each week's comment carries totals
+# each ledger. A folder's row folds its ledger with the journals committed under
+# `.kb/_ledger/journal/` by cloud sessions (B-21), whose ledgers are gone with their containers. Stats are cumulative over a ledger's life, so each week's comment carries totals
 # to date; the change since last week is the difference between two comments.
 #
 #   scripts/weekly-stats.sh ~/src/weigh-in ~/src/other-repo ~/Cowork/folder
@@ -33,6 +34,21 @@ if [ -z "${WEIGHIN:-}" ]; then
     v=$(basename "$(dirname "$(dirname "$l")")")
     printf '%s\t%s\n' "$v" "$l"
   done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f2-)
+  # The organization-synced install (B-19) keeps the plugin outside the cache, under a folder
+  # named for its upload; take a copy whose manifest names the `weigh` plugin.
+  if [ -z "$launcher" ]; then
+    for l in $(find "$HOME/.claude" -path '*/libexec/weighin' -type f 2>/dev/null); do
+      if grep -qs '"name": *"weigh"' "$(dirname "$(dirname "$l")")/.claude-plugin/plugin.json"; then
+        launcher=$l
+        break
+      fi
+    done
+  fi
+fi
+# Without a binary every row would read "stats failed"; say so once instead.
+if [ -z "${WEIGHIN:-}" ] && [ -z "$launcher" ] && ! command -v weighin >/dev/null 2>&1; then
+  echo "no Weigh-In binary found; set WEIGHIN=<path to weighin or its launcher>" >&2
+  exit 1
 fi
 w() {
   if [ -n "${WEIGHIN:-}" ]; then "$WEIGHIN" "$@"
@@ -64,9 +80,11 @@ for dir in "$@"; do
     state="$dir/.weighin"
   fi
   # Reads never create a ledger; this only says "no ledger" rather than a row of zeros, unless the
-  # config's `store` names the ledger elsewhere.
+  # config's `store` names the ledger elsewhere or the folder has committed journals (B-21).
+  journals="$dir/.kb/_ledger/journal"
   if [ ! -f "$state/ledger.sqlite3" ] \
-    && ! grep -qs '"store"' "$dir/.kb/_ledger/config.json"; then
+    && ! grep -qs '"store"' "$dir/.kb/_ledger/config.json" \
+    && ! ls "$journals"/*.jsonl >/dev/null 2>&1; then
     echo "| $name | no ledger | | | | | | | |"
     continue
   fi
@@ -81,6 +99,10 @@ for dir in "$@"; do
   log="$state/hook-errors.log"
   e=0
   [ -f "$log" ] && e=$(wc -l < "$log" | tr -d ' ')
+  # Cloud sessions keep their hook errors beside their journals.
+  for jl in "$journals"/*.hook-errors.log; do
+    [ -f "$jl" ] && e=$((e + $(wc -l < "$jl" | tr -d ' ')))
+  done
   echo "| $name | $p | $(pct "$a" "$p") | $(pct "$n" "$p") | $o of $k | ${m:+${m}s} | $d | $u | $e |"
   tp=$((tp + p)) ta=$((ta + a)) tn=$((tn + n)) to=$((to + o)) tk=$((tk + k))
   td=$((td + d)) tu=$((tu + u)) te=$((te + e))

@@ -16,7 +16,7 @@ binary. The composition root holds the store, git, context packs, environment di
 - Never: a second writer of the ledger, or a git library. Git goes through the command line (`git.rs`).
 
 ## Public surface
-None. This is a binary crate; its modules are private (`annotate`, `context`, `env`, `git`, `hooks`, `ops`, `store`, `text`).
+None. This is a binary crate; its modules are private (`annotate`, `context`, `env`, `git`, `hooks`, `journal`, `ops`, `store`, `text`).
 
 ## Invariants
 - **One write path.** Every change to the ledger goes through `ops::Session`.
@@ -24,6 +24,7 @@ None. This is a binary crate; its modules are private (`annotate`, `context`, `e
 - **No deletes beside the ledger.** The store runs under a TRUNCATE journal and never through happenstance's WAL open, and temporary files stay on the temp disk (B-01).
 - **Hooks never fail a session.** Errors are appended to `<state dir>/hook-errors.log`, and the hook exits 0 with no output (`hooks.rs`).
 - **Git is read-only, apart from a tree hash on a temporary index.** Nothing here commits, moves refs or runs hooks (`git.rs`).
+- **Journals are read, never written, by the CLI.** `journal` prints the ledger's events; a cloud session's hook script keeps them in `.kb/_ledger/journal/`, and `stats` folds them with the ledger, counting an event held twice once (`journal.rs`, B-21).
 - **Context packs stay bounded** by `caps.context_chars`, about 600 tokens (`context.rs`).
 
 ## Errors

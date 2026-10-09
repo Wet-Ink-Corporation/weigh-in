@@ -53,6 +53,10 @@ Weigh-In ends up (wi-b4c1d8). Line endings are LF everywhere (`.gitattributes`).
   so settle or defer everything before the session ends. There the plugin is wired through
   `.claude/settings.json` and `.claude/hooks/session-start.sh`, because cloud sessions do not
   install plugins (B-12); on your own machine, install `weigh@weigh-in` as usual.
+- In cloud sessions, commit `.kb/_ledger/journal/` with the session's work, including after a
+  sitting that decided nothing. The hooks keep `<session>.jsonl` there current, and it is the
+  only record of what the session's ledger presented, dismissed, deferred and defaulted, which
+  is what the pilot is judged on (B-21, #23).
 - Before a cloud session on this repository ends, add its own end-of-turn messages to
   `eval/seed.jsonl` (wi-48657b): blocks as capture items, the prose calls they missed, and a
   share of true negatives. Parse them with a script from the session's transcript under

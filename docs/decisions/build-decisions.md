@@ -144,6 +144,9 @@ survive either way as committed `.kb` atoms; what a container takes with it is t
 and anything left open, deferred or defaulted, so cloud sessions settle everything before they
 end. Accepted until Phase 2's installs, and noted as a known gap.
 
+Amended 2026-10-09 by [B-21](#b-21): the event history now survives too, as a committed journal
+per cloud session, because the pilot is judged on more than decisions.
+
 ## D-0015
 
 **Hooks work on Windows without Git Bash in v1.** 2026-10-03 · provenance: Ryan, choosing between
@@ -510,3 +513,29 @@ Corrected 2026-10-06 by [B-18](#b-18): that run was on a different install (the 
 branch). The earlier failure came from a claude.ai-synced copy of `main`, which has no binaries,
 so not reproducing it on another install showed nothing about it.
 
+## B-21
+
+**Cloud sessions keep their pilot evidence in committed journals.** 2026-10-09 · Claude's call
+in a cloud session, asked by Ryan to make sure the pilot's evidence is saved without his
+intervention; two-way · amends [D-0014](#d-0014) for the event history.
+
+D-0014 accepted that a cloud session's ledger goes with its container, on the view that the
+decisions survive as atoms. The pilot ([#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23))
+is judged on more than decisions. Its action rate counts deferrals and `not-my-call` dismissals,
+its not-useful rate counts `not-useful` dismissals, and it also tracks defaults, decision times
+and `hook-errors.log`. None of those left an atom, so every cloud sitting on this repository,
+where most sittings happen, was missing from `weighin stats`. A sitting whose items were all
+dismissed left nothing to commit at all. Counting the atoms alone would have shown only decided
+items, which inflates the action rate and hides the not-useful rate that decides #25.
+
+Now `.claude/hooks/weigh-in-journal.sh` runs after every capture hook and every Bash call (a
+sitting's `batch`) in a cloud session. It writes the ledger's events to
+`.kb/_ledger/journal/<session>.jsonl`, using `weighin journal`, and copies `hook-errors.log`
+beside it as `<session>.hook-errors.log`. Both files are append-only: a session resumed in a new
+container keeps its id but starts with an empty ledger, and must not wipe what it already holds.
+The session commits `.kb/` with its work. `weighin stats` folds the ledger with every committed
+journal and counts an event held twice once, and `scripts/weekly-stats.sh` reads a folder that
+has journals but no ledger. Local and Cowork ledgers persist already and write no journal.
+
+Not done: replaying journals into a new container's ledger, so that open or deferred items
+would also survive. Until then cloud sessions still settle everything before they end.

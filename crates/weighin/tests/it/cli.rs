@@ -848,6 +848,7 @@ const READ_ONLY: &[&[&str]] = &[
     &["digest", "--json"],
     &["prime"],
     &["board", "export"],
+    &["journal"],
 ];
 
 /// Read-only commands that name an item; with no ledger there is none to find.
