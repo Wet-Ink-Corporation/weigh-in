@@ -27,5 +27,8 @@
   ],
   "manifests": {
     "ownLints": []
+  },
+  "telemetry": {
+    "branch": "temper-telemetry"
   }
 }
