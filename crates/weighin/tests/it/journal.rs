@@ -122,7 +122,7 @@ fn journal_with_no_ledger_prints_nothing() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_ledger_and_its_own_journals_count_each_event_once() -> TestResult {
+fn a_ledger_and_its_own_journals_leave_stats_unchanged() -> TestResult {
     let (_tmp, repo) = setup();
     present_and_dismiss(&repo, "s1", "Name the helper apply or run?")?;
     let before = stats(&repo)?;

@@ -23,10 +23,11 @@ mkdir -p "$dir" || exit 0
 work=$(mktemp -d) || exit 0
 trap 'rm -rf "$work"' EXIT
 
-# Hooks run in parallel (capture and the Bash hook, parallel tool calls), so one update at a time;
-# the lock lives on the temp disk, not beside the ledger (B-01).
+# Hooks run in parallel (capture and the Bash hook, parallel tool calls), so one update at a time.
+# The wait is at most 3s, so capture plus the wait stays inside the 10s hook timeout; a skipped
+# run is caught up by the next. The lock lives on the temp disk, not beside the ledger (B-01).
 exec 9>"${TMPDIR:-/tmp}/weigh-in-journal-$session.lock" || exit 0
-flock -w 8 9 || exit 0
+flock -w 3 9 || exit 0
 
 # Append-only: lines already kept stay, and only lines not yet kept are added, in one write. A
 # session resumed in a new container keeps its id but starts an empty ledger, and must not wipe
