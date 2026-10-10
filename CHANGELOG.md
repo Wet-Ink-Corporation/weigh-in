@@ -4,8 +4,21 @@ One section per release, newest first. The release workflow publishes the sectio
 tagged version as the release notes and fails when it is missing, so add it in the commit that
 bumps the version. Keep an `Unreleased` section at the top while work lands on `main`.
 
-## Unreleased
+## 0.6.0 — 2026-10-10
 
+Released before the two weeks of daily use (#23) open, so the pilot measures one capture
+behaviour (wi-7c3aa0).
+
+- A `weigh-in` block whose `did` starts with the word "blocked" followed by an explanation
+  (`did: blocked; left the guard as it is`) stays an open question; before, only a bare
+  `did: blocked` did, and the rest were logged as calls the agent made (wi-64c8ea).
+- The TODO scanner ignores comment markers inside double-quoted strings, such as test fixtures
+  holding `"// TODO: …"`; one session's ledger got 212 such items. Single quotes are not tracked,
+  so lifetimes, char literals and apostrophes hide nothing; a stray `"` in prose hides the rest
+  of its line (wi-52e471).
+- A single-segment `scan.exclude` entry such as `node_modules/` or `target/` matches at any depth,
+  as `.gitignore` treats a bare name, so a nested `packages/app/node_modules/` is no longer
+  scanned. Entries with more segments stay anchored at the root (wi-e038ef).
 - `weighin journal` prints every ledger event as JSON lines, and `weighin stats` now folds the
   ledger together with every journal committed under `.kb/_ledger/journal/`, counting an event
   held twice only once. Cloud sessions on this repository write such a journal as they go, so

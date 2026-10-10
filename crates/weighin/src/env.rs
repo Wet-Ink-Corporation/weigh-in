@@ -48,7 +48,8 @@ impl Default for Caps {
 pub(crate) struct ScanConfig {
     pub(crate) markdown: bool,
     pub(crate) todos: bool,
-    /// Repo-relative path prefixes never scanned.
+    /// Repo-relative path prefixes never scanned; a single-segment entry (`node_modules/`) also
+    /// matches at any depth (`ops::scannable`).
     pub(crate) exclude: Vec<String>,
 }
 
