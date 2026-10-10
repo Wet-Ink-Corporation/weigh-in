@@ -14,7 +14,7 @@ use weighin_core::event::{
     RecordWritten, Reopened, Route, Superseded, Timing, Triaged,
 };
 use weighin_core::id::{EXTENDED_HEX_LEN, ItemId};
-use weighin_core::marker::{Authority, Door, Kind, Marker, authority_tripwire};
+use weighin_core::marker::{Authority, Door, Kind, Marker, authority_tripwire, did_is_blocked};
 use weighin_core::{Item, Ledger, Status};
 
 use crate::annotate::{Decision, Skip, Syntax, annotate_source_line};
@@ -544,7 +544,7 @@ impl<'a> Session<'a> {
             .did
             .as_deref()
             .map(str::trim)
-            .filter(|d| !d.is_empty() && !d.eq_ignore_ascii_case("blocked"));
+            .filter(|d| !d.is_empty() && !did_is_blocked(d));
         // The tripwire keeps authority-sounding questions (compliance, isolation, retention, ...)
         // open for the sitting even when the agent called them judgment calls.
         let tripwire = authority_tripwire(&format!(
@@ -1276,12 +1276,31 @@ pub(crate) fn parse_ops(text: &str) -> Result<Vec<Result<Op, BadOp>>> {
 /// Whether a path should be scanned, per config.
 #[must_use]
 pub(crate) fn scannable(env: &Env, rel: &str) -> bool {
-    !env.config
-        .scan
-        .exclude
-        .iter()
-        .any(|p| rel.starts_with(p.as_str()))
+    !env.config.scan.exclude.iter().any(|p| excludes(p, rel))
         && !Path::new(rel).components().any(|c| c.as_os_str() == ".git")
+}
+
+/// Whether the `scan.exclude` entry `pattern` covers the repo-relative path `rel`. Every entry
+/// matches as a prefix from the root. A single-segment entry also matches at any depth, as
+/// `.gitignore` treats a bare name (wi-e038ef): `node_modules/` any folder of that name, `gen`
+/// any folder or file.
+fn excludes(pattern: &str, rel: &str) -> bool {
+    if rel.starts_with(pattern) {
+        return true;
+    }
+    let (name, folders_only) = pattern
+        .strip_suffix('/')
+        .map_or((pattern, false), |name| (name, true));
+    if name.is_empty() || name.contains('/') {
+        return false;
+    }
+    let path = Path::new(rel);
+    let within = if folders_only {
+        path.parent()
+    } else {
+        Some(path)
+    };
+    within.is_some_and(|p| p.components().any(|c| c.as_os_str() == name))
 }
 
 #[cfg(test)]
@@ -1381,6 +1400,52 @@ mod tests {
                 format!("✓ acknowledged default on {id}"),
             ]
         );
+        Ok(())
+    }
+
+    /// wi-e038ef: a single-segment entry matches at any depth, as `.gitignore` treats a bare name;
+    /// an entry with more segments stays anchored at the root.
+    #[test]
+    fn a_bare_exclude_name_matches_at_any_depth() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut env = env_in(dir.path(), "s1");
+        env.config.scan.exclude = vec!["node_modules/".into(), "gen".into(), "docs/out/".into()];
+
+        for skipped in [
+            "node_modules/x/README.md",
+            "packages/app/node_modules/x/README.md",
+            "gen/a.md",
+            "lib/gen/a.md",
+            "lib/gen",
+            "docs/out/a.md",
+            "a/.git/x.md",
+        ] {
+            assert!(!scannable(&env, skipped), "{skipped} should be skipped");
+        }
+        for kept in [
+            "src/node_modules.md",
+            "lib/generated/a.md",
+            "lib/docs/out/a.md",
+            "README.md",
+        ] {
+            assert!(scannable(&env, kept), "{kept} should be scanned");
+        }
+    }
+
+    /// wi-64c8ea: `blocked` followed by what the agent did instead is still blocked, so the item
+    /// stays a question rather than a logged call.
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn a_blocked_call_with_an_explanation_stays_raised() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let batch = serde_json::json!([
+            {"op": "raise", "q": TWO_WAY, "door": "two-way", "authority": "judgment", "did": "blocked; left the guard as it is"}
+        ]);
+
+        let out = run(&mut Session::open(&env, "t")?, &batch)?;
+
+        assert_eq!(out, [format!("✓ raised {} (raised)", id_of(TWO_WAY))]);
         Ok(())
     }
 

@@ -161,10 +161,25 @@ impl Marker {
     /// `did: blocked` means the agent took no one-way path and continued with other work.
     #[must_use]
     pub fn is_blocked(&self) -> bool {
-        self.did
-            .as_deref()
-            .is_some_and(|d| d.trim().eq_ignore_ascii_case("blocked"))
+        self.did.as_deref().is_some_and(did_is_blocked)
     }
+}
+
+/// Whether a `did` value says the agent was blocked.
+///
+/// It starts with the word "blocked", alone or followed by an explanation (`blocked; left the
+/// guard as it is`). Such an item stays a question and is never logged as a call the agent made
+/// (wi-64c8ea).
+#[must_use]
+pub fn did_is_blocked(did: &str) -> bool {
+    const WORD: &str = "blocked";
+    let did = did.trim_start();
+    did.get(..WORD.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(WORD))
+        && !did
+            .get(WORD.len()..)
+            .and_then(|rest| rest.chars().next())
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
 }
 
 /// Parse every `weigh-in` (or `weighin`) fenced block in `text`.
@@ -568,6 +583,30 @@ mod tests {
     #[test]
     fn blocked_is_recognised() {
         let m = &parse_markers("```weigh-in\nq: Drop the column?\ndid: blocked\n```")[0];
+        assert!(m.is_blocked());
+    }
+
+    #[test]
+    fn blocked_followed_by_an_explanation_is_still_blocked() {
+        for did in [
+            "blocked",
+            " Blocked ",
+            "blocked; left the guard as it is",
+            "BLOCKED - waiting on the owner",
+            "blocked: no access",
+            "blocked, nothing built",
+        ] {
+            assert!(did_is_blocked(did), "{did:?}");
+        }
+        for did in [
+            "",
+            "blockedness checked",
+            "unblocked the queue",
+            "left blocked",
+        ] {
+            assert!(!did_is_blocked(did), "{did:?}");
+        }
+        let m = &parse_markers("```weigh-in\nq: Drop the column?\ndid: blocked; kept it\n```")[0];
         assert!(m.is_blocked());
     }
 }

@@ -72,10 +72,6 @@ const LEFT_ALONE: &[(&str, &str)] = &[
     ("src/t.py", "x = 1  # TODO: pick a start\n"),
     ("src/f.c", "/* a */ int x; // TODO: pick a width\n"),
     (
-        "src/c.js",
-        "const s = \"// TODO: decide later what this is\"; console.log(s);\n",
-    ),
-    (
         "src/crlf.rs",
         "fn f() {\r\n    // TODO: pick a cap\r\n}\r\n",
     ),
@@ -90,14 +86,6 @@ const LEFT_ALONE: &[(&str, &str)] = &[
     ),
     ("src/a.py", "help = '''Don't use # TODO: explain'''\n"),
     ("src/a.js", "s.replace(/'/g, '// TODO: pick a separator')\n"),
-    (
-        "src/a.rs",
-        "let v: &'a str = pick(\"' // TODO: decide\", '\"');\n",
-    ),
-    (
-        "src/a.cpp",
-        "int x = 1'000; const char* s = \"' // TODO: q\"; char c = '\"';\n",
-    ),
     (
         "src/a.cs",
         "var p = @\"C:\\\"; Log(\"// TODO: x\" + '\"');\n",
@@ -179,6 +167,37 @@ fn a_lifetime_apostrophe_does_not_open_a_comment_so_its_line_raises_nothing() {
         std::fs::read(repo.join("src/l.rs")).unwrap(),
         source.as_bytes()
     );
+}
+
+/// Comment markers inside double-quoted strings, which earlier rounds raised and then had to leave
+/// alone. Since wi-52e471 they are not raised at all.
+const NOT_RAISED: &[(&str, &str)] = &[
+    (
+        "src/c.js",
+        "const s = \"// TODO: decide later what this is\"; console.log(s);\n",
+    ),
+    (
+        "src/a.rs",
+        "let v: &'a str = pick(\"' // TODO: decide\", '\"');\n",
+    ),
+    (
+        "src/a.cpp",
+        "int x = 1'000; const char* s = \"' // TODO: q\"; char c = '\"';\n",
+    ),
+];
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_todo_inside_a_string_literal_is_not_raised() {
+    for &(file, source) in NOT_RAISED {
+        let (_tmp, repo) = setup();
+        std::fs::write(repo.join(file), source).unwrap();
+
+        let (ok, out) = weighin(&repo, "s1", &["scan", file], None);
+
+        assert!(ok, "{file}: {out}");
+        assert_eq!(out.trim_end(), "nothing to raise", "{file}");
+    }
 }
 
 #[test]

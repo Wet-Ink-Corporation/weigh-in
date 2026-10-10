@@ -290,33 +290,64 @@ fn flagged_comment(line: &str) -> Option<(&str, Option<&str>)> {
 /// quotes or contractions.
 const MID_LINE_COMMENTS: &[&str] = &["//", "#", "--", "/*", "<!--", "REM "];
 
-/// Byte offset where the first comment in `line` starts.
+/// Byte offset where the first comment in `line` starts. A marker inside a double-quoted string is
+/// not one (wi-52e471).
 fn comment_start(line: &str) -> Option<usize> {
     let body = line.trim_start();
     let indent = line.len().checked_sub(body.len())?;
     if body.starts_with(['*', '\'']) {
         return Some(indent);
     }
-    MID_LINE_COMMENTS.iter().filter_map(|m| line.find(m)).min()
+    outside_strings(line).find(|&i| starts_a_comment(line, i))
 }
 
 /// Byte offset of the next comment in `code`, the rest of a line after a block comment closed on
 /// it. That text is code, so a marker counts only where a comment can start on its own: at the
-/// start of `code` or after whitespace. A marker glued to other text (a URL's `//` or `/#` in a
-/// string literal) is not a comment. Quotes are not tracked: `'` is a char literal, a string
-/// delimiter or an apostrophe depending on the language, and guessing wrong hides a real comment.
+/// start of `code` or after whitespace, and outside a double-quoted string. A marker glued to
+/// other text (a URL's `//` or `/#` in a single-quoted string) is not a comment.
 fn comment_start_in_code(code: &str) -> Option<usize> {
-    let mut prev_is_space = true;
-    for (i, c) in code.char_indices() {
-        if prev_is_space {
-            let rest = code.get(i..)?;
-            if MID_LINE_COMMENTS.iter().any(|m| rest.starts_with(m)) {
-                return Some(i);
+    outside_strings(code).find(|&i| {
+        let after_space = code
+            .get(..i)
+            .and_then(|before| before.chars().next_back())
+            .is_none_or(char::is_whitespace);
+        after_space && starts_a_comment(code, i)
+    })
+}
+
+fn starts_a_comment(text: &str, at: usize) -> bool {
+    text.get(at..)
+        .is_some_and(|rest| MID_LINE_COMMENTS.iter().any(|m| rest.starts_with(m)))
+}
+
+/// Byte offsets of the characters in `text` that are not inside a double-quoted string. A `\`
+/// escapes the next character inside one, and a `"` between two `'`, escaped or not (`'"'`,
+/// `'\"'`), is a char literal, which opens nothing. Single quotes are not tracked: `'` is a char literal, a lifetime, a string
+/// delimiter or an apostrophe depending on the language, and guessing wrong hides a real comment.
+/// A stray `"` in prose hides the rest of its line, the cost wi-52e471 accepted.
+fn outside_strings(text: &str) -> impl Iterator<Item = usize> + '_ {
+    let bytes = text.as_bytes();
+    let mut in_string = false;
+    let mut escaped = false;
+    text.char_indices().filter_map(move |(i, c)| {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
             }
+            return None;
         }
-        prev_is_space = c.is_whitespace();
-    }
-    None
+        let before = |back: usize| i.checked_sub(back).and_then(|p| bytes.get(p)).copied();
+        let opens_char =
+            before(1) == Some(b'\'') || (before(1) == Some(b'\\') && before(2) == Some(b'\''));
+        let char_literal =
+            opens_char && i.checked_add(1).and_then(|n| bytes.get(n)) == Some(&b'\'');
+        in_string = c == '"' && !char_literal;
+        Some(i)
+    })
 }
 
 /// `comment` up to the closer of its block comment (`*/`, `-->`), so code after a comment that
@@ -546,6 +577,38 @@ mod tests {
         let c = scan_todos("/* a */ let c = '\"'; // TODO: real\n");
         assert_eq!(c.len(), 1, "a quote in a char literal hides nothing: {c:?}");
         assert_eq!(c[0].question, "real");
+    }
+
+    /// wi-52e471: test fixtures hold comment markers in string literals, and raised 212 items.
+    #[test]
+    fn a_comment_marker_inside_a_string_is_not_a_comment() {
+        for line in [
+            "    let src = \"// TODO: decide the cache\";\n",
+            "    write(\"x = 1  # FIXME: pick a value\\n\");\n",
+            "s = f(\"a\", \"<!-- TODO: layout -->\")\n",
+            "    let s = \"say \\\"hi\\\" // TODO: no\";\n",
+        ] {
+            assert!(
+                scan_todos(line).is_empty(),
+                "{line:?}: {:?}",
+                scan_todos(line)
+            );
+        }
+    }
+
+    #[test]
+    fn a_comment_after_a_closed_string_is_still_a_comment() {
+        let c = scan_todos("    let s = \"a//b\"; // TODO: pick a name\n");
+        assert_eq!(c.len(), 1, "{c:?}");
+        assert_eq!(c[0].question, "pick a name");
+        let c = scan_todos("    let s = \"\\\"\"; // TODO: escaped quote closes nothing\n");
+        assert_eq!(c.len(), 1, "{c:?}");
+        let c = scan_todos("    let q = '\"'; // TODO: a quote in a char literal\n");
+        assert_eq!(c.len(), 1, "a char literal opens no string: {c:?}");
+        let c = scan_todos("    case '\\\"': break; // TODO: an escaped quote in a char literal\n");
+        assert_eq!(c.len(), 1, "an escaped char literal opens no string: {c:?}");
+        let c = scan_todos("fn f<'a>(x: &'a str) {} // TODO: lifetimes are not quotes\n");
+        assert_eq!(c.len(), 1, "{c:?}");
     }
 
     #[test]
