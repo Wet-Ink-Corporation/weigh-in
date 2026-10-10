@@ -60,3 +60,10 @@
 {"t":"2026-10-10T17:54:08.166Z","sid":"355e0caf-9396-568f-9148-439277874085","ccr":"cse_01Q1MedEr1zKysu7CrtDYd8z","agent":"temper:rust-reviewer","event":"subagent-start","type":"temper:rust-reviewer"}
 {"t":"2026-10-10T17:54:11.459Z","sid":"355e0caf-9396-568f-9148-439277874085","ccr":"cse_01Q1MedEr1zKysu7CrtDYd8z","agent":"main","event":"stop-declared","status":"WIP"}
 {"t":"2026-10-10T17:54:17.039Z","sid":"355e0caf-9396-568f-9148-439277874085","ccr":"cse_01Q1MedEr1zKysu7CrtDYd8z","agent":"main","event":"stop-declared","status":"WIP"}
+{"t":"2026-10-10T17:54:18.565Z","sid":"355e0caf-9396-568f-9148-439277874085","ccr":"cse_01Q1MedEr1zKysu7CrtDYd8z","agent":"","event":"subagent-stop","type":"","msg":true,"transcript":true}
+{"t":"2026-10-10T17:54:24.455Z","sid":"355e0caf-9396-568f-9148-439277874085","ccr":"cse_01Q1MedEr1zKysu7CrtDYd8z","agent":"temper:rust-reviewer","event":"handback","type":"temper:rust-reviewer","reviewer":true}
+{"t":"2026-10-10T17:54:24.493Z","sid":"355e0caf-9396-568f-9148-439277874085","ccr":"cse_01Q1MedEr1zKysu7CrtDYd8z","agent":"temper:rust-reviewer","event":"verdict","via":"handback","verdict":"approved","fp":"3ad13c98cb54fca1","stale":false,"findings":1}
+{"t":"2026-10-10T17:54:24.795Z","sid":"355e0caf-9396-568f-9148-439277874085","ccr":"cse_01Q1MedEr1zKysu7CrtDYd8z","agent":"temper:rust-reviewer","event":"subagent-stop","type":"temper:rust-reviewer","msg":false,"transcript":true}
+{"t":"2026-10-10T17:54:24.836Z","sid":"355e0caf-9396-568f-9148-439277874085","ccr":"cse_01Q1MedEr1zKysu7CrtDYd8z","agent":"temper:rust-reviewer","event":"verdict","via":"subagent-stop","verdict":"approved","fp":"3ad13c98cb54fca1","stale":false,"findings":1}
+{"t":"2026-10-10T17:54:28.740Z","sid":"355e0caf-9396-568f-9148-439277874085","ccr":"cse_01Q1MedEr1zKysu7CrtDYd8z","agent":"main","event":"gate-start"}
+{"t":"2026-10-10T17:54:28.981Z","sid":"355e0caf-9396-568f-9148-439277874085","ccr":"cse_01Q1MedEr1zKysu7CrtDYd8z","agent":"main","event":"stop-green","fp":"3ad13c98cb54fca1","ms":240,"cached":true}
