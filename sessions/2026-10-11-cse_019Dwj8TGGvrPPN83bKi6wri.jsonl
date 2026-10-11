@@ -86,3 +86,4 @@
 {"t":"2026-10-11T14:20:38.879Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"temper:rust-reviewer","event":"subagent-start","type":"temper:rust-reviewer"}
 {"t":"2026-10-11T14:21:15.404Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"gate-start"}
 {"t":"2026-10-11T14:21:15.738Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-blocked","reason":"no-review","fp":"1ccecf7d0221d556","ms":330,"cached":true}
+{"t":"2026-10-11T14:21:19.257Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-declared","status":"WIP"}
