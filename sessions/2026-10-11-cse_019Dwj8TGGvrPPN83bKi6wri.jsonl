@@ -66,3 +66,5 @@
 {"t":"2026-10-11T06:52:29.233Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"temper:rust-reviewer","event":"verdict","via":"handback","verdict":"approved","fp":"5ab7b5f957d17446","stale":false,"findings":0}
 {"t":"2026-10-11T06:52:31.098Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"temper:rust-reviewer","event":"subagent-stop","type":"temper:rust-reviewer","msg":false,"transcript":true}
 {"t":"2026-10-11T06:52:31.187Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"temper:rust-reviewer","event":"verdict","via":"subagent-stop","verdict":"approved","fp":"5ab7b5f957d17446","stale":false,"findings":0}
+{"t":"2026-10-11T07:02:48.531Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"","event":"subagent-stop","type":"","msg":true,"transcript":true}
+{"t":"2026-10-11T07:02:48.911Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"session-start","source":"compact"}
