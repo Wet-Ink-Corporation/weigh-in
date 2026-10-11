@@ -7,6 +7,12 @@ live. The calls it needs are listed under [Decisions](#decisions); those taken a
 
 ## Where Weigh-In stands
 
+**Update, 2026-10-11 (0.6.0).** Phases 0 to 2 are done and Phase 3 is under way; the current
+state and the exit criteria are kept in [`roadmap.md`](roadmap.md). The release path is set by
+[B-23](decisions/build-decisions.md#b-23): 0.6.x patches during the two weeks of use, 0.9.0 as
+the release candidate, and 1.0.0 with no new code. The rest of this section is the evaluation
+of 2026-10-02.
+
 **Built and working (slice 1).** Capture by hooks at zero model tokens, the in-chat sitting
 (`/weigh-in`), the five filters and card guards in the CLI, `.kb` atoms with source annotation and
 commit trailers, the Artifact board for own repos, the Cowork route through the computer's shell,

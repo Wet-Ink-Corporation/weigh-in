@@ -3,7 +3,8 @@
 A decision ledger for agent sessions. Agents mark what they assumed, deferred or could not
 decide; hooks capture those marks and the open questions they write into documents; `/weigh-in`
 filters them hard and settles the ones that need you in one sitting, at the end of the chat
-that raised them. Every decision lands as a `.kb` atom that Redkiln's `kb-ingest` promotes.
+that raised them. Every decision lands as a `.kb` atom that passes Redkiln's `validate --kb`;
+teaching `kb-ingest` to promote them comes with the move into redkiln-rs (B-22).
 
 Slice 1 of the design in *Settle agent questions while the context is warm* (2026-09-26).
 It stands on its own until redkiln-rs is ready to receive it.
@@ -148,13 +149,12 @@ weighin hook                             hook entry point (reads the hook JSON o
 
 ## Measured in this build
 
-Measured on 0.5.4 (2026-10-07). Items marked **pending** are v1 exit criteria
+Measured on 0.6.0 (2026-10-11). Items marked **pending** are v1 exit criteria
 ([v1 plan](docs/v1-plan.md), Phase 3) that have not been measured yet.
 
-- **Tests and lints.** 245 tests on `main` after the 2026-10-07 review (102 core unit tests, 22
-  core property tests, 7 core doctests, 70 CLI unit tests, 44 CLI integration tests including the
-  eval scorer; one more end-to-end test runs on Windows only). At the 0.5.4 tag the count was
-  180. CI runs them, fmt and
+- **Tests and lints.** 259 tests at 0.6.0 (105 core unit tests, 22 core property tests, 7 core
+  doctests, 73 CLI unit tests, 52 CLI integration tests including the eval scorer; one more
+  end-to-end test runs on Windows only). CI runs them, fmt and
   rustdoc on Linux, Windows and macOS; `cargo deny`, the plugin package check and temper's lint
   ratchet run on Linux. The temper baseline is 0 findings (721 remediated in #82). Atoms pass
   Redkiln's `validate --kb`, with a rejected negative control.
@@ -166,10 +166,10 @@ Measured on 0.5.4 (2026-10-07). Items marked **pending** are v1 exit criteria
   version and read back (fixture tests, B-10). Cowork's refused deletes, reproduced with a shim
   that refuses `unlink`, break 0.1.1 with `SQLITE_IOERR_DELETE` (2570). From 0.1.2 the store
   creates, raises and decides with no delete or rename in the folder.
-- **Capture precision** (eval seed, #22): 72 real end-of-turn messages from cloud sessions on this
-  repository, 20 labelled `capture`, 13 captured. Precision is 13 of 13 (100%, bar 80%, in force
-  since 10 items are captured, wi-a9df17). Recall is 1 of 7 before the 0.5.2 convention line and
-  12 of 13 after it.
+- **Capture precision** (eval seed, #22): 77 real end-of-turn messages from cloud sessions on this
+  repository, 22 labelled `capture`, 14 captured. Precision is 14 of 14 (100%, bar 80%, in force
+  since 10 items are captured, wi-a9df17); recall is 14 of 22. At 72 items, recall was 1 of 7
+  before the 0.5.2 convention line and 12 of 13 after it.
   - **Pending:** the labels await Ryan's review (#22).
 - **Sitting cost** (D-0016): about 3 × the session's context at the cache-read price, plus about
   5,600 output tokens of cards. That is about $0.10–0.15 on Sonnet 5.5 after a short session and
@@ -184,14 +184,15 @@ Measured on 0.5.4 (2026-10-07). Items marked **pending** are v1 exit criteria
     board are not supported (V4).
   - Cowork: the zip-synced plugin keeps the launcher's executable bit and shows the SessionStart
     line.
-  - Releases: 0.5.4 reaches claude.ai's organization sync through `weigh-in-plugin` (B-19), with
-    Linux musl, Windows msvc and macOS arm64 binaries and `libexec/weighin.exe`. A copy synced
-    from the development tree has none (#76); from 0.5.4 the launcher says so (B-18).
+  - Releases: since 0.5.4, each release reaches claude.ai's organization sync through
+    `weigh-in-plugin` (B-19), with Linux musl, Windows msvc and macOS arm64 binaries and
+    `libexec/weighin.exe`. A copy synced from the development tree has none (#76); from 0.5.4
+    the launcher says so (B-18).
   - **Pending:** Ryan's Windows check of the synced `weigh-in-plugin` copy, which closes #76.
   - **Pending:** the Cowork session id and the Cowork half of V6 (V1, #16); a marker captured on
     Windows without Git Bash (V7, #21).
 - **Use.** **Pending:** two weeks and 30 presented items of real sittings, whichever comes later
-  (#23, from 2026-10-05).
+  (#23; week 1 opens on 2026-10-12).
   These give the action rate (target at least 60%), the not-useful rate (at most 10%, or
   per-category suppression comes into v1, #25), overrides and time to decide. `weighin stats`
   and `scripts/weekly-stats.sh` produce them.
