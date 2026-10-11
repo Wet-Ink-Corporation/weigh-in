@@ -4,7 +4,11 @@ One section per release, newest first. The release workflow publishes the sectio
 tagged version as the release notes and fails when it is missing, so add it in the commit that
 bumps the version. Keep an `Unreleased` section at the top while work lands on `main`.
 
-## Unreleased
+## 0.6.1 — 2026-10-11
+
+The client-repo board guard and test gaps from the 2026-10-06 status audit. Capture (markers,
+the TODO scan, hooks) is unchanged, so the #23 pilot still measures 0.6.0's capture behaviour
+(B-23).
 
 - `weighin board export` refuses, and writes no state file, unless the folder's
   `.kb/_ledger/config.json` chose the `artifact` board. A `local` or `off` mode, a folder never
