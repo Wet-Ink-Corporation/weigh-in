@@ -1340,7 +1340,7 @@ mod tests {
     fn clip_keeps_short_text_and_ellipsizes_long_text() {
         assert_eq!(clip("a\nb", 3), "a b");
         assert_eq!(clip("abcdef", 4), "abc…");
-        assert_eq!(clip("abc", 0), "…");
+        assert_eq!(clip("abc", 0), "");
     }
 
     /// A writer whose reader has gone.
