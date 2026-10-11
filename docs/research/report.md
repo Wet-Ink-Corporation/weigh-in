@@ -634,8 +634,8 @@ the exit criteria below are pending. The decision records in
 - **V2** (ArtifactData from Cowork): deferred to slice 2; the board does not run from Cowork in v1
   ([B-17](../decisions/build-decisions.md#b-17)).
 - **V3** (sibling worktrees' ledgers): made moot by [wi-6e2a47](../decisions/wi-6e2a47.md), since
-  one store under the git common dir serves every worktree. No record closes it yet; pending
-  Ryan's confirmation that wi-6e2a47 settles it.
+  one store under the git common dir serves every worktree; closed by
+  [B-24](../decisions/build-decisions.md#b-24).
 - **V4** (editor links from an Artifact): not supported. The board shows selectable `path:line`
   text ([#18](https://github.com/Wet-Ink-Corporation/weigh-in/issues/18)).
 - **V5** (`db` limits): closed. One document holds at most 262,144 bytes; a 1,000-default ledger

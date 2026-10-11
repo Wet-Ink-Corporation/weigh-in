@@ -539,3 +539,47 @@ has journals but no ledger. Local and Cowork ledgers persist already and write n
 
 Not done: replaying journals into a new container's ledger, so that open or deferred items
 would also survive. Until then cloud sessions still settle everything before they end.
+
+## B-22
+
+**Teaching kb-ingest the intake keys moves to slice 3.** 2026-10-11 · Claude's call in the AFK
+cloud session, recording where the v1 plan already put it; two-way, open to Ryan as a weigh-in
+item · amends [wi-e15c77](wi-e15c77.md) for its kb-ingest half.
+
+wi-e15c77 chose to reserve `.kb/_ledger/` in Redkiln's `.kb` contract and teach `kb-ingest`
+Weigh-In's intake keys in slice 1. The first half holds: `validate --kb` already skips
+`_`-prefixed directories, and Weigh-In's atoms pass it, with a rejected negative control. The
+second half is a change in redkiln-rs, outside this repository, and the [v1 plan](../v1-plan.md)
+has listed it under slice 3 since 2026-10-02 without a record (the
+[status audit](../audits/2026-10-06-status-audit.md), finding A8). It moves with the rest of the
+redkiln-rs work: v1 makes no claim that `kb-ingest` promotes Weigh-In's atoms, and the README
+says so. The migration wi-e15c77 wanted to avoid stays small, because atoms already carry the
+intake keys under `.passthrough()` frontmatter.
+
+## B-23
+
+**0.9.0 is the release candidate; 1.0.0 adds no code.** 2026-10-11 · Claude's call in the AFK
+cloud session, which Ryan asked to schedule releases; two-way.
+
+The v1 plan names Phase 3's releases 0.9.x, and the status audit asked whether to cut a
+candidate or go straight to 1.0.0. While the two weeks of use run
+([#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23)), releases are 0.6.x patches
+that do not change capture, so the pilot measures one capture behaviour (the reasoning of
+wi-7c3aa0). 0.9.0 is cut once the agent-side work is merged and Ryan's Cowork, Windows and
+organization-sync checks (#16, #20, #21, #76) pass; after it only fixes for what those checks
+or the pilot find land, as 0.9.x. 1.0.0 is the last 0.9.x with the version, the changelog and
+the closing documents, tagged once Ryan has ticked the exit criteria. That way the build that
+earned the exit criteria is the build that ships, and "a 0.2.2 ledger opens under the
+candidate" is checked on the code that becomes 1.0.0.
+
+## B-24
+
+**V3 is closed as moot.** 2026-10-11 · Claude's call in the AFK cloud session; two-way, open to
+Ryan as a weigh-in item.
+
+V3 asked whether a worktree session's script can read sibling worktrees' `.kb/_ledger`. Under
+[wi-6e2a47](wi-6e2a47.md) there is one store per repository, under the git common dir, so every
+worktree reads and writes the same ledger and there is no sibling ledger to read. The CLI's
+end-to-end test checks it: a linked worktree lists both items raised in the main one, and
+nothing is written into either working tree (`items_seen_from_a_worktree`,
+`crates/weighin/tests/it/support.rs`).

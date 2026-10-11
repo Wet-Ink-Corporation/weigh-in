@@ -1,32 +1,33 @@
 # Roadmap and open items
 
-State at 0.5.4 (2026-10-06, current on 2026-10-07). Slice 1 is built: capture, the in-chat
-sitting, decision records, the Cowork route through the computer's shell, and the local
-marketplace. Phases 1 and 2 of the v1 plan are done. Phase 3 is under way: 0.5.0 runs the hooks
-with no shell, so capture works on Windows without Git Bash ([D-0015](decisions/build-decisions.md#d-0015),
-[B-16](decisions/build-decisions.md#b-16)); 0.5.1 caps the board's defaults below the Artifact
-store's document limit and stops read-only commands from creating a ledger; 0.5.2 tells agents to
-write one block per call when they list calls for the user ([#68](https://github.com/Wet-Ink-Corporation/weigh-in/issues/68), wi-357345);
-0.5.3 publishes each release to `weigh-in-plugin` for claude.ai's organization sync
-([B-19](decisions/build-decisions.md#b-19)); 0.5.4 has the launcher name a copy with no binaries
-([B-18](decisions/build-decisions.md#b-18)). The sitting cost is recorded as a formula
-([D-0016](decisions/build-decisions.md#d-0016)). V4 and V5 are closed, V2 is deferred to slice 2
-([B-17](decisions/build-decisions.md#b-17)), and V6 passed in the desktop Code tab. Phase 4 has
-started: the review since 0.2.2 and drafts of the closing documents are on
-[#26](https://github.com/Wet-Ink-Corporation/weigh-in/issues/26). 1.0.0 waits on the exit
-criteria below. After v1 the next milestone is slice 2
-([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)). The path is in
-[`v1-plan.md`](v1-plan.md). The [status audit of 2026-10-06](audits/2026-10-06-status-audit.md)
-puts v1 at about 63%: the build is about 90% done, and the proof in real use about 36% (wi-21f9d9).
+State at 0.6.0 (2026-10-11). Slice 1 is built: capture, the in-chat sitting, decision records,
+the Cowork route through the computer's shell, and distribution through the `marketplace` branch
+and the organization-synced `weigh-in-plugin`. Phases 0 to 2 of the [v1 plan](v1-plan.md) are
+done and Phase 3 is under way. Since 0.5.4: the reviews on
+[#26](https://github.com/Wet-Ink-Corporation/weigh-in/issues/26) were worked through (#92 to #97);
+cloud sessions keep their pilot evidence in committed journals that `weighin stats` folds in
+([B-21](decisions/build-decisions.md#b-21)); and 0.6.0 shipped the last capture fixes before the
+two weeks of use open, so the pilot measures one capture behaviour (wi-7c3aa0). The sitting cost
+is recorded as a formula ([D-0016](decisions/build-decisions.md#d-0016)). V4 and V5 are closed,
+V2 is deferred to slice 2 ([B-17](decisions/build-decisions.md#b-17)), and V6 passed in the
+desktop Code tab. The [status audit of 2026-10-06](audits/2026-10-06-status-audit.md) put v1 at
+about 63%: the build about 90% done, the proof in real use about 36% (wi-21f9d9).
 
-v1 exit criteria ([v1 plan](v1-plan.md), Phase 3), on 2026-10-07:
+The release path from here ([B-23](decisions/build-decisions.md#b-23)): 0.6.x patches that do not
+change capture while the pilot runs, a 0.9.0 release candidate once the agent-side work and
+Ryan's Cowork, Windows and organization-sync checks are done, then 1.0.0 with no new code once
+the exit criteria below are met. Week 1 of [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23)
+opens on 2026-10-12, so 1.0.0 is due on or after 2026-10-20. After v1 the next milestone is
+slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
+
+v1 exit criteria ([v1 plan](v1-plan.md), Phase 3), on 2026-10-11:
 
 | Criterion | Status |
 |---|---|
-| Action rate at least 60%, not-useful at most 10% | **Pending:** no week of stats on [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23) yet (week 1 is due on or after 2026-10-12); [#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) waits on it |
-| Marker capture precision at least 80% | **Met on draft labels:** 13 of 13 on the seed (72 items, s13 added on 2026-10-08), so the bar is in force (wi-a9df17); **pending** Ryan's label review ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)) |
+| Action rate at least 60%, not-useful at most 10% | **Pending:** week 1 of [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23) opens on 2026-10-12, week 2 on or after 2026-10-19; [#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) waits on it |
+| Marker capture precision at least 80% | **Met on draft labels:** 14 of 14 on the seed (77 items, 22 labelled `capture`), so the bar is in force (wi-a9df17); **pending** Ryan's label review ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)) |
 | No "pending" reported as "done"; one sitting returns "no decisions need you" | **Pending:** measured over the two weeks of use ([#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23)) |
-| Every V-item closed or deferred by a decision | **Pending:** a record that V3 is moot under [wi-6e2a47](decisions/wi-6e2a47.md) (one store per repository); V1 and the Cowork half of V6 ([#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16), [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20)); a marker captured on Windows without Git Bash ([#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)) |
+| Every V-item closed or deferred by a decision | V3 closed as moot ([B-24](decisions/build-decisions.md#b-24)). **Pending:** V1 and the Cowork half of V6 ([#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16), [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20)); a marker captured on Windows without Git Bash ([#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)) |
 | No ledger corruption, no unexplained `hook-errors.log` lines | **Pending:** over the two weeks of use |
 | Each machine installs without Rust; Cowork through the connected checkout | The `marketplace` branch: run on Windows and in Cowork ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)); macOS and Linux unverified. **Pending:** the organization-synced `weigh-in-plugin` route, Ryan's Windows check ([#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76)) |
 | A 0.2.2 ledger opens under the candidate | Fixture tests pass on `main` (B-10); to recheck on the 1.0.0 candidate |
@@ -77,11 +78,14 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 - **The default owner is `ryan`** unless `init --owner` sets it; after v1 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 - **Sitting cost follows session length:** about 3 × the context at the cache-read price plus
   about 5,600 output tokens, recorded as the v1 figure ([D-0016](decisions/build-decisions.md#d-0016), [#24](https://github.com/Wet-Ink-Corporation/weigh-in/issues/24)).
-- **Agents marked few of their own calls before 0.5.2.** On the eval seed (72 items, 20 labelled
-  `capture`), recall is 1 of 7 before 0.5.2's one-block-per-call line and 12 of 13 after it;
-  precision is 13 of 13 ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)). The
+- **Agents marked few of their own calls before 0.5.2.** On the eval seed at 72 items (20 labelled
+  `capture`), recall was 1 of 7 before 0.5.2's one-block-per-call line and 12 of 13 after it.
+  At 77 items (22 labelled `capture`) precision is 14 of 14 and recall 14 of 22 ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)). The
   sessions after 0.5.2 are few and all on this repository, so the sitting's sweep still catches
   what markers miss.
+- **kb-ingest does not read Weigh-In atoms yet.** The atoms pass Redkiln's `validate --kb`;
+  teaching `kb-ingest` the intake keys moved to slice 3 with the move into redkiln-rs
+  ([B-22](decisions/build-decisions.md#b-22), amending [wi-e15c77](decisions/wi-e15c77.md)).
 - **Open from wi-4d8b6a:** which provider the separately held model key is for; slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 
 ## Slice 2
