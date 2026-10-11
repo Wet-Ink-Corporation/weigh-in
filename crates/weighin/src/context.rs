@@ -197,7 +197,7 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
             if needles.iter().any(|n| !n.is_empty() && text.contains(n)) {
                 let head = field_lines(&text);
                 let field = |k: &str| {
-                    head.iter().find_map(|l| {
+                    head.lines().find_map(|l| {
                         l.strip_prefix(k)
                             .map(|v| v.trim().trim_matches('"').to_owned())
                     })
@@ -216,14 +216,23 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
 
 /// The lines an atom's `id:`, `status:` and `title:` are read from: its frontmatter block, between
 /// the opening `---` and the closing one, so a body line such as `status: open` is never taken
-/// for a field. A file that does not open with `---` has no frontmatter and is read whole.
-fn field_lines(text: &str) -> Vec<&str> {
-    let mut lines = text.lines();
-    if lines.next().is_some_and(|l| l.trim_end() == "---") {
-        lines.take_while(|l| l.trim_end() != "---").collect()
-    } else {
-        text.lines().collect()
+/// for a field. A file that does not open with `---` has no frontmatter and is read whole; a
+/// block that is never closed is read to the end of the file.
+fn field_lines(text: &str) -> &str {
+    let Some((first, rest)) = text.split_once('\n') else {
+        return text;
+    };
+    if first.trim_end() != "---" {
+        return text;
     }
+    let mut end = 0;
+    for line in rest.split_inclusive('\n') {
+        if line.trim_end() == "---" {
+            return rest.get(..end).unwrap_or(rest);
+        }
+        end = end.saturating_add(line.len());
+    }
+    rest
 }
 
 /// Build the pack for an item.
