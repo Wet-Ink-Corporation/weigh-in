@@ -33,5 +33,5 @@ disallowed-macros = [
 await-holding-invalid-types = [
   { path = "tracing::span::Entered", reason = "H-14: an entered span guard held across .await corrupts the span tree; use .instrument(span)" },
   { path = "tracing::span::EnteredSpan", reason = "H-14: an entered span guard held across .await corrupts the span tree; use .instrument(span)" },
-  { path = "tokio::sync::watch::Ref", reason = "H-14: a watch::Ref held across .await blocks the sender; copy or clone the value out first" },
+  { path = "tokio::sync::watch::Ref", reason = "H-14: a watch::Ref held across .await blocks the sender; copy or clone the value out first", allow-invalid = true },
 ]
