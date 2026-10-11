@@ -583,3 +583,23 @@ worktree reads and writes the same ledger and there is no sibling ledger to read
 end-to-end test checks it: a linked worktree lists both items raised in the main one, and
 nothing is written into either working tree (`items_seen_from_a_worktree`,
 `crates/weighin/tests/it/support.rs`).
+
+## B-25
+
+**Board export needs an explicit `init`; a broken config stops the CLI but not capture.**
+2026-10-11 · Claude's call in the AFK cloud session, enforcing [wi-7c21e4](wi-7c21e4.md);
+two-way, open to Ryan as weigh-in items · closes status-audit findings G1 and D9.
+
+wi-7c21e4 keeps client repositories' items off claude.ai, but only the skill's wording enforced
+it: `board export` printed a note and exported anyway, a folder never initialised counted as an
+own repository with an Artifact board, and a config that did not parse was silently replaced by
+those same defaults. Now `board export` of a stored ledger refuses unless
+`.kb/_ledger/config.json` exists, parses and chooses the `artifact` board. A folder never
+initialised needs `weighin init --class own` (or `client`) once before its first board; that
+is the cost of the guard, since a client folder cannot be told apart from an own one without
+it. A config that cannot be read or parsed stops every command with the file and the fault.
+Hooks never fail a session, so they carry on with the defaults: capture still writes to the
+default ledger (as before, so the pilot on #23 measures unchanged capture), and every
+SessionStart says the config is broken and that items captured now go to the default ledger,
+not a `store` the config names. Export with no ledger at all keeps its old behaviour, since an
+empty board carries no items.
