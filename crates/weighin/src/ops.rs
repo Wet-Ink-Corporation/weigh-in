@@ -1321,7 +1321,7 @@ fn excludes(pattern: &str, rel: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::env::Config;
+    use crate::env::{Config, ConfigSource};
 
     const ONE_WAY: &str = "Should retention attach per record or per series?";
     const TWO_WAY: &str = "Name the helper apply or run?";
@@ -1337,6 +1337,7 @@ mod tests {
             worktree: None,
             session: Some(session.to_owned()),
             config: Config::default(),
+            config_source: ConfigSource::Absent,
             store_override: Some(dir.join("ledger.sqlite3")),
         }
     }

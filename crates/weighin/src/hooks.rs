@@ -19,7 +19,7 @@
 //! `SessionStart` prints the convention, `Stop` nudges on one-way markers, and `/weigh-in` sweeps
 //! the conversation and records through the computer's shell.
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use serde_json::Value;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
@@ -28,9 +28,9 @@ use weighin_core::event::Channel;
 use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
-use crate::env::{self, Env};
+use crate::env::{self, Config, ConfigSource, Env};
 use crate::ops::{RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
-use crate::text::clip;
+use crate::text::{Report, clip};
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
 /// (possibly nothing). Never fails: output that cannot be written is logged like any other hook
@@ -179,14 +179,20 @@ fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
 }
 
 /// `SessionStart`: the prime for Claude's context and, when hooks have failed since the last
-/// session, a one-line message for the user. A prime that fails is logged and reported with the
-/// rest, and Claude still gets the convention.
+/// session or the config is broken, a one-line message for the user. A prime that fails is
+/// logged and reported with the rest, and Claude still gets the convention. A broken config is
+/// logged here, once a session, rather than by every hook that runs on the defaults.
 fn session_start(env: &Env, source: &str) -> String {
+    let broken = broken_config(env);
     let context = prime(env, source).unwrap_or_else(|e| {
         log_error(env, "SessionStart", &e);
         CONVENTION.to_owned()
     });
-    match new_errors(env) {
+    let message = match (broken, new_errors(env)) {
+        (Some(broken), Some(errors)) => Some(format!("{broken} {errors}")),
+        (broken, errors) => broken.or(errors),
+    };
+    match message {
         // Plain stdout reaches only Claude; `systemMessage` is shown to the user.
         Some(message) => serde_json::json!({
             "systemMessage": message,
@@ -198,6 +204,20 @@ fn session_start(env: &Env, source: &str) -> String {
         .to_string(),
         None => context,
     }
+}
+
+/// When the folder's config cannot be used: logs why, and returns the sentence that leads the
+/// user's message. Hooks never fail a session, so they carry on with the defaults, which drop the
+/// config's settings (a `store` elsewhere among them) until the file is fixed.
+fn broken_config(env: &Env) -> Option<String> {
+    let ConfigSource::Broken(e) = &env.config_source else {
+        return None;
+    };
+    log_error(env, "SessionStart", &anyhow!("{}", Report(e)));
+    Some(format!(
+        "Weigh-In: {} is broken, so hooks run on the defaults and other weighin commands stop until it is fixed.",
+        Config::PATH
+    ))
 }
 
 /// How far `hook-errors.log` had been reported, as a byte offset and the log's first line then,

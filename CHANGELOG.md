@@ -6,6 +6,15 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- `weighin board export` refuses, and writes no state file, unless the folder's
+  `.kb/_ledger/config.json` chose the `artifact` board. A `local` or `off` mode, a folder never
+  initialised and a config that does not parse each stop it with a message saying what to do;
+  before, it only printed a note and a client repository never initialised published as if it
+  were your own (wi-7c21e4).
+- A `.kb/_ledger/config.json` that cannot be read or parsed is an error naming the file and the
+  fault for every command, where before it was silently replaced by the defaults, dropping a
+  `store` that keeps the ledger out of a synced folder. Hooks still never fail a session: they
+  run on the defaults, and `SessionStart` tells you the config is broken and logs it once.
 - A context pack reads a `.kb` atom's `id`, `status` and `title` from its frontmatter only, so a
   body line such as `status: open` is no longer shown as the atom's status.
 

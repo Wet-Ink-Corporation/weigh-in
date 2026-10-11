@@ -10,9 +10,26 @@ pub(crate) fn clip(s: &str, n: usize) -> String {
     }
 }
 
+/// An error and each of its causes on one line, `outer: cause: root`, for an error that is only
+/// borrowed and so cannot become an `anyhow::Error` with its chain.
+pub(crate) struct Report<'a>(pub(crate) &'a (dyn std::error::Error + 'static));
+
+impl std::fmt::Display for Report<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let chain = std::iter::successors(Some(self.0), |&e| e.source());
+        for (depth, cause) in chain.enumerate() {
+            if depth > 0 {
+                f.write_str(": ")?;
+            }
+            write!(f, "{cause}")?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::clip;
+    use super::{Report, clip};
 
     #[test]
     fn short_text_is_kept_and_long_text_ends_in_an_ellipsis() {
@@ -20,5 +37,16 @@ mod tests {
         assert_eq!(clip("abcdef", 4), "abc…");
         assert_eq!(clip("abc", 0), "…");
         assert_eq!(clip("a\nb", 3), "a\nb");
+    }
+
+    #[test]
+    fn a_report_prints_the_whole_chain_on_one_line() {
+        let parse = serde_json::from_str::<u8>("x").expect_err("not a number");
+        let e = anyhow::Error::new(parse).context("cannot parse /c.json");
+
+        assert_eq!(
+            Report(e.as_ref()).to_string(),
+            "cannot parse /c.json: expected value at line 1 column 1"
+        );
     }
 }

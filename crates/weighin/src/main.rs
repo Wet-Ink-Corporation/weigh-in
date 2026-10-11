@@ -25,8 +25,9 @@ use weighin_core::marker::{Door, parse_markers};
 use weighin_core::projection::Health;
 use weighin_core::{Item, Ledger, Status};
 
-use crate::env::{Config, Env};
+use crate::env::{Config, ConfigSource, Env};
 use crate::ops::{DecideOp, DeferOp, Op, RaiseInput, Session, read_ledger};
+use crate::text::Report;
 
 // `help` and `about` attributes, not doc comments, carry text that names environment variables
 // or tools: clap prints them verbatim, so they cannot take rustdoc's backticks.
@@ -405,6 +406,11 @@ fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
         None => std::env::current_dir()?,
     };
     let env = Env::discover(&cwd, g.session).with_store(g.store);
+    // Only hooks run on the defaults when the config is broken: a command would drop its
+    // settings, the ledger's place among them, without a word.
+    if let ConfigSource::Broken(e) = &env.config_source {
+        bail!("loading this folder's config: {}", Report(e));
+    }
     match cmd {
         LedgerCmd::Prime => Ok(write!(out, "{}", hooks::prime(&env, "manual")?)?),
         LedgerCmd::Init(a) => init(env, a, out),
@@ -431,8 +437,8 @@ fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
     }
 }
 
-fn init(env: Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
-    let mut c = Config::load(&env.root());
+fn init(mut env: Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
+    let c = &mut env.config;
     // Only what was given changes: a later `init --ledger` keeps a client repo's local board.
     match (a.class, a.board) {
         (class, Some(board)) => {
@@ -461,8 +467,7 @@ fn init(env: Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
     if let Some(l) = a.ledger {
         c.store = Some(l).filter(|l| !l.trim().is_empty());
     }
-    let p = c.save(&env.root())?;
-    let env = Env { config: c, ..env };
+    let p = env.config.save(&env.root())?;
     writeln!(
         out,
         "wrote {} · class {} · board {} · ledger {}",
@@ -921,9 +926,13 @@ fn trailer(env: &Env, a: &TrailerArgs, out: &mut impl Write) -> Result<()> {
 
 fn board_export(env: &Env, a: ExportArgs, out: &mut impl Write) -> Result<()> {
     // The default state file sits beside the ledger; writing it would create the ledger's
-    // directory where no item was ever raised.
+    // directory where no item was ever raised. Only a stored ledger has items to keep off
+    // claude.ai, so only its export asks whether this folder may publish.
     let ledger = match (ops::stored_ledger(env)?, &a.out) {
-        (Some(ledger), _) => ledger,
+        (Some(ledger), _) => {
+            publishable(env)?;
+            ledger
+        }
         (None, Some(_)) => Ledger::default(),
         (None, None) => {
             writeln!(
@@ -934,13 +943,6 @@ fn board_export(env: &Env, a: ExportArgs, out: &mut impl Write) -> Result<()> {
             return Ok(());
         }
     };
-    if env.config.board.mode != "artifact" {
-        writeln!(
-            io::stderr().lock(),
-            "note: this repo's board mode is `{}`; do not publish its items to claude.ai",
-            env.config.board.mode
-        )?;
-    }
     let state = board::export(
         &ledger,
         board_scope(env),
@@ -972,6 +974,30 @@ fn board_export(env: &Env, a: ExportArgs, out: &mut impl Write) -> Result<()> {
             String::new()
         }
     )?;
+    Ok(())
+}
+
+/// Whether this folder's items may go to the claude.ai board: only when its config chose the
+/// `artifact` board (decision wi-7c21e4). A folder never initialised may be a client's, so the
+/// defaults do not count as a choice.
+fn publishable(env: &Env) -> Result<()> {
+    match &env.config_source {
+        ConfigSource::File => {}
+        ConfigSource::Absent => bail!(
+            "no {} here, so no board mode was chosen: run `weighin init --class own`, or \
+             `weighin init --class client` for a client's repository (its board stays local), \
+             before exporting the board",
+            Config::PATH
+        ),
+        ConfigSource::Broken(e) => bail!("not exporting the board: {}", Report(e)),
+    }
+    let mode = &env.config.board.mode;
+    if mode != "artifact" {
+        bail!(
+            "this repo's board mode is `{mode}`: its items are not published to claude.ai, so \
+             there is no board to export (`weighin init --board artifact` changes the mode)"
+        );
+    }
     Ok(())
 }
 
@@ -1200,7 +1226,7 @@ fn write_line(out: &mut impl Write, i: &Item) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{BatchArgs, Stdout, batch, clip, digest_json, is_closed_stdout, percent};
-    use crate::env::{Config, Env};
+    use crate::env::{Config, ConfigSource, Env};
     use crate::ops::read_ledger;
     use anyhow::Context as _;
     use std::io::{self, Write as _};
@@ -1375,6 +1401,7 @@ mod tests {
             worktree: None,
             session: Some("s1".into()),
             config: Config::default(),
+            config_source: ConfigSource::Absent,
             store_override: Some(dir.path().join("ledger.sqlite3")),
         };
         let file = dir.path().join("batch.json");

@@ -146,6 +146,9 @@ weighin hook                             hook entry point (reads the hook JSON o
 - An authority-sounding item (compliance, isolation, retention, security, migration, …) is
   dismissed as "already decided" only against an accepted `kb-…` atom or the user's own words.
 - An agent's two-way "judgment" marker with authority words stays open instead of defaulting.
+- `board export` writes a board only where `.kb/_ledger/config.json` chose the `artifact` board:
+  it refuses a `local` or `off` mode, a folder never initialised (run `weighin init --class own`
+  or `--class client` first) and a config that does not parse (wi-7c21e4).
 
 ## Measured in this build
 
