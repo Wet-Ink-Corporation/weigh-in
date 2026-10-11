@@ -199,13 +199,15 @@ fn hooks_carry_on_with_a_broken_config_and_session_start_says_so()
 #[cfg_attr(miri, ignore = "spawns the weighin binary")]
 fn session_start_keeps_the_fault_of_a_broken_config_under_a_long_path()
 -> Result<(), Box<dyn std::error::Error>> {
-    // A synced folder (OneDrive, Dropbox) can sit hundreds of characters deep.
+    // A synced folder (OneDrive, Dropbox) can sit hundreds of characters deep. The config path
+    // here is over 200 characters, past the message's clip, while the folder stays under
+    // Windows' 260-character limit on a process's working directory.
     let tmp = tempfile::tempdir()?;
     let folder = tmp
         .path()
-        .join("a".repeat(80))
-        .join("b".repeat(80))
-        .join("c".repeat(80));
+        .join("a".repeat(60))
+        .join("b".repeat(60))
+        .join("c".repeat(60));
     break_config(&folder)?;
     let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": folder, "source": "startup"});
 
@@ -215,7 +217,7 @@ fn session_start_keeps_the_fault_of_a_broken_config_under_a_long_path()
         .as_str()
         .ok_or("SessionStart has a message for the user")?;
     assert!(
-        message.contains("invalid type") && !message.contains(&"a".repeat(80)),
+        message.contains("invalid type") && !message.contains(&"a".repeat(60)),
         "{message}"
     );
     Ok(())
