@@ -499,6 +499,20 @@ mod tests {
     }
 
     #[test]
+    fn a_file_without_frontmatter_is_read_whole() {
+        let text = "id: kb-a\nstatus: accepted\nBody.\n";
+
+        assert_eq!(field_lines(text), text);
+    }
+
+    #[test]
+    fn an_unclosed_frontmatter_block_is_read_to_the_end() {
+        let text = "---\nid: kb-a\nstatus: accepted\nBody.\n";
+
+        assert_eq!(field_lines(text), "id: kb-a\nstatus: accepted\nBody.\n");
+    }
+
+    #[test]
     fn an_anchor_past_any_line_gives_an_empty_excerpt() {
         let out = excerpt("a\nb\n", usize::MAX);
 
