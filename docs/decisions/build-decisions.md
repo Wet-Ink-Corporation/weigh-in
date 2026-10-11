@@ -182,6 +182,26 @@ session's context at the cache-read price, plus about 5,600 output tokens**, whi
 on Sonnet 5.5 after a short session (40k context) and about $0.47 after a long one. The design's
 $0.28 and the $0.35 target are dropped.
 
+## D-0017
+
+**After 1.0, a Claude Code mod's local board pane decides grounded cards, and replaces
+`serve --wait` for client repositories in Claude Code.** 2026-10-11 · provenance: Ryan, answering
+the two calls in [#112](https://github.com/Wet-Ink-Corporation/weigh-in/issues/112) yes, each as
+recommended · amends [wi-7c21e4](wi-7c21e4.md)'s local route · nothing changes before 1.0.0
+([D-0013](#d-0013), [B-23](#b-23)).
+
+1. **Decisions outside a sitting.** The pane ([#115](https://github.com/Wet-Ink-Corporation/weigh-in/issues/115))
+   may decide, defer, dismiss and reopen cards a sitting has already grounded, so the five
+   filters have run on them. Items no sitting has grounded stay read-only there, to be settled
+   in a sitting. Pane decisions carry their own surface, so `weighin stats` keeps them apart
+   from chat and board decisions.
+2. **The local board for client repositories.** In Claude Code (terminal and the desktop Code
+   tab) the pane is the local board that wi-7c21e4's `local` mode called for: it runs on the
+   machine and never publishes. `serve --wait` is kept only for the VS Code chat panel, where
+   mods do not draw, and only if that surface is used with client repositories. Since
+   [B-25](#b-25), `board export` refuses outside an `artifact` board, so the pane needs a
+   local-only export path that never publishes.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.
