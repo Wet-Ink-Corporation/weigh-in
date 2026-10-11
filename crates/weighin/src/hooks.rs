@@ -214,10 +214,14 @@ fn broken_config(env: &Env) -> Option<String> {
     let ConfigSource::Broken(e) = &env.config_source else {
         return None;
     };
+    // The fault only: the sentence names the file already, and a deep folder's absolute path
+    // would push the fault past the clip.
+    let fault = std::error::Error::source(e)
+        .map_or_else(|| e.to_string(), |cause| Report(cause).to_string());
     Some(format!(
         "Weigh-In: {} is broken ({}). Until it is fixed, hooks run on the defaults, so items captured now go to the default ledger, not a `store` the config names, and other weighin commands stop.",
         Config::PATH,
-        clip(&Report(e).to_string(), 200)
+        clip(&fault, 200)
     ))
 }
 

@@ -993,6 +993,7 @@ fn publishable(env: &Env) -> Result<()> {
              before exporting the board",
             Config::PATH
         ),
+        // `run` normally rejects a broken config before any command; this keeps export safe alone.
         ConfigSource::Broken(e) => bail!("not exporting the board: {}", Report(e)),
     }
     let mode = &env.config.board.mode;
