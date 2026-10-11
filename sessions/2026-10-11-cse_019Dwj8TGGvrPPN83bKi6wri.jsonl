@@ -95,3 +95,6 @@
 {"t":"2026-10-11T14:21:44.846Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-green","fp":"1ccecf7d0221d556","ms":352,"cached":true}
 {"t":"2026-10-11T14:21:49.648Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"gate-start"}
 {"t":"2026-10-11T14:21:50.020Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-green","fp":"1ccecf7d0221d556","ms":371,"cached":true}
+{"t":"2026-10-11T14:22:21.461Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"ask","file":"AGENTS.md","count":1}
+{"t":"2026-10-11T14:41:09.408Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"gate-start"}
+{"t":"2026-10-11T14:41:47.078Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-blocked","reason":"no-review","fp":"9a6a35ef30de89e5","ms":37661,"cached":false}
