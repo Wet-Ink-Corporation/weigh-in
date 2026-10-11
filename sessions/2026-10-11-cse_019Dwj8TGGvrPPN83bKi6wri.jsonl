@@ -112,3 +112,6 @@
 {"t":"2026-10-11T15:15:13.929Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-declared","status":"WIP"}
 {"t":"2026-10-11T15:30:38.125Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"gate-start"}
 {"t":"2026-10-11T15:31:04.133Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-blocked","reason":"no-review","fp":"a3bf698c09c5a9dc","ms":25998,"cached":false}
+{"t":"2026-10-11T15:31:11.106Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"temper:rust-reviewer","event":"subagent-start","type":"temper:rust-reviewer"}
+{"t":"2026-10-11T15:31:12.573Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"gate-start"}
+{"t":"2026-10-11T15:31:12.915Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-blocked","reason":"no-review","fp":"a3bf698c09c5a9dc","ms":341,"cached":true}
