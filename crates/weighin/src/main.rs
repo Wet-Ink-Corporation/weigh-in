@@ -409,7 +409,11 @@ fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
     // Only hooks run on the defaults when the config is broken: a command would drop its
     // settings, the ledger's place among them, without a word.
     if let ConfigSource::Broken(e) = &env.config_source {
-        bail!("loading this folder's config: {}", Report(e));
+        bail!(
+            "loading this folder's config: {} (fix the file by hand: `weighin init` will not \
+             overwrite it)",
+            Report(e)
+        );
     }
     match cmd {
         LedgerCmd::Prime => Ok(write!(out, "{}", hooks::prime(&env, "manual")?)?),

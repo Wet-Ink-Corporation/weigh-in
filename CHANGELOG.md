@@ -14,7 +14,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - A `.kb/_ledger/config.json` that cannot be read or parsed is an error naming the file and the
   fault for every command, where before it was silently replaced by the defaults, dropping a
   `store` that keeps the ledger out of a synced folder. Hooks still never fail a session: they
-  run on the defaults, and `SessionStart` tells you the config is broken and logs it once.
+  run on the defaults, capturing into the default ledger, and every `SessionStart` tells you the
+  config is broken and where captured items go until it is fixed.
 - A context pack reads a `.kb` atom's `id`, `status` and `title` from its frontmatter only, so a
   body line such as `status: open` is no longer shown as the atom's status.
 

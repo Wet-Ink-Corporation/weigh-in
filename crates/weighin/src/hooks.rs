@@ -19,7 +19,7 @@
 //! `SessionStart` prints the convention, `Stop` nudges on one-way markers, and `/weigh-in` sweeps
 //! the conversation and records through the computer's shell.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use serde_json::Value;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
@@ -181,7 +181,7 @@ fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
 /// `SessionStart`: the prime for Claude's context and, when hooks have failed since the last
 /// session or the config is broken, a one-line message for the user. A prime that fails is
 /// logged and reported with the rest, and Claude still gets the convention. A broken config is
-/// logged here, once a session, rather than by every hook that runs on the defaults.
+/// reported here, once a session, and never logged.
 fn session_start(env: &Env, source: &str) -> String {
     let broken = broken_config(env);
     let context = prime(env, source).unwrap_or_else(|e| {
@@ -206,17 +206,18 @@ fn session_start(env: &Env, source: &str) -> String {
     }
 }
 
-/// When the folder's config cannot be used: logs why, and returns the sentence that leads the
-/// user's message. Hooks never fail a session, so they carry on with the defaults, which drop the
-/// config's settings (a `store` elsewhere among them) until the file is fixed.
+/// When the folder's config cannot be used, the sentence that leads the user's message. It is
+/// not logged: `new_errors` would read it straight back as a hook failure, and every other
+/// command reports it itself. Hooks never fail a session, so they carry on with the defaults,
+/// which drop the config's settings (a `store` elsewhere among them) until the file is fixed.
 fn broken_config(env: &Env) -> Option<String> {
     let ConfigSource::Broken(e) = &env.config_source else {
         return None;
     };
-    log_error(env, "SessionStart", &anyhow!("{}", Report(e)));
     Some(format!(
-        "Weigh-In: {} is broken, so hooks run on the defaults and other weighin commands stop until it is fixed.",
-        Config::PATH
+        "Weigh-In: {} is broken ({}). Until it is fixed, hooks run on the defaults, so items captured now go to the default ledger, not a `store` the config names, and other weighin commands stop.",
+        Config::PATH,
+        clip(&Report(e).to_string(), 200)
     ))
 }
 

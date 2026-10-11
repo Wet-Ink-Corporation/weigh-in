@@ -121,9 +121,13 @@ fn a_broken_config_stops_a_command_and_names_the_file() -> Result<(), Box<dyn st
     assert!(
         out.starts_with("weighin: ")
             && out.contains(&format!("cannot parse {}", repo.join(CONFIG).display()))
-            && out.contains("invalid type"),
+            && out.contains("invalid type")
+            && out.contains("fix the file by hand"),
         "{out}"
     );
+    let (ok, out) = weighin(&repo, "s1", &["init", "--class", "own"], None);
+    assert!(!ok && out.contains("will not overwrite"), "{out}");
+    assert_eq!(std::fs::read_to_string(repo.join(CONFIG))?, BROKEN);
     Ok(())
 }
 
@@ -142,8 +146,12 @@ fn hooks_carry_on_with_a_broken_config_and_session_start_says_so()
     let message = started["systemMessage"]
         .as_str()
         .ok_or("SessionStart has a message for the user")?;
+    assert_eq!(message.matches("is broken").count(), 1, "{message}");
     assert!(
-        message.contains(CONFIG) && message.contains("defaults"),
+        message.contains(CONFIG)
+            && message.contains("invalid type")
+            && message.contains("default ledger")
+            && !message.contains("hook error(s)"),
         "{message}"
     );
     assert!(!message.contains('\n'), "one line: {message}");
@@ -163,11 +171,16 @@ fn hooks_carry_on_with_a_broken_config_and_session_start_says_so()
                 .exists(),
         "Stop captured into the default ledger, not the broken config's store"
     );
-    let log = std::fs::read_to_string(repo.join(".git/weighin/hook-errors.log"))?;
-    assert_eq!(
-        log.lines().filter(|l| l.contains("config.json")).count(),
-        1,
-        "logged once: {log}"
+    let log =
+        std::fs::read_to_string(repo.join(".git/weighin/hook-errors.log")).or_else(|e| match e
+            .kind()
+        {
+            std::io::ErrorKind::NotFound => Ok(String::new()),
+            _ => Err(e),
+        })?;
+    assert!(
+        !log.contains("config.json"),
+        "the broken config is reported, not logged: {log}"
     );
     Ok(())
 }
