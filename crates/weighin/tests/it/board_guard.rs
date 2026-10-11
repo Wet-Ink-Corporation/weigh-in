@@ -114,13 +114,23 @@ fn export_writes_the_board_when_the_mode_is_artifact() {
 fn a_broken_config_stops_a_command_and_names_the_file() -> Result<(), Box<dyn std::error::Error>> {
     let (_tmp, repo) = setup();
     break_config(&repo)?;
-
     let (ok, out) = weighin(&repo, "s1", &["open"], None);
 
     assert!(!ok, "{out}");
+    // The CLI names the file under git's top level, which may spell it differently (macOS temp
+    // dirs resolve /var to /private/var; Windows git writes forward slashes), so compare files.
+    let named = out
+        .split_once("cannot parse ")
+        .and_then(|(_, rest)| rest.split_once(": invalid type"))
+        .map(|(path, _)| std::fs::canonicalize(path))
+        .transpose()?;
+    assert_eq!(
+        named,
+        Some(std::fs::canonicalize(repo.join(CONFIG))?),
+        "{out}"
+    );
     assert!(
         out.starts_with("weighin: ")
-            && out.contains(&format!("cannot parse {}", repo.join(CONFIG).display()))
             && out.contains("invalid type")
             && out.contains("fix the file by hand"),
         "{out}"
