@@ -4,6 +4,12 @@ One section per release, newest first. The release workflow publishes the sectio
 tagged version as the release notes and fails when it is missing, so add it in the commit that
 bumps the version. Keep an `Unreleased` section at the top while work lands on `main`.
 
+## Unreleased
+
+- A decision atom's summary no longer doubles its punctuation when the chosen option's premise
+  or its if-wrong text ends with a full stop (`small., … conflict..` now reads
+  `small, … conflict.`). Atoms already written keep their text (wi-56bd73).
+
 ## 0.6.1 — 2026-10-11
 
 The client-repo board guard and test gaps from the 2026-10-06 status audit. Capture (markers,

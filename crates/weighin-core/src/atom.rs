@@ -158,11 +158,11 @@ pub fn y_statement(item: &Item) -> String {
     if let Some(o) = chosen {
         if !o.holds_if.is_empty() {
             s.push_str(", on the premise that ");
-            s.push_str(&o.holds_if);
+            s.push_str(o.holds_if.trim_end_matches('.'));
         }
         if !o.if_wrong.is_empty() {
             s.push_str(", accepting that if wrong: ");
-            s.push_str(&o.if_wrong);
+            s.push_str(o.if_wrong.trim_end_matches('.'));
         }
     }
     s.push('.');
@@ -603,7 +603,7 @@ title: "Committed files: with a colon"
 kind: decision
 status: accepted
 authority_tier: decision
-summary: "In the context of \"Where should the ledger live?\", facing it fixes the merge story, we decided for Committed files: with a colon and neglected Common-dir store, on the premise that files stay small., accepting that if wrong: merges conflict.."
+summary: "In the context of \"Where should the ledger live?\", facing it fixes the merge story, we decided for Committed files: with a colon and neglected Common-dir store, on the premise that files stay small, accepting that if wrong: merges conflict."
 depends_on: ["kb-decision-z"]
 related: ["kb-open-question-x"]
 source_paths: ["docs/plan.md", "https://example.test/pr/1"]
@@ -1086,7 +1086,7 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
         );
         assert_eq!(
             y_statement(&rich_decided_item()),
-            r#"In the context of "Where should the ledger live?", facing it fixes the merge story, we decided for Committed files: with a colon and neglected Common-dir store, on the premise that files stay small., accepting that if wrong: merges conflict.."#
+            r#"In the context of "Where should the ledger live?", facing it fixes the merge story, we decided for Committed files: with a colon and neglected Common-dir store, on the premise that files stay small, accepting that if wrong: merges conflict."#
         );
     }
 
