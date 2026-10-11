@@ -4,6 +4,11 @@ One section per release, newest first. The release workflow publishes the sectio
 tagged version as the release notes and fails when it is missing, so add it in the commit that
 bumps the version. Keep an `Unreleased` section at the top while work lands on `main`.
 
+## Unreleased
+
+- A context pack reads a `.kb` atom's `id`, `status` and `title` from its frontmatter only, so a
+  body line such as `status: open` is no longer shown as the atom's status.
+
 ## 0.6.0 — 2026-10-10
 
 Released before the two weeks of daily use (#23) open, so the pilot measures one capture

@@ -195,8 +195,9 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
                 continue;
             };
             if needles.iter().any(|n| !n.is_empty() && text.contains(n)) {
+                let head = field_lines(&text);
                 let field = |k: &str| {
-                    text.lines().find_map(|l| {
+                    head.lines().find_map(|l| {
                         l.strip_prefix(k)
                             .map(|v| v.trim().trim_matches('"').to_owned())
                     })
@@ -211,6 +212,27 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
     hits.sort();
     hits.truncate(4);
     hits
+}
+
+/// The lines an atom's `id:`, `status:` and `title:` are read from: its frontmatter block, between
+/// the opening `---` and the closing one, so a body line such as `status: open` is never taken
+/// for a field. A file that does not open with `---` has no frontmatter and is read whole; a
+/// block that is never closed is read to the end of the file.
+fn field_lines(text: &str) -> &str {
+    let Some((first, rest)) = text.split_once('\n') else {
+        return text;
+    };
+    if first.trim_end() != "---" {
+        return text;
+    }
+    let mut end = 0;
+    for line in rest.split_inclusive('\n') {
+        if line.trim_end() == "---" {
+            return rest.get(..end).unwrap_or(rest);
+        }
+        end = end.saturating_add(line.len());
+    }
+    rest
 }
 
 /// Build the pack for an item.
@@ -454,6 +476,40 @@ mod tests {
 
         assert_eq!(hits, ["kb-a [accepted] Ledger home"]);
         Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "makes directories on the file system")]
+    fn atom_fields_are_read_from_the_frontmatter_not_the_body() -> std::io::Result<()> {
+        let root = tempfile::tempdir()?;
+        let kb = root.path().join(".kb/decisions");
+        std::fs::create_dir_all(&kb)?;
+        // No `status:` in the frontmatter; the body has lines that look like fields.
+        std::fs::write(
+            kb.join("retention.md"),
+            "---\nid: \"kb-retention\"\ntitle: \"Retention per series\"\nkind: decision\n---\n\n\
+             # Retention per series\n\nstatus: something\ntitle: Not the title\n\
+             Anchor: `src/retention.rs:6`.\n",
+        )?;
+
+        let hits = matching_atoms(root.path(), &["src/retention.rs"]);
+
+        assert_eq!(hits, ["kb-retention [] Retention per series"]);
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_without_frontmatter_is_read_whole() {
+        let text = "id: kb-a\nstatus: accepted\nBody.\n";
+
+        assert_eq!(field_lines(text), text);
+    }
+
+    #[test]
+    fn an_unclosed_frontmatter_block_is_read_to_the_end() {
+        let text = "---\nid: kb-a\nstatus: accepted\nBody.\n";
+
+        assert_eq!(field_lines(text), "id: kb-a\nstatus: accepted\nBody.\n");
     }
 
     #[test]

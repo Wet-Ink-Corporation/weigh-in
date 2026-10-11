@@ -860,6 +860,49 @@ const READ_ONLY_BY_ID: &[&[&str]] = &[
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn the_cowork_sweep_raises_every_block_into_the_folder_ledger() {
+    // Cowork's sweep pipes a conversation to `raise --markers` with `--dir` on a connected
+    // folder, which is not a git repository (D-0002).
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("Rulings");
+    std::fs::create_dir_all(&folder).unwrap();
+    let dir = folder.to_str().unwrap();
+
+    let (ok, out) = weighin(
+        tmp.path(),
+        "s1",
+        &["--dir", dir, "raise", "--markers"],
+        Some(MESSAGE),
+    );
+
+    assert!(ok, "{out}");
+    assert_eq!(
+        out.lines().filter(|l| l.starts_with("raised ")).count(),
+        2,
+        "{out}"
+    );
+    assert!(folder.join(".weighin/ledger.sqlite3").exists(), "{out}");
+    assert!(
+        !tmp.path().join(".weighin").exists(),
+        "the ledger follows --dir, not the process's cwd"
+    );
+    let (ok, open) = weighin(
+        tmp.path(),
+        "s1",
+        &["--dir", dir, "open", "--all", "--json"],
+        None,
+    );
+    assert!(ok, "{open}");
+    let items: Vec<Value> = serde_json::from_str(&open).unwrap();
+    let channels: Vec<&str> = items
+        .iter()
+        .map(|i| i["channel"].as_str().unwrap())
+        .collect();
+    assert_eq!(channels, ["sweep", "sweep"], "{open}");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn raise_with_no_blocks_leaves_no_ledger_behind() -> Result<(), Box<dyn std::error::Error>> {
     // Cowork's sweep pipes a conversation to `raise --markers`; with no blocks in it, a folder
     // that refuses deletes must not be left an empty ledger (B-01).
@@ -911,6 +954,36 @@ fn a_board_apply_with_no_answers_leaves_no_ledger_behind() {
 
     assert_eq!((ok, out.as_str()), (true, "applied: none\n"));
     assert!(!created, "board apply created .weighin/");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_context_pack_lists_a_decided_atom_on_the_same_file() {
+    let (_tmp, repo) = setup();
+    let raise = |q: &str, at: &str| {
+        let (ok, out) = weighin(&repo, "s1", &["raise", "--q", q, "--at", at], None);
+        assert!(ok, "{out}");
+        out.split_whitespace().nth(1).unwrap().to_owned()
+    };
+    let decided = raise("Keep overrides per series?", "src/retention.rs:6");
+    let (ok, out) = weighin(&repo, "s1", &["decide", &decided, "yes"], None);
+    assert!(ok, "{out}");
+    // Promoted out of `_intake`, which context packs skip, as an accepted atom would be.
+    let intake = repo.join(".kb/_intake/decisions");
+    let atom = std::fs::read_dir(&intake).unwrap().next().unwrap().unwrap();
+    std::fs::create_dir_all(repo.join(".kb/decisions")).unwrap();
+    std::fs::rename(
+        atom.path(),
+        repo.join(".kb/decisions").join(atom.file_name()),
+    )
+    .unwrap();
+    let open = raise("Cap overrides per tenant?", "src/retention.rs:13");
+
+    let (ok, ctx) = weighin(&repo, "s1", &["context", &open], None);
+
+    assert!(ok, "{ctx}");
+    let listed = format!(".kb: kb-decision-{decided} [accepted] Keep overrides per series: yes");
+    assert!(ctx.lines().any(|l| l == listed), "{ctx}");
 }
 
 #[test]

@@ -908,7 +908,14 @@ fn trailer(env: &Env, a: &TrailerArgs, out: &mut impl Write) -> Result<()> {
         .decision
         .as_ref()
         .ok_or_else(|| anyhow!("{} is not decided", item.id))?;
-    writeln!(out, "Weigh-In: {} decided {}", item.id, d.option)?;
+    writeln!(
+        out,
+        "{}",
+        ops::Trailer {
+            id: &item.id,
+            option: &d.option
+        }
+    )?;
     Ok(())
 }
 
