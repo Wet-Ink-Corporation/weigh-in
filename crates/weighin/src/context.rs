@@ -195,8 +195,9 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
                 continue;
             };
             if needles.iter().any(|n| !n.is_empty() && text.contains(n)) {
+                let head = field_lines(&text);
                 let field = |k: &str| {
-                    text.lines().find_map(|l| {
+                    head.iter().find_map(|l| {
                         l.strip_prefix(k)
                             .map(|v| v.trim().trim_matches('"').to_owned())
                     })
@@ -211,6 +212,18 @@ fn matching_atoms(root: &Path, needles: &[&str]) -> Vec<String> {
     hits.sort();
     hits.truncate(4);
     hits
+}
+
+/// The lines an atom's `id:`, `status:` and `title:` are read from: its frontmatter block, between
+/// the opening `---` and the closing one, so a body line such as `status: open` is never taken
+/// for a field. A file that does not open with `---` has no frontmatter and is read whole.
+fn field_lines(text: &str) -> Vec<&str> {
+    let mut lines = text.lines();
+    if lines.next().is_some_and(|l| l.trim_end() == "---") {
+        lines.take_while(|l| l.trim_end() != "---").collect()
+    } else {
+        text.lines().collect()
+    }
 }
 
 /// Build the pack for an item.
@@ -453,6 +466,26 @@ mod tests {
         let hits = matching_atoms(root.path(), &["ledger lives"]);
 
         assert_eq!(hits, ["kb-a [accepted] Ledger home"]);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "makes directories on the file system")]
+    fn atom_fields_are_read_from_the_frontmatter_not_the_body() -> std::io::Result<()> {
+        let root = tempfile::tempdir()?;
+        let kb = root.path().join(".kb/decisions");
+        std::fs::create_dir_all(&kb)?;
+        // No `status:` in the frontmatter; the body has lines that look like fields.
+        std::fs::write(
+            kb.join("retention.md"),
+            "---\nid: \"kb-retention\"\ntitle: \"Retention per series\"\nkind: decision\n---\n\n\
+             # Retention per series\n\nstatus: something\ntitle: Not the title\n\
+             Anchor: `src/retention.rs:6`.\n",
+        )?;
+
+        let hits = matching_atoms(root.path(), &["src/retention.rs"]);
+
+        assert_eq!(hits, ["kb-retention [] Retention per series"]);
         Ok(())
     }
 

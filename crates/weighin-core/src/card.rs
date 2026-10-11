@@ -263,6 +263,47 @@ mod tests {
     }
 
     #[test]
+    fn a_repeated_option_id_is_rejected() {
+        let mut c = card();
+        c.options.push(opt("A"));
+
+        assert_eq!(c.validate(), Err(CardError::DuplicateOption("A".into())));
+    }
+
+    #[test]
+    fn more_than_four_options_are_rejected() {
+        let mut c = card();
+        c.options.extend(["C", "D"].map(opt));
+        assert_eq!(c.validate(), Ok(()), "four options are allowed");
+
+        c.options.push(opt("E"));
+
+        assert_eq!(c.validate(), Err(CardError::OptionCount(5)));
+    }
+
+    #[test]
+    fn a_failed_evasion_check_withholds_a_stable_recommendation() {
+        let mut c = card();
+        c.recommendation.stability = Some(Stability {
+            agree: 4,
+            of: 4,
+            ..Default::default()
+        });
+        c.evasion = Some(EvasionCheck {
+            passed: true,
+            flags: Vec::new(),
+        });
+        assert!(c.recommendation_earned());
+
+        c.evasion = Some(EvasionCheck {
+            passed: false,
+            flags: vec!["moves the question to a later sprint".into()],
+        });
+
+        assert!(!c.recommendation_earned());
+    }
+
+    #[test]
     fn earned_needs_three_of_four() {
         let mut c = card();
         c.recommendation.stability = Some(Stability {

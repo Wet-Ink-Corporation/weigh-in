@@ -768,7 +768,7 @@ impl<'a> Session<'a> {
             }
             None => {}
         }
-        write!(receipt, " · trailer `Weigh-In: {id} decided {option}`")?;
+        write!(receipt, " · trailer `{}`", Trailer { id, option })?;
         Ok(receipt)
     }
 
@@ -1271,6 +1271,21 @@ pub(crate) fn parse_ops(text: &str) -> Result<Vec<Result<Op, BadOp>>> {
             serde_json::from_value(o).map_err(|error| BadOp { raise, error })
         })
         .collect())
+}
+
+/// The git trailer that records a decision, `Weigh-In: <id> decided <option>`. The decide receipt
+/// and `weighin trailer` both print it through this type, so the two cannot drift apart.
+pub(crate) struct Trailer<'a> {
+    /// The decided item.
+    pub(crate) id: &'a ItemId,
+    /// The option it was decided for.
+    pub(crate) option: &'a str,
+}
+
+impl std::fmt::Display for Trailer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Weigh-In: {} decided {}", self.id, self.option)
+    }
 }
 
 /// Whether a path should be scanned, per config.
