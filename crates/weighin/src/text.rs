@@ -4,10 +4,13 @@
 #[must_use]
 pub(crate) fn clip(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
-        s.to_owned()
-    } else {
-        s.chars().take(n.saturating_sub(1)).chain(['…']).collect()
+        return s.to_owned();
     }
+    // With no room at all, not even the ellipsis fits.
+    let Some(keep) = n.checked_sub(1) else {
+        return String::new();
+    };
+    s.chars().take(keep).chain(['…']).collect()
 }
 
 /// An error and each of its causes on one line, `outer: cause: root`, for an error that is only
@@ -35,7 +38,9 @@ mod tests {
     fn short_text_is_kept_and_long_text_ends_in_an_ellipsis() {
         assert_eq!(clip("abc", 3), "abc");
         assert_eq!(clip("abcdef", 4), "abc…");
-        assert_eq!(clip("abc", 0), "…");
+        assert_eq!(clip("abc", 0), "");
+        assert_eq!(clip("abc", 1), "…");
+        assert_eq!(clip("", 0), "");
         assert_eq!(clip("a\nb", 3), "a\nb");
     }
 

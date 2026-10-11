@@ -30,7 +30,7 @@ jobs:
       # (wi-218cc3). Pushes to main and the release's call run it in full.
       SKIP_LINUX_DUPLICATE: ${{ matrix.os == 'ubuntu-latest' && github.event_name == 'pull_request' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.SKIP_LINUX_DUPLICATE != 'true'
       - name: toolchain (pinned by rust-toolchain.toml)
         if: env.SKIP_LINUX_DUPLICATE != 'true'
@@ -40,7 +40,7 @@ jobs:
       # Clippy and rustdoc lints are checked once, by rust.yml's `Lint (temper)` step on Linux,
       # against the committed baseline (.claude/temper-baseline.json): only new findings fail.
       # A `-D warnings` run here would fail on the recorded legacy findings.
-      - run: cargo test --workspace
+      - run: cargo test --locked --workspace
         if: env.SKIP_LINUX_DUPLICATE != 'true'
       - run: cargo doc --workspace --no-deps
         if: env.SKIP_LINUX_DUPLICATE != 'true'
@@ -52,7 +52,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: toolchain (pinned by rust-toolchain.toml)
         run: rustup toolchain install
       - name: stamp, versions and changelog
@@ -66,7 +66,7 @@ jobs:
           echo "VERSION=$v" >> "$GITHUB_ENV"
       - name: package
         run: |
-          cargo build -p weighin
+          cargo build --locked -p weighin
           mkdir -p plugin/libexec/x86_64-unknown-linux-gnu
           cp target/debug/weighin plugin/libexec/x86_64-unknown-linux-gnu/
           sh plugin/libexec/weighin --version
@@ -110,5 +110,5 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
