@@ -8,7 +8,7 @@ cd "$root"
 build() {
   target=$1; shift
   rustup target add "$target" >/dev/null
-  env "$@" cargo build --release --target "$target" -p weighin
+  env "$@" cargo build --locked --release --target "$target" -p weighin
   mkdir -p "plugin/libexec/$target"
   for f in weighin weighin.exe; do
     [ -f "target/$target/release/$f" ] && cp "target/$target/release/$f" "plugin/libexec/$target/"

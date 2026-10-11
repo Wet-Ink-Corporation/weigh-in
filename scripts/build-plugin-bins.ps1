@@ -3,7 +3,7 @@
 # copies a stale exe.
 $ErrorActionPreference = "Stop"
 $target = "x86_64-pc-windows-msvc"
-cargo build --release -p weighin
+cargo build --locked --release -p weighin
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
 New-Item -ItemType Directory -Force -Path "plugin/libexec/$target" | Out-Null
 Copy-Item "target/release/weighin.exe" "plugin/libexec/$target/weighin.exe" -Force

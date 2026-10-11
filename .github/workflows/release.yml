@@ -17,7 +17,7 @@ jobs:
   versions:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: versions agree with the tag, which is on main and has a changelog entry
@@ -43,17 +43,17 @@ jobs:
           - { os: macos-latest, target: aarch64-apple-darwin, bin: weighin }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: toolchain (pinned by rust-toolchain.toml)
         run: rustup target add ${{ matrix.target }}
       - name: musl tools
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: build
-        run: cargo build --release --target ${{ matrix.target }} -p weighin
+        run: cargo build --locked --release --target ${{ matrix.target }} -p weighin
         env:
           CC_x86_64_unknown_linux_musl: musl-gcc
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.bin }}
@@ -62,8 +62,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           # The build artifacts only (each named for its target): a rerun of this job also sees
           # the release-assets artifact of the attempt that failed (#43).
@@ -88,7 +88,7 @@ jobs:
           cp plugin/libexec/aarch64-apple-darwin/weighin assets/weighin-aarch64-apple-darwin
           cp "dist/weigh-in-plugin-$v.zip" assets/
           (cd assets && sha256sum * > SHA256SUMS && cat SHA256SUMS)
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-assets
           path: assets/
