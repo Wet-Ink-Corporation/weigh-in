@@ -28,9 +28,9 @@ use weighin_core::event::Channel;
 use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
-use crate::env::{self, Env};
+use crate::env::{self, Config, ConfigSource, Env};
 use crate::ops::{RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
-use crate::text::clip;
+use crate::text::{Report, clip};
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
 /// (possibly nothing). Never fails: output that cannot be written is logged like any other hook
@@ -179,14 +179,20 @@ fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
 }
 
 /// `SessionStart`: the prime for Claude's context and, when hooks have failed since the last
-/// session, a one-line message for the user. A prime that fails is logged and reported with the
-/// rest, and Claude still gets the convention.
+/// session or the config is broken, a one-line message for the user. A prime that fails is
+/// logged and reported with the rest, and Claude still gets the convention. A broken config is
+/// reported here, once a session, and never logged.
 fn session_start(env: &Env, source: &str) -> String {
+    let broken = broken_config(env);
     let context = prime(env, source).unwrap_or_else(|e| {
         log_error(env, "SessionStart", &e);
         CONVENTION.to_owned()
     });
-    match new_errors(env) {
+    let message = match (broken, new_errors(env)) {
+        (Some(broken), Some(errors)) => Some(format!("{broken} {errors}")),
+        (broken, errors) => broken.or(errors),
+    };
+    match message {
         // Plain stdout reaches only Claude; `systemMessage` is shown to the user.
         Some(message) => serde_json::json!({
             "systemMessage": message,
@@ -198,6 +204,25 @@ fn session_start(env: &Env, source: &str) -> String {
         .to_string(),
         None => context,
     }
+}
+
+/// When the folder's config cannot be used, the sentence that leads the user's message. It is
+/// not logged: `new_errors` would read it straight back as a hook failure, and every other
+/// command reports it itself. Hooks never fail a session, so they carry on with the defaults,
+/// which drop the config's settings (a `store` elsewhere among them) until the file is fixed.
+fn broken_config(env: &Env) -> Option<String> {
+    let ConfigSource::Broken(e) = &env.config_source else {
+        return None;
+    };
+    // The fault only: the sentence names the file already, and a deep folder's absolute path
+    // would push the fault past the clip.
+    let fault = std::error::Error::source(e)
+        .map_or_else(|| e.to_string(), |cause| Report(cause).to_string());
+    Some(format!(
+        "Weigh-In: {} is broken ({}). Until it is fixed, hooks run on the defaults, so items captured now go to the default ledger, not a `store` the config names, and other weighin commands stop.",
+        Config::PATH,
+        clip(&fault, 200)
+    ))
 }
 
 /// How far `hook-errors.log` had been reported, as a byte offset and the log's first line then,

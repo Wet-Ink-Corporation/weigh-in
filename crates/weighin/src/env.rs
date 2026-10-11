@@ -103,12 +103,20 @@ impl Default for Config {
 impl Config {
     pub(crate) const PATH: &'static str = ".kb/_ledger/config.json";
 
-    #[must_use]
-    pub(crate) fn load(root: &Path) -> Self {
-        std::fs::read_to_string(root.join(Self::PATH))
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+    /// The config under `root`, or `None` when the folder has none.
+    ///
+    /// # Errors
+    /// Fails when the file is there but cannot be read, or does not parse as a config.
+    pub(crate) fn load(root: &Path) -> Result<Option<Self>, ConfigError> {
+        let path = root.join(Self::PATH);
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(source) => return Err(ConfigError::Read { path, source }),
+        };
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|source| ConfigError::Parse { path, source })
     }
 
     /// # Errors
@@ -123,7 +131,52 @@ impl Config {
     }
 }
 
-#[derive(Debug, Clone)]
+/// Why a folder's `.kb/_ledger/config.json` cannot be used.
+#[derive(Debug)]
+pub(crate) enum ConfigError {
+    /// The file is there but cannot be read (permissions, a directory in its place).
+    Read {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    /// The file was read but is not a config (a JSON typo, a value of the wrong type).
+    Parse {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read { path, .. } => write!(f, "cannot read {}", path.display()),
+            Self::Parse { path, .. } => write!(f, "cannot parse {}", path.display()),
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read { source, .. } => Some(source),
+            Self::Parse { source, .. } => Some(source),
+        }
+    }
+}
+
+/// Where [`Env::config`] came from. Only `board export` treats a missing file differently from
+/// the defaults (decision wi-7c21e4: the board mode must have been chosen).
+#[derive(Debug)]
+pub(crate) enum ConfigSource {
+    /// No config file: the defaults.
+    Absent,
+    /// The folder's config file.
+    File,
+    /// A config file that cannot be used; the defaults stand in for it, which only hooks accept.
+    Broken(ConfigError),
+}
+
+#[derive(Debug)]
 pub(crate) struct Env {
     pub(crate) cwd: PathBuf,
     pub(crate) repo_root: Option<PathBuf>,
@@ -133,6 +186,7 @@ pub(crate) struct Env {
     pub(crate) worktree: Option<String>,
     pub(crate) session: Option<String>,
     pub(crate) config: Config,
+    pub(crate) config_source: ConfigSource,
     /// `--store`, which wins over everything else.
     pub(crate) store_override: Option<PathBuf>,
 }
@@ -242,7 +296,11 @@ impl Env {
             .or_else(|| var("CLAUDE_SESSION_ID"))
             .or_else(|| var("CLAUDE_CODE_SESSION_ID"));
         let root = repo_root.clone().unwrap_or_else(|| cwd.to_path_buf());
-        let config = Config::load(&root);
+        let (config, config_source) = match Config::load(&root) {
+            Ok(Some(config)) => (config, ConfigSource::File),
+            Ok(None) => (Config::default(), ConfigSource::Absent),
+            Err(e) => (Config::default(), ConfigSource::Broken(e)),
+        };
         Self {
             cwd: cwd.to_path_buf(),
             repo_root,
@@ -252,6 +310,7 @@ impl Env {
             worktree,
             session,
             config,
+            config_source,
             store_override: None,
         }
     }
@@ -543,6 +602,90 @@ mod tests {
         );
         assert_eq!(env.relative_anchor("src/a.rs:7"), "src/a.rs:7");
         assert_eq!(env.relative_anchor("docs/plan.md"), "docs/plan.md");
+    }
+
+    fn write_config(root: &Path, text: &str) {
+        let p = root.join(Config::PATH);
+        std::fs::create_dir_all(p.parent().expect("the config path has a parent"))
+            .expect("config dir");
+        std::fs::write(p, text).expect("config written");
+    }
+
+    #[test]
+    fn a_folder_with_no_config_loads_none() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+
+        let loaded = Config::load(tmp.path())?;
+
+        assert!(loaded.is_none(), "{loaded:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn a_config_that_parses_loads_its_values() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        write_config(
+            tmp.path(),
+            r#"{"repo_class":"client","board":{"mode":"local"},"store":"~/l.sqlite3"}"#,
+        );
+
+        let c = Config::load(tmp.path())?.ok_or("the file is there")?;
+
+        assert_eq!(
+            (
+                c.repo_class.as_str(),
+                c.board.mode.as_str(),
+                c.store.as_deref()
+            ),
+            ("client", "local", Some("~/l.sqlite3"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_config_that_does_not_parse_is_a_parse_error_naming_the_file() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        write_config(tmp.path(), r#"{"board":"local","store":"../l.sqlite3"}"#);
+
+        let e = Config::load(tmp.path()).expect_err("a string is not a board");
+
+        assert!(
+            matches!(&e, ConfigError::Parse { path, .. } if *path == tmp.path().join(Config::PATH)),
+            "{e:?}"
+        );
+        assert!(e.to_string().contains("config.json"), "{e}");
+    }
+
+    #[test]
+    fn a_config_that_cannot_be_read_is_a_read_error_naming_the_file() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        std::fs::create_dir_all(tmp.path().join(Config::PATH)).expect("a directory in its place");
+
+        let e = Config::load(tmp.path()).expect_err("a directory is not a file");
+
+        assert!(
+            matches!(&e, ConfigError::Read { path, .. } if *path == tmp.path().join(Config::PATH)),
+            "{e:?}"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "spawns git")]
+    fn discovery_keeps_the_defaults_and_the_error_for_a_broken_config() {
+        let (_tmp, repo, _) = fixture();
+        write_config(&repo, "{ not json");
+
+        let env = Env::discover(&repo, None);
+
+        assert_eq!(env.config.board.mode, "artifact");
+        assert!(
+            matches!(
+                env.config_source,
+                ConfigSource::Broken(ConfigError::Parse { .. })
+            ),
+            "{:?}",
+            env.config_source
+        );
     }
 
     #[test]
