@@ -25,7 +25,7 @@ v1 exit criteria ([v1 plan](v1-plan.md), Phase 3), on 2026-10-11:
 | Criterion | Status |
 |---|---|
 | Action rate at least 60%, not-useful at most 10% | **Pending:** week 1 of [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23) opens on 2026-10-12, week 2 on or after 2026-10-19; [#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) waits on it |
-| Marker capture precision at least 80% | **Met on draft labels:** 14 of 14 on the seed (77 items, 22 labelled `capture`), so the bar is in force (wi-a9df17); **pending** Ryan's label review ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)) |
+| Marker capture precision at least 80% | **Met:** 14 of 14 on the seed (83 items, 24 labelled `capture`), so the bar is in force (wi-a9df17); every label reviewed by Ryan on 2026-10-11 ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)) |
 | No "pending" reported as "done"; one sitting returns "no decisions need you" | **Pending:** measured over the two weeks of use ([#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23)) |
 | Every V-item closed or deferred by a decision | V3 closed as moot ([B-24](decisions/build-decisions.md#b-24)). **Pending:** V1 and the Cowork half of V6 ([#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16), [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20)); a marker captured on Windows without Git Bash ([#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)) |
 | No ledger corruption, no unexplained `hook-errors.log` lines | **Pending:** over the two weeks of use |
@@ -80,7 +80,7 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
   about 5,600 output tokens, recorded as the v1 figure ([D-0016](decisions/build-decisions.md#d-0016), [#24](https://github.com/Wet-Ink-Corporation/weigh-in/issues/24)).
 - **Agents marked few of their own calls before 0.5.2.** On the eval seed at 72 items (20 labelled
   `capture`), recall was 1 of 7 before 0.5.2's one-block-per-call line and 12 of 13 after it.
-  At 77 items (22 labelled `capture`) precision is 14 of 14 and recall 14 of 22 ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)). The
+  At 83 items (24 labelled `capture`, all reviewed by Ryan) precision is 14 of 14 and recall 14 of 24 ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)). The
   sessions after 0.5.2 are few and all on this repository, so the sitting's sweep still catches
   what markers miss.
 - **kb-ingest does not read Weigh-In atoms yet.** The atoms pass Redkiln's `validate --kb`;
