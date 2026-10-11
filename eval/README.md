@@ -133,3 +133,8 @@ One JSON object per line:
   hand-off carries two blocks and is captured as a logged default. Its text says `s13`, because it
   was written before #102 took that number. The seed is 77 items, 22 labelled `capture`, 14
   captured (precision 100%, recall 64%).
+
+  Reviewed 2026-10-11: Ryan checked every label in the seed, then 83 items (24 labelled
+  `capture`, 59 `skip`), and agreed with all of them, `expect.status` included, so each is now
+  `by: ryan` (#22). On the reviewed labels precision is 100% (14 of 14 captured) and recall 58%
+  (14 of 24). Items added after this are `by: claude-draft` again until he reviews them.
