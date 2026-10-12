@@ -137,3 +137,5 @@
 {"t":"2026-10-12T19:33:55.713Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-declared","status":"WIP"}
 {"t":"2026-10-12T19:34:01.600Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"gate-start"}
 {"t":"2026-10-12T19:34:01.980Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-blocked","reason":"no-review","fp":"8af7632722bd4332","ms":379,"cached":true}
+{"t":"2026-10-12T19:34:07.598Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"gate-start"}
+{"t":"2026-10-12T19:34:08.008Z","sid":"ed0ca560-5ce5-5ac9-bb2b-9577c222272c","ccr":"cse_019Dwj8TGGvrPPN83bKi6wri","agent":"main","event":"stop-blocked","reason":"no-review","fp":"8af7632722bd4332","ms":409,"cached":true}
