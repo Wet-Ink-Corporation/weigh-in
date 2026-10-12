@@ -138,3 +138,9 @@ One JSON object per line:
   `capture`, 59 `skip`), and agreed with all of them, `expect.status` included, so each is now
   `by: ryan` (#22). On the reviewed labels precision is 100% (14 of 14 captured) and recall 58%
   (14 of 24). Items added after this are `by: claude-draft` again until he reviews them.
+
+  Added 2026-10-12: seven end-of-turn messages from s17, the session that walked Ryan through his
+  v1 checks, saved by the session itself (`rs17-01` to `rs17-07`). One carries a block (a deferral
+  of the Cowork check the agent acted on) and is captured as a logged default; six are true
+  negatives (check instructions and results). The seed is 90 items, 25 labelled `capture`, 15
+  captured (precision 100%, recall 60%).
