@@ -20,16 +20,17 @@ the exit criteria below are met. Week 1 of [#23](https://github.com/Wet-Ink-Corp
 opens on 2026-10-12, so 1.0.0 is due on or after 2026-10-20. After v1 the next milestone is
 slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 
-**Where to pick up.** 0.6.1 (2026-10-11) shipped the client-repo board guard and the audit's test
-gaps; after it, `main` holds the Y-statement punctuation fix, `clip(s, 0)`, the `clippy.toml`
-warning fix and locked, SHA-pinned release builds (wi-56bd73, wi-a01b14, wi-727fbf, wi-32f76d),
-all under `## Unreleased`. The agent-side work for 0.9.0 is done and no ledger item is open. Next:
-Ryan's checks on [#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16) and
-[#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20) (Cowork),
-[#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21) (Windows without Git Bash) and
-[#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76) (org sync); once they pass, a
-0.9.0 bump PR (versions, `## Unreleased` renamed). Cloud sessions cannot push tags, so Ryan pushes
-each `v<version>` tag after its bump merges.
+**Where to pick up.** 0.6.2 (2026-10-13) is merged and waits on Ryan's `v0.6.2` tag. It fixes the
+two bugs Ryan's checks found: Projects tasks get tappable decision cards and the ledger follows the
+work ([#126](https://github.com/Wet-Ink-Corporation/weigh-in/issues/126), D-0018), and on the Windows
+desktop app SessionStart copies the binary into the git dir so `/weigh-in` can record
+([#127](https://github.com/Wet-Ink-Corporation/weigh-in/issues/127), B-26). No ledger item is open.
+Next: Ryan pushes the tag, then re-runs the checks on #126 and #127 (`afk/ryan-checks.md`) along with
+[#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16),
+[#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20) (Cowork) and
+[#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21) (Windows without Git Bash); once
+they pass, a 0.9.0 bump PR (versions, `## Unreleased` renamed). Cloud sessions cannot push tags, so
+Ryan pushes each `v<version>` tag after its bump merges.
 
 v1 exit criteria ([v1 plan](v1-plan.md), Phase 3), on 2026-10-11:
 
