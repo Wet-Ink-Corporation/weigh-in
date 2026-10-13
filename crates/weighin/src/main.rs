@@ -12,6 +12,7 @@ mod git;
 mod hooks;
 mod journal;
 mod ops;
+mod shell_bin;
 mod store;
 mod text;
 

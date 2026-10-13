@@ -30,6 +30,7 @@ use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Config, ConfigSource, Env};
 use crate::ops::{RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
+use crate::shell_bin;
 use crate::text::{Report, clip};
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
@@ -184,10 +185,15 @@ fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
 /// reported here, once a session, and never logged.
 fn session_start(env: &Env, source: &str) -> String {
     let broken = broken_config(env);
-    let context = prime(env, source).unwrap_or_else(|e| {
+    let mut context = prime(env, source).unwrap_or_else(|e| {
         log_error(env, "SessionStart", &e);
         CONVENTION.to_owned()
     });
+    if let Some(copy) = shell_copy(env) {
+        context.push_str("Weigh-In binary for the shell: ");
+        context.push_str(&copy.display().to_string());
+        context.push('\n');
+    }
     let message = match (broken, new_errors(env)) {
         (Some(broken), Some(errors)) => Some(format!("{broken} {errors}")),
         (broken, errors) => broken.or(errors),
@@ -203,6 +209,33 @@ fn session_start(env: &Env, source: &str) -> String {
         })
         .to_string(),
         None => context,
+    }
+}
+
+/// On Windows inside a git repository, a copy of this binary in the repository's git dir, where
+/// the skill's shell can reach it when it cannot see the plugin folder (#127, `shell_bin`). Nowhere
+/// else: other platforms reach the plugin folder, and outside git the state dir would be a
+/// `.weighin/` created in the user's folder. A failed copy is logged, and `SessionStart` goes on.
+fn shell_copy(env: &Env) -> Option<PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+    // The repository's git dir, not the state dir, which follows a configured `store` to a folder
+    // the shell may not see.
+    let dir = env.common_dir.as_deref()?.join("weighin");
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            log_error(env, "SessionStart", &anyhow::Error::from(e));
+            return None;
+        }
+    };
+    match shell_bin::place(&exe, &dir, env!("CARGO_PKG_VERSION")) {
+        Ok(copy) => Some(copy),
+        Err(unplaced) => {
+            log_error(env, "SessionStart", &unplaced.error);
+            unplaced.existing
+        }
     }
 }
 
