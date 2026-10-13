@@ -144,3 +144,8 @@ One JSON object per line:
   of the Cowork check the agent acted on) and is captured as a logged default; six are true
   negatives (check instructions and results). The seed is 90 items, 25 labelled `capture`, 15
   captured (precision 100%, recall 60%).
+
+  Added 2026-10-13: ten more end-of-turn messages from s17 (`rs17-08` to `rs17-17`): the 10-12
+  wrap-up and the guided Cowork and Windows checks that found #126 and #127. All are true
+  negatives. The seed is 100 items, 25 labelled `capture`, 15 captured (precision 100%, recall
+  60%).
