@@ -6,6 +6,12 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 0.6.2 — 2026-10-13
+
+Fixes for what Ryan's checks of 0.6.1 found in the sitting: Claude Projects tasks (#126) and the
+Windows desktop app (#127). Capture (markers, the TODO scan, the Stop and PostToolUse hooks) is
+unchanged, so the #23 pilot still measures 0.6.0's capture behaviour (B-23).
+
 - In a Claude Projects task, `/weigh-in` asks each card with the task's tappable decision card
   instead of printing the cards as text, and records each answer as it arrives. A one-way card
   says nothing is recorded until you pick, and an unanswered card is never recorded (#126).
