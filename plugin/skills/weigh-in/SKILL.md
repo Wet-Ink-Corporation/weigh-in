@@ -3,12 +3,12 @@ name: weigh-in
 description: Settle the open questions, assumptions and deferred calls this session or repo raised. Shows at most four decision cards, records answers in the Weigh-In ledger and writes .kb decision atoms.
 argument-hint: "[init own|client | repo | digest | board | sweep <path> | stats | decide <id>: <option> | defer <id> — …]"
 disable-model-invocation: true
-allowed-tools: Bash(sh:*), Bash(git:*), Read, Grep, Glob, AskUserQuestion
+allowed-tools: Bash(sh:*), Bash(git:*), Read, Grep, Glob, AskUserQuestion, mcp__hearthbot__ask_decision
 ---
 
 # Weigh-In sitting
 
-Ledger (injected). If this shows a command or a placeholder instead of output: with the device shell (`mcp__remote-devices__device_bash`) you are in Cowork, go to **Cowork** below; otherwise run it with Bash first.
+Ledger (injected). If this shows a command or a placeholder instead of output: with the device shell (`mcp__remote-devices__device_bash`) you are in Cowork, go to **Cowork** below; otherwise run it with Bash first. In a Claude Projects task (`mcp__hearthbot__` tools listed) whose work was in a connected folder on the user's computer (`$HOME/mnt/<name>` through the device shell), the ledger follows the work: go to **Cowork**, and carry over this session's items shown here as swept items, since this workspace and its ledger end with the task.
 
 !`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session "${CLAUDE_SESSION_ID}" --dir "${CLAUDE_PROJECT_DIR}" open --with-context --top 8`
 
@@ -16,7 +16,7 @@ Ledger (injected). If this shows a command or a placeholder instead of output: w
 
 Arguments `$ARGUMENTS`: `init own` or `init client` → run `W init --class <own|client>`, report the line it prints, stop · empty → this session · `repo` → run `W open --repo --with-context --top 12` and sit over those · `digest` → Digest · `board` → Board · `sweep <path>` → `W scan <path>`, then sit · `stats` → print `W stats`, stop · `decide <id>: <option> (note: …)` or `defer <id> — trigger: …; resolve by: …; default: <X>` (copied from the board) → run `W decide <id> <option>` (with `--note "<note>"` when it has one) or `W defer <id> --flip "<trigger>" --trigger "<trigger>" --by "<resolve by>" --default <X>` (with `--reason "<note>"` when it has one), report the line it prints, then sit as for empty.
 
-Budget: three requests. (1) one `W batch`, (2) one AskUserQuestion, (3) one `W batch`. Do not read whole files for a card; the packs above are the evidence. `W context <id>` only for an item without one.
+Budget: three requests. (1) one `W batch`, (2) one AskUserQuestion, (3) one `W batch`. If a `W` call fails, go to **Without the binary**: never report a raise, dismiss, default, decision or deferral that the CLI did not print as written. Do not read whole files for a card; the packs above are the evidence. `W context <id>` only for an item without one.
 
 ## 1. Sweep (no tool call)
 List what this conversation assumed, deferred, decided without the user, or could not decide that has no `weigh-in` block yet. Classify conversation decisions:
@@ -50,7 +50,8 @@ Card: `{"why":"one sentence","timing":"one sentence","evidence":[{"src":"path:li
 - Put the recommendation first with ` (Recommended)` only if the door is not one-way and it passed the evasion check. For one-way doors: no pre-selection; end the question with "(one-way: options first)".
 - Offer `Defer to <trigger> (default <X> by <date>)` only when step 2.4 said defer.
 - `preview` (terminal, ≤25 lines): anchors as `path:line`, a ≤10-line excerpt, blast radius, "A unless <flip>", the trade-off, why this might be wrong.
-- No AskUserQuestion (headless or unattended run): print the cards as short text and stop. Never decide for the user.
+- Projects task (`mcp__hearthbot__ask_decision` listed, no AskUserQuestion): one `ask_decision` per card, at most four, in the order above. `question` (≤300 bytes): `<id> <full question>`. Options 2–4, each `label` `<option id>: <title>` (≤40 bytes) and `consequence` `holds if …; if wrong: …` (≤200 bytes); a defer option is labelled `Defer` with the trigger, resolve-by and default as its consequence. `recommended`: the recommendation's index; `reason`: the trade-off. `context` (≤1200 bytes): anchors as `path:line`, blast radius, "A unless <flip>", why this might be wrong; for a one-way door it opens with "One-way: nothing is recorded until you pick." Then end the turn in one line saying the cards are up. Each answer arrives as its own turn naming the label, or as a typed reply: run step 5 for that card alone. The recommendation is not an answer: never record a card nobody answered.
+- Neither tool (headless or unattended run): print the cards as short text and stop. Never decide for the user.
 
 ## 5. Batch 2: one Bash call, then close
 Map answers to ops: an option → `{"op":"decide","id":"…","option":"A","note":"<user's notes>"}`; a defer option → `defer`; "Other" text naming an option → `decide` with the text as note; a bare "defer" → `{"op":"defer","id":"…","unqualified":true,"trigger":"next sitting","resolve_by":"<a week out>","default":"<recommended option>","reason":"deferred without a named fact"}`; "not mine" → `dismiss` `not-my-call:<who>`. A timed-out answer stays open; never decide it.
@@ -67,7 +68,7 @@ Close in two lines: what was decided and where the atoms are (`.kb/_intake/decis
 Mode `local` or `off` (client repos): never publish; use in-chat cards.
 
 ## Cowork
-This workspace is a scratch folder deleted with the session; the user's files, and the ledger, are on their computer behind the device shell. Hooks record nothing here, so step 1's sweep is the only capture. Never run `W` with Bash here.
+This workspace is a scratch folder deleted with the session; the user's files, and the ledger, are on their computer behind the device shell. Hooks record nothing here, so step 1's sweep is the only capture. (In a Projects task hooks do record, but into the cloud workspace's ledger, which is why its items are carried over.) Never run `W` with Bash here.
 1. One device shell call. It downloads this release's Linux binary into the computer's per-chat scratch space (outside every connected folder), checks it against the pinned SHA-256, and falls back to a copy in a connected folder:
 `ls "$HOME/mnt"; V=dev; S=none; B="$HOME/.weighin/$V/weighin"; if [ ! -x "$B" ] && [ "$S" != none ]; then mkdir -p "${B%/*}" && curl -fsSL --max-time 90 -o "$B.part" "https://github.com/Wet-Ink-Corporation/weigh-in/releases/download/v$V/weighin-x86_64-unknown-linux-musl" && echo "$S  $B.part" | sha256sum -c --quiet - && chmod +x "$B.part" && mv "$B.part" "$B" || echo "download failed or did not match the pinned SHA-256"; fi; [ -x "$B" ] || B=$(ls "$HOME"/mnt/*/plugin/libexec/x86_64-unknown-linux-musl/weighin "$HOME"/mnt/*/libexec/x86_64-unknown-linux-musl/weighin 2>/dev/null | head -1); if [ -n "$B" ]; then echo "B=$B"; "$B" --version; else echo "B= (no Weigh-In binary)"; fi`
 `F` is the connected folder this conversation worked in, `$HOME/mnt/<name>`. This call is the one request Cowork adds to the budget. No `B`: go to **Without the binary**, and say once what the call printed.
@@ -77,4 +78,4 @@ This workspace is a scratch folder deleted with the session; the user's files, a
 The ledger defaults to `F/.weighin/` under a TRUNCATE journal (connected folders refuse deletes). Only if `F` is synced (OneDrive, Dropbox) and used from more than one computer, suggest `W init --class <class> --board <mode> --ledger <path outside the synced tree>`, keeping the folder's class and board mode from `F/.kb/_ledger/config.json`. When it has none or you are unsure, use `client` and `local` (deliberately cautious: a folder with no config counts as `own` with an `artifact` board for every command, though `W board export` refuses until `init` has chosen a mode). `init` changes only what its flags name: without `--class` and `--board` it keeps both, `--class` alone also sets the board to that class's default (`local` for client, `artifact` for own), and it keeps the owner, the board url and, without `--ledger`, the ledger path.
 
 ## Without the binary
-If `W` cannot run, do steps 1, 2 and 4 in chat. Record each decision on the board if one exists (answers then state); otherwise give one Y-statement per decision, and with the device shell offer to add them to the folder's decision log.
+If `W` cannot run, nothing reaches the ledger. Say so once, with the command and the error it printed, and keep every item open: describe a filter's result as what you would record ("would dismiss as recoverable"), never as done. Then do steps 1, 2 and 4 in chat. Record each decision on the board if one exists (answers then state); otherwise give one Y-statement per decision, and with the device shell offer to add them to the folder's decision log.

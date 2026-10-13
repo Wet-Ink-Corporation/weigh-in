@@ -6,6 +6,15 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- In a Claude Projects task, `/weigh-in` asks each card with the task's tappable decision card
+  instead of printing the cards as text, and records each answer as it arrives. A one-way card
+  says nothing is recorded until you pick, and an unanswered card is never recorded (#126).
+- In a Projects task that worked in a connected folder on your computer, the sitting records in
+  that folder's ledger through the computer's shell, as Cowork does, and carries over the items
+  the task's hooks captured in the cloud workspace (D-0018, #126).
+- When the `weighin` binary can't run, the sitting says nothing was recorded, shows the command
+  and its error, and keeps every item open. Before, it could report items as dismissed or
+  decided in chat although nothing reached the ledger (#127).
 - A decision atom's summary no longer doubles its punctuation when the chosen option's premise
   or its if-wrong text ends with a full stop (`small., … conflict..` now reads
   `small, … conflict.`). Atoms already written keep their text (wi-56bd73).
