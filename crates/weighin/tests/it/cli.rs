@@ -318,6 +318,82 @@ fn session_start_in_a_plain_folder_leaves_no_store_behind() {
     );
 }
 
+/// #127: in the Windows desktop app the skill's shell cannot see the plugin folder, so
+/// `SessionStart` copies the binary into the repository's git dir and names the copy, which runs.
+#[test]
+#[cfg(windows)]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn session_start_on_windows_names_a_copy_the_shell_can_run() {
+    let (_tmp, repo) = setup();
+
+    let out = hook(
+        &repo,
+        &json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"}),
+    );
+
+    let copy = out
+        .lines()
+        .find_map(|l| l.strip_prefix("Weigh-In binary for the shell: "))
+        .unwrap_or_else(|| panic!("no copy named in: {out}"));
+    let version = Command::new(copy).arg("--version").output().unwrap();
+    assert!(version.status.success(), "{copy} did not run");
+    assert!(
+        String::from_utf8_lossy(&version.stdout).contains(env!("CARGO_PKG_VERSION")),
+        "{copy}"
+    );
+}
+
+/// The copy stays in the repository's git dir even when the config keeps the ledger elsewhere,
+/// a folder the shell may not see (#127).
+#[test]
+#[cfg(windows)]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn session_start_on_windows_copies_into_the_git_dir_whatever_the_store() {
+    let (_tmp, repo) = setup();
+    std::fs::create_dir_all(repo.join(".kb/_ledger")).unwrap();
+    std::fs::write(
+        repo.join(".kb/_ledger/config.json"),
+        r#"{"store":"../elsewhere/ledger.sqlite3"}"#,
+    )
+    .unwrap();
+
+    let out = hook(
+        &repo,
+        &json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"}),
+    );
+
+    let copy = out
+        .lines()
+        .find_map(|l| l.strip_prefix("Weigh-In binary for the shell: "))
+        .unwrap_or_else(|| panic!("no copy named in: {out}"));
+    let git_dir = repo.join(".git").canonicalize().unwrap();
+    assert!(
+        std::path::Path::new(copy)
+            .canonicalize()
+            .unwrap()
+            .starts_with(&git_dir),
+        "{copy} is outside {}",
+        git_dir.display()
+    );
+    assert!(!repo.parent().unwrap().join("elsewhere/bin").exists());
+}
+
+/// Off Windows the plugin folder is reachable, so `SessionStart` copies nothing (#127).
+#[test]
+#[cfg(not(windows))]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn session_start_off_windows_copies_no_binary() {
+    let (_tmp, repo) = setup();
+
+    let out = hook(
+        &repo,
+        &json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"}),
+    );
+
+    assert!(!out.contains("Weigh-In binary for the shell"), "{out}");
+    assert!(!repo.join(".git/weighin/bin").exists());
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_write_outside_the_repository_is_not_scanned() {

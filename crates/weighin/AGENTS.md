@@ -16,7 +16,7 @@ binary. The composition root holds the store, git, context packs, environment di
 - Never: a second writer of the ledger, or a git library. Git goes through the command line (`git.rs`).
 
 ## Public surface
-None. This is a binary crate; its modules are private (`annotate`, `context`, `env`, `git`, `hooks`, `journal`, `ops`, `store`, `text`).
+None. This is a binary crate; its modules are private (`annotate`, `context`, `env`, `git`, `hooks`, `journal`, `ops`, `shell_bin`, `store`, `text`).
 
 ## Invariants
 - **One write path.** Every change to the ledger goes through `ops::Session`.

@@ -12,6 +12,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - In a Projects task that worked in a connected folder on your computer, the sitting records in
   that folder's ledger through the computer's shell, as Cowork does, and carries over the items
   the task's hooks captured in the cloud workspace (D-0018, #126).
+- On Windows, inside a git repository, `SessionStart` copies the `weighin` binary into the
+  repository's git dir (`.git/weighin/bin/<version>/`) and names it in the session's context.
+  The skill uses that copy when its shell can't run the plugin's own binary. This was the case in the Windows
+  desktop app, where every sitting recorded nothing (B-26, #127).
 - When the `weighin` binary can't run, the sitting says nothing was recorded, shows the command
   and its error, and keeps every item open. Before, it could report items as dismissed or
   decided in chat although nothing reached the ledger (#127).

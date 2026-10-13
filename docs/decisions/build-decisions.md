@@ -640,3 +640,27 @@ default ledger (as before, so the pilot on #23 measures unchanged capture), and 
 SessionStart says the config is broken and that items captured now go to the default ledger,
 not a `store` the config names. Export with no ledger at all keeps its old behaviour, since an
 empty board carries no items.
+
+## B-26
+
+**On Windows, SessionStart copies the binary into the repository's git dir for the skill's shell.**
+2026-10-13 · Claude's call in the AFK cloud session, two-way · from
+[#127](https://github.com/Wet-Ink-Corporation/weigh-in/issues/127) · amends the skill's `W`
+for Windows.
+
+In the Windows desktop app, Ryan's check on 2026-10-13 found the hooks start
+`libexec/weighin.exe` from the plugin folder, but the shell the skill runs `W` in cannot see
+that folder (Glob can), so every sitting recorded nothing. The cause is not documented; the
+Claude Code docs say native Windows runs commands unsandboxed. Whatever the cause, the shell
+does see the repository it works in. So on Windows, inside a git repository, `SessionStart`
+copies the running binary to `<git common dir>/weighin/bin/<version>/weighin.exe`, and adds
+`Weigh-In binary for the shell: <path>` to the session's context. The skill's `W` falls back to
+that path, run directly with no `sh`. The copy goes to the git dir even when the config keeps the
+ledger elsewhere, since that folder may be one the shell cannot see. It is written to a `.part`
+name and renamed into place, and copies of older versions are left where they are (B-01: nothing
+is deleted). When the copy fails but one of this version is already there (a rename fails while
+another session runs it), that one is named and the failure logged. A copy is replaced only when
+its length differs: copies are kept per version, and two builds of one version have the same
+length only in development. The path printed is always the running version's, so an older copy
+is never run against the ledger (B-05). Outside git, and on other platforms, nothing is copied.
+Capture is unchanged.

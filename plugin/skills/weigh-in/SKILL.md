@@ -12,7 +12,7 @@ Ledger (injected). If this shows a command or a placeholder instead of output: w
 
 !`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session "${CLAUDE_SESSION_ID}" --dir "${CLAUDE_PROJECT_DIR}" open --with-context --top 8`
 
-`W` below means `sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session "${CLAUDE_SESSION_ID}" --dir "${CLAUDE_PROJECT_DIR}"`. Run it from anywhere; never `cd` into the plugin.
+`W` below means `sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session "${CLAUDE_SESSION_ID}" --dir "${CLAUDE_PROJECT_DIR}"`. Run it from anywhere; never `cd` into the plugin. On Windows, if that fails (no `sh`, or the shell cannot see the plugin folder): `W` is the path after `Weigh-In binary for the shell:` in this session's SessionStart context, quoted, with the same `--session` and `--dir`; in PowerShell prefix it with `& `. Neither works: go to **Without the binary**.
 
 Arguments `$ARGUMENTS`: `init own` or `init client` → run `W init --class <own|client>`, report the line it prints, stop · empty → this session · `repo` → run `W open --repo --with-context --top 12` and sit over those · `digest` → Digest · `board` → Board · `sweep <path>` → `W scan <path>`, then sit · `stats` → print `W stats`, stop · `decide <id>: <option> (note: …)` or `defer <id> — trigger: …; resolve by: …; default: <X>` (copied from the board) → run `W decide <id> <option>` (with `--note "<note>"` when it has one) or `W defer <id> --flip "<trigger>" --trigger "<trigger>" --by "<resolve by>" --default <X>` (with `--reason "<note>"` when it has one), report the line it prints, then sit as for empty.
 
