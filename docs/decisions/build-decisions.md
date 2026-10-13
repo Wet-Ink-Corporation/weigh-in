@@ -202,6 +202,23 @@ recommended · amends [wi-7c21e4](wi-7c21e4.md)'s local route · nothing changes
    [B-25](#b-25), `board export` refuses outside an `artifact` board, so the pane needs a
    local-only export path that never publishes.
 
+## D-0018
+
+**In a Claude Projects task, the ledger follows the work.** 2026-10-13 · provenance: Ryan, on a
+decision card, choosing "follow the work" over "always cloud" and "always folder" · applies
+[D-0002](#d-0002) to Projects tasks · from [#126](https://github.com/Wet-Ink-Corporation/weigh-in/issues/126).
+
+Projects thread sessions run in a cloud workspace (`CLAUDE_CODE_ENTRYPOINT=remote_projects`,
+not Cowork's `remote_cowork`), where the hooks run and capture into a ledger that ends with the
+task; when a computer is linked, its connected folders are reached through the device shell, as
+in Cowork. Ryan's check on 2026-10-13 found a Projects task working in a connected Windows folder
+still recorded its sitting in the cloud ledger, so the decisions never reached the folder.
+Now, when the task's work was in a connected folder, the sitting takes the Cowork route against
+that folder, and this session's items from the cloud ledger are raised again there as swept
+items. When the work was in a cloud checkout, the cloud ledger stays, and the journal is
+committed as for any cloud session ([B-21](#b-21)). In the same change, Projects tasks ask cards
+with their own decision card tool (`ask_decision`) instead of printing them as text.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.
