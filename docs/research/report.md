@@ -49,7 +49,7 @@ A first Cowork session found four gaps. In Cowork, plugins come from the account
 
 ## Later decisions
 
-Decisions taken after 2026-09-28 (the command name, how binaries reach Cowork, the repository) are recorded in [`docs/decisions/`](../decisions/README.md). Where they differ from the design below, the decision records win. A draft amendment at the end, [what v1 shipped](#amendment-draft-2026-10-07-what-v1-shipped), sums them up against this design.
+Decisions taken after 2026-09-28 (the command name, how binaries reach Cowork, the repository) are recorded in [`docs/decisions/`](../decisions/README.md). Where they differ from the design below, the decision records win. A draft amendment at the end, [what v1 shipped](#amendment-draft-2026-10-14-what-v1-shipped), sums them up against this design.
 
 ## Every tool keeps a thread inbox; none keeps a question ledger
 
@@ -596,23 +596,30 @@ The Artifact `db` board changes the brief's cross-client problem from "build an 
 
 The remaining uncertainty is narrow and cheap to close: six 15-minute checks on Cowork session identity, ArtifactData availability, worktree reads, link schemes, `db` limits and preview rendering. The one call with consequences beyond Ryan's own repos is whether client-repo decisions may ever leave the machine.
 
-## Amendment (draft, 2026-10-07): what v1 shipped
+## Amendment (draft, 2026-10-14): what v1 shipped
 
 **Draft for [#26](https://github.com/Wet-Ink-Corporation/weigh-in/issues/26), not a decision.**
-It records the state at 0.5.4 against the design above. v1 is not live: 1.0.0 is not tagged, and
-the exit criteria below are pending. The decision records in
+It records the state at 0.6.2 against the design above. v1 is not live: 1.0.0 is not tagged, and
+some exit criteria below are pending. 0.9.0 is the release candidate and 1.0.0 adds no code to it
+([B-23](../decisions/build-decisions.md#b-23)). The decision records in
 [`docs/decisions/`](../decisions/README.md) win where this summary and they differ.
 
 **What v1 built.** Slice 1, plus slice 2's board:
 
 - Capture, the in-chat sitting and write-back, as in "First slice and what follows". The CLI is
   Rust over happenstance's SQLite store under the git common dir ([wi-b4c1d8](../decisions/wi-b4c1d8.md),
-  [wi-6e2a47](../decisions/wi-6e2a47.md)), so one store serves every worktree. 180 tests run on
-  `main`, and decision atoms pass Redkiln's `validate --kb`.
-- The Artifact board with a `db` store, export and apply. From 0.5.1 it carries at most the
-  newest 200 unacknowledged defaults, so its state stays under the store's document limit.
-- The eval seed: 70 real end-of-turn messages, 19 labelled `capture`, 12 captured. Precision is
-  12 of 12; recall is 1 of 7 before 0.5.2's one-block-per-call line and 11 of 12 after it.
+  [wi-6e2a47](../decisions/wi-6e2a47.md)), so one store serves every worktree. 297 tests run
+  on `main` on Linux, Windows and macOS, and decision atoms pass Redkiln's `validate --kb`.
+- The Artifact board with a `db` store, export and apply. It carries at most the newest 200
+  unacknowledged defaults, so its state stays under the store's document limit. Export needs an
+  explicit `init` of an own-repository folder ([wi-7c21e4](../decisions/wi-7c21e4.md),
+  [B-25](../decisions/build-decisions.md#b-25)).
+- Committed journals: a cloud session's ledger dies with its container, so the session commits
+  the ledger's events under `.kb/_ledger/journal/` and `weighin stats` folds them in
+  ([B-21](../decisions/build-decisions.md#b-21)).
+- The eval seed: 104 real end-of-turn messages, 26 labelled `capture`, 15 captured. Precision is
+  15 of 15 and recall 15 of 26; Ryan reviewed every label up to the 0.6.1 session
+  ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)).
 
 **What changed against the design.**
 
@@ -620,17 +627,23 @@ the exit criteria below are pending. The decision records in
 |---|---|---|
 | Node CLI, per-session JSONL files folded across worktrees | Rust CLI; one happenstance store under the git common dir | [wi-b4c1d8](../decisions/wi-b4c1d8.md), [wi-6e2a47](../decisions/wi-6e2a47.md) |
 | Cowork uses the board with no binary | Cowork runs `weighin` through the computer's shell against a connected folder; the ledger uses a TRUNCATE journal because those folders refuse deletes | [D-0002](../decisions/build-decisions.md#d-0002), [B-01](../decisions/build-decisions.md#b-01) |
-| Command hooks run through a shell | Exec-form hooks start the launcher directly, so capture works on Windows without Git Bash; the sitting still needs it there | [D-0015](../decisions/build-decisions.md#d-0015), [B-16](../decisions/build-decisions.md#b-16) |
+| — | In a Claude Projects task the ledger follows the work: a connected folder takes the Cowork route, a cloud checkout keeps the cloud ledger and commits its journal. Cards are asked with the task's own decision card | [D-0018](../decisions/build-decisions.md#d-0018) |
+| Command hooks run through a shell | Exec-form hooks start the launcher directly, so capture works on Windows without Git Bash. In the Windows desktop app, SessionStart copies the binary into the git dir so the skill's shell can run it | [D-0015](../decisions/build-decisions.md#d-0015), [B-16](../decisions/build-decisions.md#b-16), [B-26](../decisions/build-decisions.md#b-26) |
 | A marketplace entry | A `marketplace` branch built from the release zip, and each release pushed to `weigh-in-plugin`, a release-only repository that claude.ai's organization sync reads. Assets stay internal | [D-0009](../decisions/build-decisions.md#d-0009), [B-14](../decisions/build-decisions.md#b-14), [D-0012](../decisions/build-decisions.md#d-0012), [B-19](../decisions/build-decisions.md#b-19) |
-| — | A copy synced from the development tree has no binaries; from 0.5.4 the launcher says so | [B-18](../decisions/build-decisions.md#b-18) |
+| — | A copy synced from the development tree has no binaries; the launcher says so | [B-18](../decisions/build-decisions.md#b-18) |
 | A sitting costs about $0.28 | A formula: about 3 × the session's context at the cache-read price, plus about 5,600 output tokens. About $0.10–0.15 on Sonnet 5.5 after a short session, about $0.47 after a 585k-token one. The $0.28 and the v1 plan's $0.35 target are dropped | [D-0016](../decisions/build-decisions.md#d-0016) |
 | Median sitting at most three requests and about 8k fresh tokens | Not among the v1 plan's exit criteria; no decision record drops it | [v1 plan](../v1-plan.md) |
-| The board's state in one `db` document | Capped at the newest 200 unacknowledged defaults (0.5.1) | V5 below |
+| The board's state in one `db` document | Capped at the newest 200 unacknowledged defaults | V5 below |
 | The board URL in the repo's config | Kept out of the tracked config | [B-20](../decisions/build-decisions.md#b-20) |
+| kb-ingest learns the intake keys | Moved to slice 3; atoms land in `.kb/_intake/` and validate | [B-22](../decisions/build-decisions.md#b-22) |
+| `serve --wait` decides grounded cards in client repositories | After 1.0, a Claude Code mod's local board pane does it | [D-0017](../decisions/build-decisions.md#d-0017) |
 
 **The verification spikes.**
 
-- **V1** (Cowork session id): pending, Ryan's run ([#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16)).
+- **V1** (Cowork session id): passed on 2026-10-13 in a Projects-based Cowork task. The same run
+  found cards printed as text and the ledger left in the cloud workspace, fixed in 0.6.2
+  ([#126](https://github.com/Wet-Ink-Corporation/weigh-in/issues/126)); Ryan's re-check is
+  pending ([#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16)).
 - **V2** (ArtifactData from Cowork): deferred to slice 2; the board does not run from Cowork in v1
   ([B-17](../decisions/build-decisions.md#b-17)).
 - **V3** (sibling worktrees' ledgers): made moot by [wi-6e2a47](../decisions/wi-6e2a47.md), since
@@ -640,32 +653,43 @@ the exit criteria below are pending. The decision records in
   text ([#18](https://github.com/Wet-Ink-Corporation/weigh-in/issues/18)).
 - **V5** (`db` limits): closed. One document holds at most 262,144 bytes; a 1,000-default ledger
   exports 59,678 bytes with 200 shown ([#19](https://github.com/Wet-Ink-Corporation/weigh-in/issues/19)).
-- **V6** (previews): passed in the desktop Code tab; the Cowork question card is checked with V1
-  ([#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20)).
+- **V6** (previews): passed in the desktop Code tab. The Cowork question card is re-checked on
+  0.6.2 with V1 ([#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20)).
 - **V7** (added: the Windows binary from an installed plugin): verified on 2026-10-03 with Git
-  Bash; a marker captured on Windows without Git Bash is pending
+  Bash, and hooks captured without Git Bash on 2026-10-13. The same run found the desktop app's
+  sitting could not reach the binary, fixed in 0.6.2
+  ([#127](https://github.com/Wet-Ink-Corporation/weigh-in/issues/127)); Ryan's re-check is pending
   ([#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)).
 
 **Left out of v1.** The rest of slice 2 and all of slice 3: the grounder and stability check,
-`serve --wait`, just-in-time surfacing, the board from Cowork, reliance drills and the door
-classifier ([D-0013](../decisions/build-decisions.md#d-0013), tracked in
-[#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)). Per-category suppression comes
-into v1 only if the not-useful rate exceeds 10%
+`serve --wait` (replaced by the mod pane, D-0017), just-in-time surfacing, the board from Cowork,
+reliance drills and the door classifier ([D-0013](../decisions/build-decisions.md#d-0013),
+tracked in [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)). Per-category
+suppression comes into v1 only if the not-useful rate exceeds 10%
 ([#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25)).
 
-**Exit criteria, all pending on 2026-10-07.** The design's slice 1 criteria, as the
-[v1 plan](../v1-plan.md) restates them:
+**Exit criteria on 2026-10-14.** The design's slice 1 criteria, as the [v1 plan](../v1-plan.md)
+restates them:
 
-- Action rate at least 60%, not-useful at most 10%: no week of stats yet; week 1 is due on or
-  after 2026-10-12 ([#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23)).
-- Marker capture precision at least 80%: 12 of 12 on 70 items, so the bar is in force
-  (wi-a9df17); the labels await Ryan's review ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)).
+- Action rate at least 60%, not-useful at most 10%: **pending.** Week 1 of use opened on
+  2026-10-12; its stats are due on or after 2026-10-19
+  ([#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23)).
+- Marker capture precision at least 80%: **met**, 15 of 15 on 104 items, with the bar in force
+  (wi-a9df17) and the labels reviewed by Ryan ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)).
 - No "pending" item reported as "done", and one sitting that returns "no decisions need you":
-  measured over the two weeks of use.
-- Every V-item closed or deferred by a decision: V1, the Cowork half of V6 and V7's last check
-  remain.
-- No ledger corruption and no unexplained `hook-errors.log` lines: measured over the two weeks.
-- Each of Ryan's machines installs without Rust: waits on his Windows check of the synced
-  `weigh-in-plugin` copy ([#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76)).
+  **pending**, measured over the two weeks of use. From 0.6.2 a sitting whose writes fail says
+  nothing was recorded and keeps every item open.
+- Every V-item closed or deferred by a decision: **pending** Ryan's re-checks of V1, the Cowork
+  half of V6 and V7 on 0.6.2.
+- No ledger corruption and no unexplained `hook-errors.log` lines: **pending**, measured over the
+  two weeks.
+- Each of Ryan's machines installs without Rust: **met** for the organization-synced
+  `weigh-in-plugin` copy on Windows and in Cowork ([#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76))
+  and the `marketplace` branch on Windows ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13));
+  macOS and Linux unverified.
 - A 0.2.2 ledger opens under the candidate: fixture tests pass on `main`
   ([B-10](../decisions/build-decisions.md#b-10)); to recheck on the 1.0.0 candidate.
+
+**Reviews since 0.2.2.** Three `/code-review` passes (#26): 14 candidates on 2026-10-06 (7 fixed),
+34 at 0.5.4 (24 fixed), and 17 at 0.6.2 (5 fixed in #133 and #134; the rest left
+with reasons on #26).
