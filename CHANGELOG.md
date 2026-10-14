@@ -6,6 +6,13 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 0.9.0 — 2026-10-14
+
+The v1.0 release candidate (B-23): 0.6.2 plus the fixes from the third code review (#26). 1.0.0
+will be this build with its version and the closing documents changed, and no new code. Capture
+(markers, the TODO scan, the Stop and PostToolUse hooks) is unchanged, so the #23 pilot still
+measures 0.6.0's capture behaviour.
+
 - `weighin stats` no longer fails for the whole folder when a committed journal's last line was
   cut short mid-write; that line is passed over, and the hook appends its event again. Any other
   line that is not an event still fails, naming the file and line.
