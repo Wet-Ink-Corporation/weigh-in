@@ -15,6 +15,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   an if-wrong text or the last option title ends in spaces, '?' or '!' (`small. , accepting`,
   `conflict?.` and `Keep v1..` now read `small, accepting`, `conflict?` and `Keep v1.`). Atoms
   already written keep their text.
+- `scripts/weekly-stats.sh` finds the organization-synced plugin when the home folder's path has a
+  space in it, and takes the newest synced copy that has a built binary, not the first one found.
 
 ## 0.6.2 — 2026-10-13
 
