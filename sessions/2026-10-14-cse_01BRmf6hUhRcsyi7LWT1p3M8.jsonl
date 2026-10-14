@@ -20,3 +20,5 @@
 {"t":"2026-10-14T06:12:03.201Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"temper:rust-reviewer","event":"verdict","via":"handback","verdict":"approved","fp":"09b3bfca8b3cd6de","stale":false,"findings":4}
 {"t":"2026-10-14T06:12:05.388Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"temper:rust-reviewer","event":"subagent-stop","type":"temper:rust-reviewer","msg":false,"transcript":true}
 {"t":"2026-10-14T06:12:05.482Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"temper:rust-reviewer","event":"verdict","via":"subagent-stop","verdict":"approved","fp":"09b3bfca8b3cd6de","stale":false,"findings":4}
+{"t":"2026-10-14T06:18:50.787Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"main","event":"deny-shell-write","file":"Cargo.toml"}
+{"t":"2026-10-14T06:18:52.236Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"main","event":"skill-loaded","via":"Skill"}
