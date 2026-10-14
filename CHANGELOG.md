@@ -6,6 +6,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- `scripts/weekly-stats.sh` finds the organization-synced plugin when the home folder's path has a
+  space in it, and takes the newest synced copy that has a built binary, not the first one found.
+
 ## 0.6.2 — 2026-10-13
 
 Fixes for what Ryan's checks of 0.6.1 found in the sitting: Claude Projects tasks (#126) and the

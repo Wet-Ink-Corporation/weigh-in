@@ -36,14 +36,17 @@ if [ -z "${WEIGHIN:-}" ]; then
     printf '%s\t%s\n' "$v" "$l"
   done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f2-)
   # The organization-synced install (B-19) keeps the plugin outside the cache, under a folder
-  # named for its upload; take a copy whose manifest names the `weigh` plugin.
+  # named for its upload: take the newest copy whose manifest names the `weigh` plugin and whose
+  # libexec holds a built binary. Paths are read a line at a time, so a space in $HOME is kept.
   if [ -z "$launcher" ]; then
-    for l in $(find "$HOME/.claude" -path '*/libexec/weighin' -type f 2>/dev/null); do
-      if grep -qs '"name": *"weigh"' "$(dirname "$(dirname "$l")")/.claude-plugin/plugin.json"; then
-        launcher=$l
-        break
-      fi
-    done
+    launcher=$(find "$HOME/.claude" -path '*/libexec/weighin' -type f 2>/dev/null | while IFS= read -r l; do
+      root=$(dirname "$(dirname "$l")")
+      grep -qs '"name": *"weigh"' "$root/.claude-plugin/plugin.json" || continue
+      for b in "$root"/libexec/*/weighin "$root"/libexec/*/weighin.exe; do [ -f "$b" ] && break; done
+      [ -f "$b" ] || continue
+      v=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$root/.claude-plugin/plugin.json" | head -n 1)
+      printf '%s\t%s\n' "${v:-0}" "$l"
+    done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f2-)
   fi
 fi
 # Without a binary every row would read "stats failed"; say so once instead.
