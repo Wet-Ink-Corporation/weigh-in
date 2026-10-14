@@ -171,9 +171,9 @@ Measured on `main` after 0.6.2 (2026-10-14). Items marked **pending** are v1 exi
   version and read back (fixture tests, B-10). Cowork's refused deletes, reproduced with a shim
   that refuses `unlink`, break 0.1.1 with `SQLITE_IOERR_DELETE` (2570). From 0.1.2 the store
   creates, raises and decides with no delete or rename in the folder.
-- **Capture precision** (eval seed, #22): 104 real end-of-turn messages from cloud sessions on
-  this repository, 26 labelled `capture`, 15 captured. Precision is 15 of 15 (100%, bar 80%, in
-  force since 10 items are captured, wi-a9df17); recall is 15 of 26. At 72 items, recall was 1 of
+- **Capture precision** (eval seed, #22): 110 real end-of-turn messages from cloud sessions on
+  this repository, 27 labelled `capture`, 15 captured. Precision is 15 of 15 (100%, bar 80%, in
+  force since 10 items are captured, wi-a9df17); recall is 15 of 27. At 72 items, recall was 1 of
   7 before the 0.5.2 convention line and 12 of 13 after it. Ryan reviewed every label up to the
   0.6.1 session; later items are `by: claude-draft`.
 - **Sitting cost** (D-0016): about 3 × the session's context at the cache-read price, plus about

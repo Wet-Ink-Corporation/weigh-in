@@ -617,8 +617,8 @@ some exit criteria below are pending. 0.9.0 is the release candidate and 1.0.0 a
 - Committed journals: a cloud session's ledger dies with its container, so the session commits
   the ledger's events under `.kb/_ledger/journal/` and `weighin stats` folds them in
   ([B-21](../decisions/build-decisions.md#b-21)).
-- The eval seed: 104 real end-of-turn messages, 26 labelled `capture`, 15 captured. Precision is
-  15 of 15 and recall 15 of 26; Ryan reviewed every label up to the 0.6.1 session
+- The eval seed: 110 real end-of-turn messages, 27 labelled `capture`, 15 captured. Precision is
+  15 of 15 and recall 15 of 27; Ryan reviewed every label up to the 0.6.1 session
   ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)).
 
 **What changed against the design.**
@@ -674,7 +674,7 @@ restates them:
 - Action rate at least 60%, not-useful at most 10%: **pending.** Week 1 of use opened on
   2026-10-12; its stats are due on or after 2026-10-19
   ([#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23)).
-- Marker capture precision at least 80%: **met**, 15 of 15 on 104 items, with the bar in force
+- Marker capture precision at least 80%: **met**, 15 of 15 on 110 items, with the bar in force
   (wi-a9df17) and the labels reviewed by Ryan ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)).
 - No "pending" item reported as "done", and one sitting that returns "no decisions need you":
   **pending**, measured over the two weeks of use. From 0.6.2 a sitting whose writes fail says
