@@ -103,18 +103,20 @@ impl Default for Config {
 impl Config {
     pub(crate) const PATH: &'static str = ".kb/_ledger/config.json";
 
-    /// The config under `root`, or `None` when the folder has none.
+    /// The config under `root`, or `None` when the folder has none. One leading UTF-8 byte order
+    /// mark, which Windows editors and PowerShell 5 write, is passed over.
     ///
     /// # Errors
     /// Fails when the file is there but cannot be read, or does not parse as a config.
     pub(crate) fn load(root: &Path) -> Result<Option<Self>, ConfigError> {
+        const BOM: &[u8] = b"\xEF\xBB\xBF";
         let path = root.join(Self::PATH);
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(source) => return Err(ConfigError::Read { path, source }),
         };
-        serde_json::from_slice(&bytes)
+        serde_json::from_slice(bytes.strip_prefix(BOM).unwrap_or(&bytes))
             .map(Some)
             .map_err(|source| ConfigError::Parse { path, source })
     }
@@ -638,6 +640,24 @@ mod tests {
                 c.store.as_deref()
             ),
             ("client", "local", Some("~/l.sqlite3"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_config_with_a_byte_order_mark_loads() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        // What PowerShell 5's `Set-Content -Encoding UTF8` and some Windows editors write.
+        write_config(
+            tmp.path(),
+            "\u{feff}{\"repo_class\":\"client\",\"board\":{\"mode\":\"local\"}}",
+        );
+
+        let c = Config::load(tmp.path())?.ok_or("the file is there")?;
+
+        assert_eq!(
+            (c.repo_class.as_str(), c.board.mode.as_str()),
+            ("client", "local")
         );
         Ok(())
     }

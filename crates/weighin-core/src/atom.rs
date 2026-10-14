@@ -148,7 +148,7 @@ pub fn y_statement(item: &Item) -> String {
     let mut s = format!(
         "In the context of \"{}\", facing {}, we decided for {}",
         item.question,
-        lower_first(why.trim_end_matches('.')),
+        lower_first(clause(why)),
         chosen_title
     );
     if !neglected.is_empty() {
@@ -156,17 +156,37 @@ pub fn y_statement(item: &Item) -> String {
         s.push_str(&neglected.join("; "));
     }
     if let Some(o) = chosen {
-        if !o.holds_if.is_empty() {
+        let holds_if = clause(&o.holds_if);
+        if !holds_if.is_empty() {
             s.push_str(", on the premise that ");
-            s.push_str(o.holds_if.trim_end_matches('.'));
+            s.push_str(holds_if);
         }
-        if !o.if_wrong.is_empty() {
+        let if_wrong = clause(&o.if_wrong);
+        if !if_wrong.is_empty() {
             s.push_str(", accepting that if wrong: ");
-            s.push_str(o.if_wrong.trim_end_matches('.'));
+            s.push_str(if_wrong);
         }
     }
-    s.push('.');
+    // `trim_end` ends on a character boundary, so the truncation cannot split a character.
+    s.truncate(s.trim_end().len());
+    s.push_str(full_stop(&s));
     s
+}
+
+/// `s` without its trailing whitespace and full stops, to sit before a comma or a full stop.
+/// A trailing '?' or '!' stays.
+fn clause(s: &str) -> &str {
+    s.trim_end_matches(|c: char| c == '.' || c.is_whitespace())
+}
+
+/// The full stop that ends a sentence ending in `s`: none when `s` already ends in '.', '?' or
+/// '!'.
+fn full_stop(s: &str) -> &'static str {
+    if s.ends_with(['.', '?', '!']) {
+        ""
+    } else {
+        "."
+    }
 }
 
 fn lower_first(s: &str) -> String {
@@ -327,18 +347,20 @@ impl<'a> DecisionAtom<'a> {
             return Ok(());
         };
         writeln!(f, "### Consequences\n")?;
-        if !o.holds_if.is_empty() {
+        let holds_if = clause(&o.holds_if);
+        if !holds_if.is_empty() {
             writeln!(
                 f,
-                "- Good, because it holds if {}.",
-                o.holds_if.trim_end_matches('.')
+                "- Good, because it holds if {holds_if}{}",
+                full_stop(holds_if)
             )?;
         }
-        if !o.if_wrong.is_empty() {
+        let if_wrong = clause(&o.if_wrong);
+        if !if_wrong.is_empty() {
             writeln!(
                 f,
-                "- Bad, because if wrong: {}.",
-                o.if_wrong.trim_end_matches('.')
+                "- Bad, because if wrong: {if_wrong}{}",
+                full_stop(if_wrong)
             )?;
         }
         writeln!(f)
@@ -439,14 +461,16 @@ fn write_option(f: &mut Formatter<'_>, o: &CardOption, chosen: &str) -> fmt::Res
     if !o.summary.is_empty() {
         writeln!(f, "{}\n", o.summary)?;
     }
-    if !o.holds_if.is_empty() {
-        writeln!(f, "- Holds if {}.", o.holds_if.trim_end_matches('.'))?;
+    let holds_if = clause(&o.holds_if);
+    if !holds_if.is_empty() {
+        writeln!(f, "- Holds if {holds_if}{}", full_stop(holds_if))?;
     }
-    if !o.if_wrong.is_empty() {
-        writeln!(f, "- If wrong: {}.", o.if_wrong.trim_end_matches('.'))?;
+    let if_wrong = clause(&o.if_wrong);
+    if !if_wrong.is_empty() {
+        writeln!(f, "- If wrong: {if_wrong}{}", full_stop(if_wrong))?;
     }
-    if let Some(m) = &o.fails_must {
-        writeln!(f, "- Fails a MUST: {m}.")?;
+    if let Some(m) = o.fails_must.as_deref().map(clause) {
+        writeln!(f, "- Fails a MUST: {m}{}", full_stop(m))?;
     }
     writeln!(f)
 }
@@ -1088,6 +1112,88 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
             y_statement(&rich_decided_item()),
             r#"In the context of "Where should the ledger live?", facing it fixes the merge story, we decided for Committed files: with a colon and neglected Common-dir store, on the premise that files stay small, accepting that if wrong: merges conflict."#
         );
+    }
+
+    /// `decided_item` with its card's options edited by `edit`.
+    fn decided_item_with(edit: impl FnOnce(&mut [CardOption])) -> Item {
+        let mut item = decided_item();
+        edit(&mut item.card.as_mut().expect("decided_item has a card").options);
+        item
+    }
+
+    #[test]
+    fn y_statement_trims_trailing_space_before_a_comma() {
+        let item = decided_item_with(|o| o[0].holds_if = "open items can stay local. ".into());
+
+        assert_eq!(
+            y_statement(&item),
+            r#"In the context of "Where should the ledger live?", facing it fixes the merge story, we decided for Common-dir store and neglected Committed files: with a colon, on the premise that open items can stay local, accepting that if wrong: a lost clone loses open items."#
+        );
+    }
+
+    #[test]
+    fn y_statement_does_not_add_a_full_stop_after_a_question_mark() {
+        let item =
+            decided_item_with(|o| o[0].if_wrong = "does a lost clone lose open items?".into());
+
+        assert_eq!(
+            y_statement(&item),
+            r#"In the context of "Where should the ledger live?", facing it fixes the merge story, we decided for Common-dir store and neglected Committed files: with a colon, on the premise that open items can stay local, accepting that if wrong: does a lost clone lose open items?"#
+        );
+    }
+
+    #[test]
+    fn y_statement_ends_once_after_a_neglected_title_with_a_full_stop() {
+        let item = decided_item_with(|o| {
+            o[0].holds_if.clear();
+            o[0].if_wrong.clear();
+            o[1].title = "Keep v1.".into();
+        });
+
+        assert_eq!(
+            y_statement(&item),
+            r#"In the context of "Where should the ledger live?", facing it fixes the merge story, we decided for Common-dir store and neglected Keep v1."#
+        );
+    }
+
+    #[test]
+    fn option_lines_end_once_after_a_question_mark_or_trailing_space() {
+        let item = decided_item_with(|o| {
+            o[0].holds_if = "open items can stay local. ".into();
+            o[0].if_wrong = "does a lost clone lose open items?".into();
+            o[1].fails_must = Some("must survive a clone. ".into());
+        });
+
+        let text = render_decision(&item, &ctx()).expect("the item is decided");
+
+        for line in [
+            "- Good, because it holds if open items can stay local.\n",
+            "- Bad, because if wrong: does a lost clone lose open items?\n",
+            "- Holds if open items can stay local.\n",
+            "- If wrong: does a lost clone lose open items?\n",
+            "- Fails a MUST: must survive a clone.\n",
+        ] {
+            assert!(text.contains(line), "{line:?} missing from:\n{text}");
+        }
+    }
+
+    #[test]
+    fn whitespace_only_premises_are_omitted() {
+        let item = decided_item_with(|o| {
+            o[0].holds_if = "  ".into();
+            o[0].if_wrong = " \n".into();
+        });
+
+        let summary = y_statement(&item);
+        let text = render_decision(&item, &ctx()).expect("the item is decided");
+
+        assert_eq!(
+            summary,
+            r#"In the context of "Where should the ledger live?", facing it fixes the merge story, we decided for Common-dir store and neglected Committed files: with a colon."#
+        );
+        for absent in ["Good, because", "Bad, because", "Holds if", "If wrong"] {
+            assert!(!text.contains(absent), "{absent:?} in:\n{text}");
+        }
     }
 
     #[test]
