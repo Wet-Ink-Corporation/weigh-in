@@ -29,11 +29,14 @@ pub(crate) fn write(events: &[(u64, EventEnvelope)], out: &mut impl Write) -> Re
 }
 
 /// Every event in the journals under `root`: files in name order, lines in file order, blank
-/// lines passed over. No journal directory reads as no events.
+/// lines passed over. No journal directory reads as no events. A file's last line that has no
+/// trailing newline and does not decode is passed over too: a run killed mid-append cut it short.
+/// The hook script drops such a line and appends its event again while the session's ledger is
+/// there, but a journal committed before that, or after the container went, still holds it.
 ///
 /// # Errors
-/// Fails when the directory or a journal cannot be read, or a line is not an event; the error
-/// names the file and line.
+/// Fails when the directory or a journal cannot be read, or any other line is not an event; the
+/// error names the file and line.
 pub(crate) fn read(root: &Path) -> Result<Vec<EventEnvelope>> {
     let dir = root.join(DIR);
     let entries = match std::fs::read_dir(&dir) {
@@ -51,16 +54,37 @@ pub(crate) fn read(root: &Path) -> Result<Vec<EventEnvelope>> {
     for file in &files {
         let text =
             std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
-        for (n, line) in (1_u64..).zip(text.lines()) {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let env = EventEnvelope::from_json(line.as_bytes())
-                .with_context(|| format!("{} line {n}: not a ledger event", file.display()))?;
-            events.push(env);
-        }
+        parse(file, &text, &mut events)?;
     }
     Ok(events)
+}
+
+/// Append the events in `text`, the contents of the journal `file`, to `events`, as [`read`]
+/// describes.
+///
+/// # Errors
+/// Fails when a line other than a cut-short last line is not an event.
+fn parse(file: &Path, text: &str, events: &mut Vec<EventEnvelope>) -> Result<()> {
+    for (n, piece) in (1_u64..).zip(text.split_inclusive('\n')) {
+        // Only the last piece can lack its newline.
+        let (line, cut_short) = match piece.strip_suffix('\n') {
+            Some(line) => (line.strip_suffix('\r').unwrap_or(line), false),
+            None => (piece, true),
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+        match EventEnvelope::from_json(line.as_bytes()) {
+            Ok(env) => events.push(env),
+            // A cut-short last line is a write the hook repeats, not a failure to report.
+            Err(_) if cut_short => {}
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("{} line {n}: not a ledger event", file.display()));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The ledger folded from the journals' events followed by its own, each event once (the first
@@ -117,6 +141,50 @@ mod tests {
             .resolve("wi-b29e54")
             .ok_or_else(|| anyhow::anyhow!("item missing"))?;
         assert_eq!((pooled.head, item.times_presented), (2, 1));
+        Ok(())
+    }
+
+    /// A folder whose one journal, `s.jsonl`, holds `text`.
+    fn folder_with_journal(text: &str) -> Result<tempfile::TempDir> {
+        let tmp = tempfile::tempdir()?;
+        let dir = tmp.path().join(DIR);
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("s.jsonl"), text)?;
+        Ok(tmp)
+    }
+
+    #[test]
+    fn a_last_line_cut_short_is_skipped() -> Result<()> {
+        let cut = PRESENTED
+            .get(..40)
+            .ok_or_else(|| anyhow::anyhow!("short"))?;
+        let tmp = folder_with_journal(&format!("{RAISED}\n{cut}"))?;
+
+        let read = read(tmp.path())?;
+
+        assert_eq!(read, vec![EventEnvelope::from_json(RAISED.as_bytes())?]);
+        Ok(())
+    }
+
+    #[test]
+    fn a_bad_line_in_the_middle_fails_naming_file_and_line() -> Result<()> {
+        let tmp = folder_with_journal(&format!("{RAISED}\nnot json\n{PRESENTED}"))?;
+
+        let e = read(tmp.path()).expect_err("the middle line is not an event");
+
+        let msg = format!("{e:#}");
+        assert!(msg.contains("s.jsonl line 2: not a ledger event"), "{msg}");
+        Ok(())
+    }
+
+    #[test]
+    fn a_bad_last_line_that_ends_in_a_newline_fails() -> Result<()> {
+        let tmp = folder_with_journal(&format!("{RAISED}\nnot json\n"))?;
+
+        let e = read(tmp.path()).expect_err("a whole line was written, and it is not an event");
+
+        let msg = format!("{e:#}");
+        assert!(msg.contains("s.jsonl line 2: not a ledger event"), "{msg}");
         Ok(())
     }
 }

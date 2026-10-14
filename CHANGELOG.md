@@ -6,6 +6,16 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- `weighin stats` no longer fails for the whole folder when a committed journal's last line was
+  cut short mid-write; that line is passed over, and the hook appends its event again. Any other
+  line that is not an event still fails, naming the file and line.
+- A `.kb/_ledger/config.json` saved with a UTF-8 byte order mark, as Windows editors and
+  PowerShell 5's `Set-Content -Encoding UTF8` write it, is read instead of stopping every command.
+- A decision atom's summary and option lines no longer double their punctuation when a premise,
+  an if-wrong text or the last option title ends in spaces, '?' or '!' (`small. , accepting`,
+  `conflict?.` and `Keep v1..` now read `small, accepting`, `conflict?` and `Keep v1.`). Atoms
+  already written keep their text.
+
 ## 0.6.2 — 2026-10-13
 
 Fixes for what Ryan's checks of 0.6.1 found in the sitting: Claude Projects tasks (#126) and the
