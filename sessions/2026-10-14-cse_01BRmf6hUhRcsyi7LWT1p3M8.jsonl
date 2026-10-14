@@ -13,3 +13,6 @@
 {"t":"2026-10-14T06:01:03.721Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"temper:rust-reviewer","event":"verdict","via":"subagent-stop","verdict":"approved","fp":"e75b674f6427eea9","stale":false,"findings":6}
 {"t":"2026-10-14T06:03:04.269Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"temper:rust-implementer","event":"subagent-start","type":"temper:rust-implementer"}
 {"t":"2026-10-14T06:03:55.451Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"temper:rust-implementer","event":"deny-shell-write","via":"shell-reader"}
+{"t":"2026-10-14T06:08:42.704Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"temper:rust-implementer","event":"handback","type":"temper:rust-implementer","reviewer":false}
+{"t":"2026-10-14T06:08:45.049Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"temper:rust-implementer","event":"subagent-stop","type":"temper:rust-implementer","msg":false,"transcript":true}
+{"t":"2026-10-14T06:08:52.304Z","sid":"699613a8-30e7-5cbc-91d1-d4f724a5499d","ccr":"cse_01BRmf6hUhRcsyi7LWT1p3M8","agent":"temper:rust-reviewer","event":"subagent-start","type":"temper:rust-reviewer"}
