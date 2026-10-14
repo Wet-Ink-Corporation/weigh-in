@@ -52,29 +52,29 @@ pub(crate) fn read(root: &Path) -> Result<Vec<EventEnvelope>> {
     files.sort();
     let mut events = Vec::new();
     for file in &files {
-        let text =
-            std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
-        parse(file, &text, &mut events)?;
+        // Bytes, not a string: a line cut short can end inside a multi-byte character.
+        let bytes = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+        parse(file, &bytes, &mut events)?;
     }
     Ok(events)
 }
 
-/// Append the events in `text`, the contents of the journal `file`, to `events`, as [`read`]
-/// describes.
+/// Append the events in `bytes`, the contents of the journal `file`, to `events`, as [`read`]
+/// describes. A line that is not UTF-8 does not decode.
 ///
 /// # Errors
 /// Fails when a line other than a cut-short last line is not an event.
-fn parse(file: &Path, text: &str, events: &mut Vec<EventEnvelope>) -> Result<()> {
-    for (n, piece) in (1_u64..).zip(text.split_inclusive('\n')) {
+fn parse(file: &Path, bytes: &[u8], events: &mut Vec<EventEnvelope>) -> Result<()> {
+    for (n, piece) in (1_u64..).zip(bytes.split_inclusive(|&b| b == b'\n')) {
         // Only the last piece can lack its newline.
-        let (line, cut_short) = match piece.strip_suffix('\n') {
-            Some(line) => (line.strip_suffix('\r').unwrap_or(line), false),
+        let (line, cut_short) = match piece.strip_suffix(b"\n") {
+            Some(line) => (line.strip_suffix(b"\r").unwrap_or(line), false),
             None => (piece, true),
         };
-        if line.trim().is_empty() {
+        if std::str::from_utf8(line).is_ok_and(|l| l.trim().is_empty()) {
             continue;
         }
-        match EventEnvelope::from_json(line.as_bytes()) {
+        match EventEnvelope::from_json(line) {
             Ok(env) => events.push(env),
             // A cut-short last line is a write the hook repeats, not a failure to report.
             Err(_) if cut_short => {}
@@ -145,7 +145,7 @@ mod tests {
     }
 
     /// A folder whose one journal, `s.jsonl`, holds `text`.
-    fn folder_with_journal(text: &str) -> Result<tempfile::TempDir> {
+    fn folder_with_journal(text: impl AsRef<[u8]>) -> Result<tempfile::TempDir> {
         let tmp = tempfile::tempdir()?;
         let dir = tmp.path().join(DIR);
         std::fs::create_dir_all(&dir)?;
@@ -158,7 +158,7 @@ mod tests {
         let cut = PRESENTED
             .get(..40)
             .ok_or_else(|| anyhow::anyhow!("short"))?;
-        let tmp = folder_with_journal(&format!("{RAISED}\n{cut}"))?;
+        let tmp = folder_with_journal(format!("{RAISED}\n{cut}"))?;
 
         let read = read(tmp.path())?;
 
@@ -167,8 +167,39 @@ mod tests {
     }
 
     #[test]
+    fn a_last_line_cut_inside_a_character_is_skipped() -> Result<()> {
+        let presented = PRESENTED.replace(r#""reason":"""#, r#""reason":"warm — cold""#);
+        let dash = presented
+            .find('—')
+            .ok_or_else(|| anyhow::anyhow!("no dash"))?;
+        let mut text = format!("{RAISED}\n").into_bytes();
+        text.extend(
+            presented
+                .as_bytes()
+                .get(..=dash)
+                .ok_or_else(|| anyhow::anyhow!("short"))?,
+        );
+        let tmp = folder_with_journal(text)?;
+
+        let read = read(tmp.path())?;
+
+        assert_eq!(read, vec![EventEnvelope::from_json(RAISED.as_bytes())?]);
+        Ok(())
+    }
+
+    #[test]
+    fn a_journal_with_crlf_line_endings_reads_every_event() -> Result<()> {
+        let tmp = folder_with_journal(format!("{RAISED}\r\n{PRESENTED}\r\n"))?;
+
+        let read = read(tmp.path())?;
+
+        assert_eq!(read, events()?);
+        Ok(())
+    }
+
+    #[test]
     fn a_bad_line_in_the_middle_fails_naming_file_and_line() -> Result<()> {
-        let tmp = folder_with_journal(&format!("{RAISED}\nnot json\n{PRESENTED}"))?;
+        let tmp = folder_with_journal(format!("{RAISED}\nnot json\n{PRESENTED}"))?;
 
         let e = read(tmp.path()).expect_err("the middle line is not an event");
 
@@ -179,7 +210,7 @@ mod tests {
 
     #[test]
     fn a_bad_last_line_that_ends_in_a_newline_fails() -> Result<()> {
-        let tmp = folder_with_journal(&format!("{RAISED}\nnot json\n"))?;
+        let tmp = folder_with_journal(format!("{RAISED}\nnot json\n"))?;
 
         let e = read(tmp.path()).expect_err("a whole line was written, and it is not an event");
 

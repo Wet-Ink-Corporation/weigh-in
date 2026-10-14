@@ -156,19 +156,20 @@ pub fn y_statement(item: &Item) -> String {
         s.push_str(&neglected.join("; "));
     }
     if let Some(o) = chosen {
-        if !o.holds_if.is_empty() {
+        let holds_if = clause(&o.holds_if);
+        if !holds_if.is_empty() {
             s.push_str(", on the premise that ");
-            s.push_str(clause(&o.holds_if));
+            s.push_str(holds_if);
         }
-        if !o.if_wrong.is_empty() {
+        let if_wrong = clause(&o.if_wrong);
+        if !if_wrong.is_empty() {
             s.push_str(", accepting that if wrong: ");
-            s.push_str(clause(&o.if_wrong));
+            s.push_str(if_wrong);
         }
     }
     // `trim_end` ends on a character boundary, so the truncation cannot split a character.
     s.truncate(s.trim_end().len());
-    let stop = full_stop(&s);
-    s.push_str(stop);
+    s.push_str(full_stop(&s));
     s
 }
 
@@ -346,13 +347,21 @@ impl<'a> DecisionAtom<'a> {
             return Ok(());
         };
         writeln!(f, "### Consequences\n")?;
-        if !o.holds_if.is_empty() {
-            let c = clause(&o.holds_if);
-            writeln!(f, "- Good, because it holds if {c}{}", full_stop(c))?;
+        let holds_if = clause(&o.holds_if);
+        if !holds_if.is_empty() {
+            writeln!(
+                f,
+                "- Good, because it holds if {holds_if}{}",
+                full_stop(holds_if)
+            )?;
         }
-        if !o.if_wrong.is_empty() {
-            let c = clause(&o.if_wrong);
-            writeln!(f, "- Bad, because if wrong: {c}{}", full_stop(c))?;
+        let if_wrong = clause(&o.if_wrong);
+        if !if_wrong.is_empty() {
+            writeln!(
+                f,
+                "- Bad, because if wrong: {if_wrong}{}",
+                full_stop(if_wrong)
+            )?;
         }
         writeln!(f)
     }
@@ -452,16 +461,16 @@ fn write_option(f: &mut Formatter<'_>, o: &CardOption, chosen: &str) -> fmt::Res
     if !o.summary.is_empty() {
         writeln!(f, "{}\n", o.summary)?;
     }
-    if !o.holds_if.is_empty() {
-        let c = clause(&o.holds_if);
-        writeln!(f, "- Holds if {c}{}", full_stop(c))?;
+    let holds_if = clause(&o.holds_if);
+    if !holds_if.is_empty() {
+        writeln!(f, "- Holds if {holds_if}{}", full_stop(holds_if))?;
     }
-    if !o.if_wrong.is_empty() {
-        let c = clause(&o.if_wrong);
-        writeln!(f, "- If wrong: {c}{}", full_stop(c))?;
+    let if_wrong = clause(&o.if_wrong);
+    if !if_wrong.is_empty() {
+        writeln!(f, "- If wrong: {if_wrong}{}", full_stop(if_wrong))?;
     }
-    if let Some(m) = &o.fails_must {
-        writeln!(f, "- Fails a MUST: {m}.")?;
+    if let Some(m) = o.fails_must.as_deref().map(clause) {
+        writeln!(f, "- Fails a MUST: {m}{}", full_stop(m))?;
     }
     writeln!(f)
 }
@@ -1152,6 +1161,7 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
         let item = decided_item_with(|o| {
             o[0].holds_if = "open items can stay local. ".into();
             o[0].if_wrong = "does a lost clone lose open items?".into();
+            o[1].fails_must = Some("must survive a clone. ".into());
         });
 
         let text = render_decision(&item, &ctx()).expect("the item is decided");
@@ -1161,8 +1171,28 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
             "- Bad, because if wrong: does a lost clone lose open items?\n",
             "- Holds if open items can stay local.\n",
             "- If wrong: does a lost clone lose open items?\n",
+            "- Fails a MUST: must survive a clone.\n",
         ] {
             assert!(text.contains(line), "{line:?} missing from:\n{text}");
+        }
+    }
+
+    #[test]
+    fn whitespace_only_premises_are_omitted() {
+        let item = decided_item_with(|o| {
+            o[0].holds_if = "  ".into();
+            o[0].if_wrong = " \n".into();
+        });
+
+        let summary = y_statement(&item);
+        let text = render_decision(&item, &ctx()).expect("the item is decided");
+
+        assert_eq!(
+            summary,
+            r#"In the context of "Where should the ledger live?", facing it fixes the merge story, we decided for Common-dir store and neglected Committed files: with a colon."#
+        );
+        for absent in ["Good, because", "Bad, because", "Holds if", "If wrong"] {
+            assert!(!text.contains(absent), "{absent:?} in:\n{text}");
         }
     }
 
