@@ -20,28 +20,28 @@ the exit criteria below are met. Week 1 of [#23](https://github.com/Wet-Ink-Corp
 opens on 2026-10-12, so 1.0.0 is due on or after 2026-10-20. After v1 the next milestone is
 slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 
-**Where to pick up.** 0.6.2 (2026-10-13) is merged and waits on Ryan's `v0.6.2` tag. It fixes the
-two bugs Ryan's checks found: Projects tasks get tappable decision cards and the ledger follows the
-work ([#126](https://github.com/Wet-Ink-Corporation/weigh-in/issues/126), D-0018), and on the Windows
-desktop app SessionStart copies the binary into the git dir so `/weigh-in` can record
-([#127](https://github.com/Wet-Ink-Corporation/weigh-in/issues/127), B-26). No ledger item is open.
-Next: Ryan pushes the tag, then re-runs the checks on #126 and #127 (`afk/ryan-checks.md`) along with
+**Where to pick up.** 0.6.2 (2026-10-13) is merged and waits on Ryan's `v0.6.2` tag, then his
+re-checks A and B (`afk/ryan-checks.md`): the Projects card and folder ledger
+([#126](https://github.com/Wet-Ink-Corporation/weigh-in/issues/126),
 [#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16),
-[#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20) (Cowork) and
-[#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21) (Windows without Git Bash); once
-they pass, a 0.9.0 bump PR (versions, `## Unreleased` renamed). Cloud sessions cannot push tags, so
-Ryan pushes each `v<version>` tag after its bump merges.
+[#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20)) and the Windows desktop sitting
+([#127](https://github.com/Wet-Ink-Corporation/weigh-in/issues/127),
+[#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)). The third code review (#26,
+2026-10-14) found 17 candidates; five are fixed on `main` (#133, #134), none in capture. The 0.9.0
+candidate bump is open and unmerged as #136: once the re-checks pass, merge it and push `v0.9.0`,
+following [`releasing.md`](releasing.md). Cloud sessions cannot push tags. After that, only fixes
+for what #23 finds, then 1.0.0 (B-23).
 
-v1 exit criteria ([v1 plan](v1-plan.md), Phase 3), on 2026-10-11:
+v1 exit criteria ([v1 plan](v1-plan.md), Phase 3), on 2026-10-14:
 
 | Criterion | Status |
 |---|---|
-| Action rate at least 60%, not-useful at most 10% | **Pending:** week 1 of [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23) opens on 2026-10-12, week 2 on or after 2026-10-19; [#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) waits on it |
-| Marker capture precision at least 80% | **Met:** 14 of 14 on the seed (83 items, 24 labelled `capture`), so the bar is in force (wi-a9df17); every label reviewed by Ryan on 2026-10-11 ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)) |
+| Action rate at least 60%, not-useful at most 10% | **Pending:** week 1 of [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23) opened on 2026-10-12, week 2 on or after 2026-10-19; [#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) waits on it |
+| Marker capture precision at least 80% | **Met:** 15 of 15 on the seed (110 items, 27 labelled `capture`), so the bar is in force (wi-a9df17); every label up to 83 items reviewed by Ryan on 2026-10-11 ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)) |
 | No "pending" reported as "done"; one sitting returns "no decisions need you" | **Pending:** measured over the two weeks of use ([#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23)) |
-| Every V-item closed or deferred by a decision | V3 closed as moot ([B-24](decisions/build-decisions.md#b-24)). **Pending:** V1 and the Cowork half of V6 ([#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16), [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20)); a marker captured on Windows without Git Bash ([#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)) |
+| Every V-item closed or deferred by a decision | V3 closed as moot ([B-24](decisions/build-decisions.md#b-24)). The Cowork session id (V1) and capture on Windows without Git Bash (V7) passed on 2026-10-13. **Pending:** Ryan's re-checks on 0.6.2 of the Cowork card (V6, [#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16), [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20), [#126](https://github.com/Wet-Ink-Corporation/weigh-in/issues/126)) and the Windows desktop sitting ([#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21), [#127](https://github.com/Wet-Ink-Corporation/weigh-in/issues/127)) |
 | No ledger corruption, no unexplained `hook-errors.log` lines | **Pending:** over the two weeks of use |
-| Each machine installs without Rust; Cowork through the connected checkout | The `marketplace` branch: run on Windows and in Cowork ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)); macOS and Linux unverified. **Pending:** the organization-synced `weigh-in-plugin` route, Ryan's Windows check ([#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76)) |
+| Each machine installs without Rust; Cowork through the connected checkout | The `marketplace` branch: run on Windows and in Cowork ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)); macOS and Linux unverified. The organization-synced `weigh-in-plugin` copy works on Windows and in Cowork ([#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76), closed 2026-10-13) |
 | A 0.2.2 ledger opens under the candidate | Fixture tests pass on `main` (B-10); to recheck on the 1.0.0 candidate |
 
 Open work is tracked as GitHub issues ([D-0011](decisions/build-decisions.md#d-0011)), in the order of
