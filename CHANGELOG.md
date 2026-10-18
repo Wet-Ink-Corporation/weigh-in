@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- In Cowork and in Projects tasks with a connected folder, the skill only uses a Weigh-In binary
+  from a connected folder if it is this release's version. It skips other copies, such as an old
+  checkout's build, and names them; before, it ran the first one it found, and an older build can
+  reopen the ledger under its own journal mode (#143).
+
 ## 0.9.0 — 2026-10-14
 
 The v1.0 release candidate (B-23): 0.6.2 plus the fixes from the third code review (#26). 1.0.0
