@@ -219,6 +219,18 @@ items. When the work was in a cloud checkout, the cloud ledger stays, and the jo
 committed as for any cloud session ([B-21](#b-21)). In the same change, Projects tasks ask cards
 with their own decision card tool (`ask_decision`) instead of printing them as text.
 
+## D-0019
+
+**One week of daily use is enough for v1.** 2026-10-18 · Ryan, in the project thread, after the
+week 1 numbers · amends the "two weeks" in [D-0008](#d-0008)'s exit criteria and `docs/v1-plan.md`
+· from [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23).
+
+The design's slice 1 exit asks for two weeks or 30 presented items, whichever comes later. Week 1
+(2026-10-12 to 10-18) already met every measured target across six folders: 90 presented,
+action rate 73%, not-useful 0%, no hook errors, no ledger corruption, and a sitting that said no
+decisions needed Ryan. A second week would mostly re-measure the same capture behaviour, so v1
+closes on week 1's numbers. #25 (suppression) stays out, since not-useful is under 10%.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.

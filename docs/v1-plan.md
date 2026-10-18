@@ -104,7 +104,7 @@ nothing needs to be public:
 - Cowork takes the plugin as an uploaded zip, which Ryan downloads from the internal release.
   On the computer's shell, the skill finds the Linux binary in a connected folder
   (`$HOME/mnt/*/libexec/x86_64-unknown-linux-musl/weighin`). A local checkout of the
-  `marketplace` branch, connected once, provides that binary with no build and no download.
+  `marketplace` branch, connected once, provides that binary with no build and no download. Keep that checkout at the current release: the skill skips a binary of any other version (#143).
 
 Going public later means cleaning up the research (it names IQBG and client-repo policy, in
 `docs/research/` and `wi-7c21e4`), then making this repository public and packaging without
