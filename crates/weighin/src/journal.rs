@@ -10,7 +10,7 @@
 
 mod append;
 
-pub(crate) use append::{Skip, Synced, WAIT, sync};
+pub(crate) use append::{Skip, Synced, WAIT, kept, sync, sync_events};
 
 use anyhow::{Context as _, Result};
 use std::collections::HashSet;

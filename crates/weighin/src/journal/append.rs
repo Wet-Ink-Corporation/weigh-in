@@ -87,11 +87,27 @@ impl TryFrom<&str> for JournalName {
 /// Fails when the ledger cannot be read, an event cannot be encoded, or the lock, the directory
 /// or the journal cannot be opened, read or written.
 pub(crate) fn sync(env: &Env, wait: Duration) -> Result<Synced> {
+    if let Err(skip) = gate(env) {
+        return Ok(Synced::Skipped(skip));
+    }
+    sync_events(env, wait, &ops::stored_events(env)?)
+}
+
+/// [`sync`] over `events`, the store's events as the caller read them already, so a hook that
+/// also needs the ledger reads the store once.
+///
+/// # Errors
+/// As [`sync`], except that the ledger was read by the caller.
+pub(crate) fn sync_events(
+    env: &Env,
+    wait: Duration,
+    events: &[(u64, EventEnvelope)],
+) -> Result<Synced> {
     let (name, root) = match gate(env) {
         Ok(gated) => gated,
         Err(skip) => return Ok(Synced::Skipped(skip)),
     };
-    let candidates = session_lines(env, name.as_str())?;
+    let candidates = session_lines(events, name.as_str())?;
     if candidates.is_empty() {
         return Ok(Synced::UpToDate);
     }
@@ -127,9 +143,15 @@ fn gate(env: &Env) -> Result<(JournalName, &Path), Skip> {
     Ok((name, root))
 }
 
-/// The journal lines of `session`'s events, in ledger order. Never creates the store.
-fn session_lines(env: &Env, session: &str) -> Result<Vec<Vec<u8>>> {
-    ops::stored_events(env)?
+/// Whether [`sync`] keeps a journal for this session and folder, so a caller reads the ledger
+/// for it only then.
+pub(crate) fn kept(env: &Env) -> bool {
+    gate(env).is_ok()
+}
+
+/// The journal lines of `session`'s events, in ledger order.
+fn session_lines(events: &[(u64, EventEnvelope)], session: &str) -> Result<Vec<Vec<u8>>> {
+    events
         .iter()
         .map(|(_, e)| e)
         .filter(|e| e.session_id.as_deref() == Some(session))

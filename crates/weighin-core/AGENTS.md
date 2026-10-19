@@ -37,3 +37,4 @@ Unit tests sit beside the code in each module: id, marker, scan, card, atom, boa
 ## Decisions
 | Date | Decision | Rule | Decided by |
 |---|---|---|---|
+| 2026-10-19 | `event::Surface` names the spellings of `item_presented.surface` and `item_decided.via`, `pane` among them; the stored fields stay strings. Only `as_str` is public; `weighin stats --json` counts standing decisions by surface in the binary, so `Health` is unchanged (B-30, #115). Additive public API. | API-14, H-16 | session lead (Claude), open to Ryan |

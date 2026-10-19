@@ -679,7 +679,7 @@ impl<'a> Session<'a> {
         let owner = d
             .owner
             .clone()
-            .unwrap_or_else(|| self.env.config.owner.clone());
+            .unwrap_or_else(|| self.env.owner().to_owned());
         self.write(
             &item.id,
             vec![LedgerEvent::ItemDeferred(Deferred {
@@ -1401,6 +1401,8 @@ mod tests {
             config: Config::default(),
             config_source: ConfigSource::Absent,
             store_override: Some(dir.join("ledger.sqlite3")),
+            // Set, so the test never asks the machine's git for an owner.
+            git_owner: Config::default().owner.into(),
         }
     }
 

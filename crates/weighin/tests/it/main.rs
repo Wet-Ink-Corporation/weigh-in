@@ -9,6 +9,9 @@ mod cli;
 mod eval_seed;
 mod journal;
 mod journal_write;
+mod owner;
+mod pane;
+mod recall;
 #[cfg(test)]
 mod scratch;
 #[cfg(test)]

@@ -6,6 +6,19 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- When an edit touches a file a decision is anchored to, the `PostToolUse` hook adds that
+  decision to the model's context, one line each and at most three per edit
+  (`<id> decided <choice>: <question> (path:line)`). Decisions reopened, superseded or dismissed
+  since, and defaults, are not shown, and capture is unchanged. Not in Cowork. `weighin decisions
+  --path <file> [--line <n>] [--json]` lists them (#116).
+- For the local board pane (D-0017): `weighin board export --stdout` prints the board state
+  under a `local` or `artifact` board and writes no file; `weighin board apply` reads answers
+  from stdin given `-` or no path; `--surface pane` records decisions with surface `pane`, refuses
+  items no sitting grounded and fails when an answer is refused. `weighin stats --json` adds
+  `decided_via`, so pane, chat and board decisions stay apart (B-30, #115).
+- A first `weighin init` without `--owner`, and a folder with no config, take the owner from
+  `git config user.name` (lower-case ASCII words joined with `-`), else the local part of
+  `user.email`, else `ryan` as before. An existing config keeps its owner (B-31, #27).
 - The binary keeps each session's events in `.kb/_ledger/journal/<session>.jsonl` after capture
   hooks and commands that change the ledger, on every platform, in initialised git repositories,
   so a pull request from any session can carry its journal. Opt out with `"journal": false` in

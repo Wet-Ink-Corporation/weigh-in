@@ -32,7 +32,8 @@ pub(crate) struct Pack {
     pub(crate) notes: Vec<String>,
 }
 
-fn parse_anchor(at: &str) -> (&str, Option<usize>) {
+/// An anchor's path and its line, when it gives one.
+pub(crate) fn parse_anchor(at: &str) -> (&str, Option<usize>) {
     // path:line or path:line:col; Windows drive letters keep their colon.
     let (path, position) = env::split_anchor(at);
     let line = position

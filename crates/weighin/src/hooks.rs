@@ -3,7 +3,8 @@
 //!
 //! * `SessionStart` prints the marker convention and the open counts (added to context).
 //! * `Stop` / `SubagentStop` parse `weigh-in` blocks from `last_assistant_message` and raise them.
-//! * `PostToolUse` (`Write`, `Edit`, `MultiEdit`) scans only the text the tool wrote.
+//! * `PostToolUse` (`Write`, `Edit`, `MultiEdit`) scans only the text the tool wrote, then adds
+//!   the decisions anchored at that file, at most three, as `additionalContext` (`recall`, #116).
 //!
 //! These are command hooks: they cost no model tokens. They never fail a session: any error,
 //! including output that cannot be written, is appended to `<state dir>/hook-errors.log` and the
@@ -24,14 +25,15 @@ use serde_json::Value;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use weighin_core::Ledger;
 use weighin_core::event::Channel;
 use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Config, ConfigSource, Env};
-use crate::ops::{RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
+use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
 use crate::text::{Report, clip};
-use crate::{journal, shell_bin};
+use crate::{journal, recall, shell_bin};
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
 /// (possibly nothing). Never fails: output that cannot be written is logged like any other hook
@@ -151,13 +153,45 @@ impl Hook {
                 return session_start(env, source);
             }
             "Stop" | "SubagentStop" => self.journalled(capture(env, payload)),
-            "PostToolUse" => self.journalled(scan(env, payload)),
+            "PostToolUse" => return self.post_tool_use(),
             _ => Ok(String::new()),
         };
         result.unwrap_or_else(|e| {
             self.log(&e);
             String::new()
         })
+    }
+
+    /// `PostToolUse`: scan what the tool wrote, then read the ledger once, as it stands after the
+    /// scan, for the session's journal and for the decisions anchored at the edited file
+    /// (#116), and print those decisions as context. The scan's result stands whatever follows:
+    /// the recall raises nothing, and each failure is logged once and prints nothing.
+    fn post_tool_use(&self) -> String {
+        let env = &self.env;
+        if let Err(e) = scan(env, &self.payload) {
+            self.log(&e);
+        }
+        let edit = recall_edit(env, &self.payload);
+        let journal = journal::kept(env);
+        if edit.is_none() && !journal {
+            return String::new();
+        }
+        let events = match ops::stored_events(env) {
+            Ok(events) => events,
+            Err(e) => {
+                self.log(&e.context("reading the ledger after the edit"));
+                return String::new();
+            }
+        };
+        if journal && let Err(e) = journal::sync_events(env, journal::WAIT, &events) {
+            self.log(&e.context("updating the session journal"));
+        }
+        let Some(edit) = edit else {
+            return String::new();
+        };
+        let ledger = Ledger::fold(events.iter().map(|(p, e)| (*p, e)));
+        // `None` is no decision anchored at the file, not a failure: nothing to add.
+        recall::edit_context(env, &ledger, &edit).unwrap_or_default()
     }
 
     /// `result`, after bringing the session's journal up to date, whatever `result` is: a
@@ -414,19 +448,65 @@ fn one_way_here(s: &Session<'_>, env: &Env) -> usize {
     })
 }
 
-fn scan(env: &Env, payload: &Value) -> Result<String> {
-    let tool = payload
-        .get("tool_name")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    // Borrowed from the payload: a large Write is not copied to be scanned.
-    let Some(input) = payload.get("tool_input") else {
-        return Ok(String::new());
+/// What a `PostToolUse` payload says a tool wrote: the tool, the file, and the text.
+struct Written<'p> {
+    tool: &'p str,
+    file: &'p str,
+    /// The text written: a `Write`'s content, an `Edit`'s or each `MultiEdit` edit's `new_string`.
+    /// Empty for any other tool.
+    texts: Vec<&'p str>,
+}
+
+impl<'p> Written<'p> {
+    /// `None` when the payload names no tool input or no file.
+    fn of(payload: &'p Value) -> Option<Self> {
+        let tool = payload
+            .get("tool_name")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        // Borrowed from the payload: a large Write is not copied to be scanned.
+        let input = payload.get("tool_input")?;
+        let file = input.get("file_path").and_then(Value::as_str)?;
+        Some(Self {
+            tool,
+            file,
+            texts: written_texts(tool, input),
+        })
+    }
+}
+
+/// Raise what a `PostToolUse` tool wrote. It prints nothing.
+fn scan(env: &Env, payload: &Value) -> Result<()> {
+    let Some(Written {
+        file,
+        texts: written,
+        ..
+    }) = Written::of(payload)
+    else {
+        return Ok(());
     };
-    let Some(file) = input.get("file_path").and_then(Value::as_str) else {
-        return Ok(String::new());
+    if written.is_empty() {
+        return Ok(());
+    }
+    scan_text(env, file, &written, "hook")?;
+    Ok(())
+}
+
+/// A `Write`, `Edit` or `MultiEdit` to a file in this repository, for `recall`; `None` for any
+/// other tool or file. The line a `Write` touched is not known, so it carries no text.
+fn recall_edit<'p>(env: &Env, payload: &'p Value) -> Option<recall::Edit<'p>> {
+    let w = Written::of(payload)?;
+    let edited = match w.tool {
+        "Edit" | "MultiEdit" => w.texts,
+        "Write" => Vec::new(),
+        _ => return None,
     };
-    let written: Vec<&str> = match tool {
+    recall::Edit::of(env, w.file, edited)
+}
+
+/// The text `tool` wrote, per its input.
+fn written_texts<'p>(tool: &str, input: &'p Value) -> Vec<&'p str> {
+    match tool {
         "Write" => input
             .get("content")
             .and_then(Value::as_str)
@@ -447,12 +527,7 @@ fn scan(env: &Env, payload: &Value) -> Result<String> {
             })
             .unwrap_or_default(),
         _ => Vec::new(),
-    };
-    if written.is_empty() {
-        return Ok(String::new());
     }
-    scan_text(env, file, &written, "hook")?;
-    Ok(String::new())
 }
 
 /// Scan text written to `file` (or the whole file, for `weighin scan`) and raise what it finds.
