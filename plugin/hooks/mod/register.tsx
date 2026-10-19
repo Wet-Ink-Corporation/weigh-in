@@ -1,20 +1,25 @@
-// Weigh-In mod (#114): a band above the prompt with this repository's ledger counts, and `/wi`
-// commands answered without a Claude turn.
+// Weigh-In mod (#114-#116): a band above the prompt with this repository's ledger counts, `/wi`
+// commands answered without a Claude turn, the local board pane (pane.tsx), and a toast for the
+// decisions anchored at a file an edit just touched.
 //
-// The ledger has one writer, the weighin CLI: the mod reads `open --repo --json` and
-// `digest --json` from this plugin's own launcher and writes only through `decide` and `defer`,
+// The ledger has one writer, the weighin CLI: the mod reads `open --repo --json`, `digest
+// --json`, `board export --stdout` and `decisions --path <file> --json` from this plugin's own
+// launcher, and writes only through `decide`, `defer`, `board apply --surface pane` and `batch`,
 // run by argv with no shell. It observes the events it hooks and returns every `next(e)` result
 // unchanged. Where no terminal or desktop draws (the VS Code panel, cloud sessions, Cowork,
 // `claude -p`) and under WEIGHIN_MOD=0 it registers nothing and runs nothing.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, ProcessRunResult, Register, RenderSurface } from 'claude-code'
+import type { EngineInterface, Register, RenderSurface } from 'claude-code'
 
-import type { WeighCounts, WeighView } from '../../types'
+import type { WeighAnchored, WeighCounts, WeighView } from '../../types'
+import { NO_BINARY, WRITE_TIMED_OUT, captureOff, cliError, firstLine, unfinished, weighin } from './cli'
+import type { Run } from './cli'
+import { BOARD_PANE, drawPane, isPaneOpen, openBoard, refreshPane } from './pane'
+
+export { BOARD_PANE }
 
 const view = atom({ plugin: 'weigh', key: 'view' } as const, null)
-
-/** The pane the band's Board button will open once it exists (#115). */
-export const BOARD_PANE = 'weigh-in-board'
+const anchored = atom({ plugin: 'weigh', key: 'anchored' } as const, null)
 /** What Sit runs: the skill's own sitting, `/weigh-in`. */
 const SIT = 'weigh-in'
 /** Surfaces that draw the band. */
@@ -24,12 +29,15 @@ const REFRESH_TIMEOUT_MS = 10_000
 const COMMAND_TIMEOUT_MS = 30_000
 /** `open --json` lists `--top` items (12 by default); the band counts every one. */
 const ALL = '1000000'
-/** The launcher's exit when it finds no binary for this platform. */
-const NO_BINARY = 127
+/** The tools whose edits can touch a file a decision is anchored at (#116). */
+const EDITS: ReadonlySet<string> = new Set(['Write', 'Edit', 'MultiEdit'])
+/** As many decisions per edit as the PostToolUse hook gives the model (`recall::PER_EDIT`). */
+const PER_EDIT = 3
 
 const USAGE = [
   'Usage:',
   '  /wi open                     open items in this repository',
+  '  /wi board                    the board pane: decide, defer or dismiss grounded cards',
   '  /wi stats                    the ledger\'s health numbers',
   '  /wi decide <id> <option> [note]',
   '  /wi decide <id>: <option> (note: …)',
@@ -45,44 +53,11 @@ let lastTurn: string | null = null
 // The status entry each surface asked for while its band had no room; the one shown.
 const wantsStatus = new Map<RenderSurface, string>()
 let shownStatus: string | undefined
+// Whether this session was already told the edit toasts cannot read the ledger (once is enough).
+let toldAnchoredFailure = false
 
-/** One run of the launcher, as the band and the commands read it. */
-export type Run =
-  | { kind: 'ran'; result: ProcessRunResult }
-  | { kind: 'no-start'; why: string }
-
-/** The launcher for this platform: the Windows build directly, else the sh launcher (B-16). */
-async function launcher($: EngineInterface): Promise<string> {
-  const libexec = `${$.plugin.root}/libexec`
-  if ((await $.env.get('OS')) !== 'Windows_NT') return `${libexec}/weighin`
-  try {
-    const exe = await $.fs.stat(`${libexec}/weighin.exe`)
-    if (exe.kind === 'file') return `${libexec}/weighin.exe`
-  } catch {
-    // No build at libexec/weighin.exe: the cmd launcher finds one under libexec/<target>/.
-  }
-  return `${libexec}/weighin.cmd`
-}
-
-/** Runs weighin with the skill's `W` globals: this session's key and its project directory. */
-async function weighin($: EngineInterface, args: readonly string[], timeoutMs: number): Promise<Run> {
-  try {
-    const argv = [await launcher($), '--session', await $.session.id(), '--dir', await $.session.root(), ...args]
-    return { kind: 'ran', result: await $.process.run(argv, { timeoutMs }) }
-  } catch (err) {
-    return { kind: 'no-start', why: firstLine(err instanceof Error ? err.message : String(err)) }
-  }
-}
-
-function firstLine(text: string): string {
-  return text.trim().split('\n')[0]?.trim() ?? ''
-}
-
-/** B-11's line: the launcher's own reason, without its `weighin:` prefix. */
-export function captureOff(stderr: string): string {
-  const why = firstLine(stderr).replace(/^weighin:\s*/, '')
-  return `Weigh-In: capture is off: ${why || 'no weighin binary for this platform.'}`
-}
+export { captureOff }
+export type { Run }
 
 /** Whether a terminal or the desktop app draws this session. */
 async function draws($: EngineInterface): Promise<boolean> {
@@ -113,7 +88,7 @@ function doorOf(item: unknown): unknown {
 
 /** What a failed run says, for the band: the no-binary line, or the CLI's first error line. */
 function failure(run: Run): WeighView {
-  if (run.kind === 'no-start') return { kind: 'unavailable', line: `Weigh-In: weighin did not start: ${run.why}` }
+  if (run.kind !== 'ran') return { kind: 'unavailable', line: unfinished(run) }
   const { exitCode, stderr, stdout } = run.result
   if (exitCode === NO_BINARY) return { kind: 'no-binary', line: captureOff(stderr) }
   const why = firstLine(stderr) || firstLine(stdout) || `exit ${exitCode}`
@@ -155,13 +130,13 @@ async function registerCommand($: EngineInterface): Promise<void> {
   commandRegistered = true
   await $.command.register({
     name: 'wi',
-    description: 'Weigh-In ledger: open, stats, decide or defer an item, with no Claude turn',
-    argumentHint: 'open | stats | decide <id> <option> [note] | defer <id> — trigger: …; resolve by: …; default: <X>',
+    description: 'Weigh-In ledger: open, stats, the board pane, decide or defer an item, with no Claude turn',
+    argumentHint: 'open | stats | board | decide <id> <option> [note] | defer <id> — trigger: …; resolve by: …; default: <X>',
   })
 }
 
-/** What `/wi <args>` runs: the CLI's arguments, or the usage text. */
-export function commandArgs(input: string): { args: string[] } | { usage: string } {
+/** What `/wi <args>` runs: the CLI's arguments, the board pane, or the usage text. */
+export function commandArgs(input: string): { args: string[] } | { board: true } | { usage: string } {
   const text = input.trim()
   const [sub = '', ...rest] = text.split(/\s+/)
   const tail = text.slice(sub.length).trim()
@@ -170,6 +145,8 @@ export function commandArgs(input: string): { args: string[] } | { usage: string
       return rest.length === 0 ? { args: ['open', '--repo'] } : { usage: USAGE }
     case 'stats':
       return rest.length === 0 ? { args: ['stats'] } : { usage: USAGE }
+    case 'board':
+      return rest.length === 0 ? { board: true } : { usage: USAGE }
     case 'decide':
       return decideArgs(tail)
     case 'defer':
@@ -194,7 +171,9 @@ function decideArgs(tail: string): { args: string[] } | { usage: string } {
   if (!m) return { usage: USAGE }
   const [, id = '', option = '', plainNote] = m
   const note = boardNote ?? plainNote?.trim()
-  return { args: ['decide', id, option, ...(note ? ['--note', note] : [])] }
+  // Options as `--flag=value` and the typed positionals after `--`, so text that starts with `-`
+  // is read as text, never as a flag.
+  return { args: ['decide', ...(note ? [`--note=${note}`] : []), '--', id, option] }
 }
 
 /** The board's `<id> — trigger: …; resolve by: …; default: <X> (note: …)`, as the skill maps it. */
@@ -205,15 +184,16 @@ function deferArgs(tail: string): { args: string[] } | { usage: string } {
   const [, id = '', trigger = '', by = '', fallback = ''] = m
   return {
     args: [
-      'defer', id, '--flip', trigger.trim(), '--trigger', trigger.trim(), '--by', by.trim(), '--default', fallback.trim(),
-      ...(note ? ['--reason', note] : []),
+      'defer', `--flip=${trigger.trim()}`, `--trigger=${trigger.trim()}`, `--by=${by.trim()}`, `--default=${fallback.trim()}`,
+      ...(note ? [`--reason=${note}`] : []), '--', id,
     ],
   }
 }
 
 /** The command's answer: the CLI's own text, and its exit code when it failed. */
-export function answer(run: Run): { text: string; exitCode?: number } {
-  if (run.kind === 'no-start') return { text: `Weigh-In: weighin did not start: ${run.why}`, exitCode: 1 }
+export function answer(run: Run, isWrite = false): { text: string; exitCode?: number } {
+  if (run.kind === 'timed-out' && isWrite) return { text: WRITE_TIMED_OUT, exitCode: 1 }
+  if (run.kind !== 'ran') return { text: unfinished(run), exitCode: 1 }
   const { exitCode, stdout, stderr } = run.result
   if (exitCode === NO_BINARY) return { text: captureOff(stderr), exitCode }
   if (exitCode === 0) return { text: stdout.trimEnd() || stderr.trimEnd() }
@@ -221,7 +201,8 @@ export function answer(run: Run): { text: string; exitCode?: number } {
   return { text, exitCode: Math.min(255, Math.max(1, Math.trunc(exitCode))) }
 }
 
-/** The band's line, fitted to `columns`, or null when it has no room. */
+/** The band's line, fitted to `columns`, or null when it has no room. `button` is the room the
+ * buttons after it take. */
 export function bandLine(c: WeighCounts, columns: number, button: number): string | null {
   const full = `Weigh-In · ${c.open} open here · ${c.oneWay} one-way · ${c.defaults} defaults`
   const short = `Weigh-In · ${c.open} open · ${c.oneWay} 1-way · ${c.defaults} dflt`
@@ -246,8 +227,83 @@ function wantStatus($: EngineInterface, surface: RenderSurface, text: string | u
   $.ui.status(next)
 }
 
-/** `[ Sit ]` and the space before it. */
-const SIT_WIDTH = ' [ Sit ]'.length
+/** `[ Sit ]` and `[ Board ]`, each with the space before it. */
+const BUTTONS_WIDTH = ' [ Sit ]'.length + ' [ Board ]'.length
+
+/** `s` on one line, cut to at most `n` characters, an ellipsis last when cut: `recall::one_line`. */
+export function oneLine(s: string, n: number): string {
+  const chars = Array.from(s.replace(/[\r\n]/g, ' '))
+  if (chars.length <= n) return chars.join('')
+  return n < 1 ? '' : `${chars.slice(0, n - 1).join('')}…`
+}
+
+/** The band's and the toast's line for one decision, as `recall::Anchored::line` writes it. */
+export function decisionLine(d: unknown): string | null {
+  const x = d as { id?: unknown; option?: unknown; title?: unknown; question?: unknown; at?: unknown } | null
+  if (x === null || typeof x.id !== 'string' || typeof x.option !== 'string') return null
+  const choice = typeof x.title === 'string' ? `${x.option} "${oneLine(x.title, 60)}"` : oneLine(x.option, 80)
+  const question = typeof x.question === 'string' ? oneLine(x.question, 120) : ''
+  const at = typeof x.at === 'string' ? ` (${x.at})` : ''
+  return `${x.id} decided ${choice}: ${question}${at}`
+}
+
+/** The decisions `decisions --path <file> --json` printed, at most PER_EDIT, as lines. */
+export function anchoredLines(stdout: string): string[] | null {
+  try {
+    const listed: unknown = JSON.parse(stdout)
+    if (!Array.isArray(listed)) return null
+    return listed.slice(0, PER_EDIT).map(decisionLine).filter((l): l is string => l !== null)
+  } catch {
+    return null
+  }
+}
+
+/** Why `decisions --path --json` gave no list, or null when it did; null too for no binary,
+ * which the band already reports as capture being off. */
+function anchoredFailure(run: Run, lines: string[] | null): string | null {
+  if (run.kind !== 'ran') return unfinished(run)
+  if (run.result.exitCode === NO_BINARY) return null
+  if (run.result.exitCode !== 0) return `Weigh-In: decisions at edited files unavailable: ${cliError(run.result)}`
+  if (run.result.isStdoutTruncated || lines === null) return 'Weigh-In: decisions at edited files unavailable: weighin printed what does not parse'
+  return null
+}
+
+/**
+ * After an edit of `file`: one spawn, then a toast and a band line when decisions stand there.
+ * An edit that lists none, of any file, clears the band line; a failure is told once a session.
+ */
+async function showAnchored($: EngineInterface, file: string): Promise<void> {
+  const run = await weighin($, ['decisions', '--path', file, '--json'], REFRESH_TIMEOUT_MS)
+  const lines = run.kind === 'ran' && run.result.exitCode === 0 && !run.result.isStdoutTruncated ? anchoredLines(run.result.stdout) : null
+  if (lines === null || lines.length === 0) {
+    await update($, anchored, () => null)
+    const why = anchoredFailure(run, lines)
+    if (why !== null && !toldAnchoredFailure) {
+      toldAnchoredFailure = true
+      $.ui.log(why)
+    }
+    return
+  }
+  const fresh: WeighAnchored = { file, lines }
+  await update($, anchored, () => fresh)
+  const head = lines.length === 1 ? 'Weigh-In: a decision stands here' : `Weigh-In: ${lines.length} decisions stand here`
+  $.ui.toast([head, ...lines].join('\n'), { timeoutMs: 8000 })
+}
+
+/** The band's second row while decisions stand at the file last edited. */
+function anchoredRow(a: WeighAnchored): string {
+  const [first = ''] = a.lines
+  return `Decided here: ${first}${a.lines.length > 1 ? ` (+${a.lines.length - 1} more)` : ''}`
+}
+
+/** After a write from the pane: the band's counts, read again. */
+const afterWrite = ($: EngineInterface) => refresh($)
+
+/** The band's Board button: the pane, or where it cannot be placed, the board as a notice. */
+async function board($: EngineInterface): Promise<void> {
+  const opened = await openBoard($)
+  if (!opened.isPlaced) $.ui.log(opened.text)
+}
 
 export const register: Register = on => {
   off = true
@@ -256,9 +312,12 @@ export const register: Register = on => {
   lastTurn = null
   wantsStatus.clear()
   shownStatus = undefined
+  toldAnchoredFailure = false
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    // A reload starts with no status entry asked for: clear one the previous load left up.
+    $.ui.status(undefined)
     off = (await $.env.get('WEIGHIN_MOD')) === '0'
     if (off || !(await draws($))) return result
     await registerCommand($)
@@ -283,26 +342,64 @@ export const register: Register = on => {
     const result = await next(e)
     if (off || e.agentId !== undefined || e.turnId === lastTurn) return result
     lastTurn = e.turnId
-    $.clock.after(0, () => refresh($))
+    $.clock.after(0, async () => {
+      await refresh($)
+      if (await isPaneOpen($)) await refreshPane($)
+    })
     return result
   })
+
+  // #116: after a Write, Edit or MultiEdit that succeeded, the decisions anchored at its file, in a
+  // toast and on the band. It reads the call's result and returns it unchanged, and its .catch
+  // replays that result: the mod never alters or decides a tool call.
+  on('tool.call', async ($, e, next) => {
+    const result = await next(e)
+    if (off || !EDITS.has(String(e.tool))) return result
+    if (result.deny !== undefined || result.isError === true) return result
+    const file = (e as unknown as { file_path?: unknown }).file_path
+    if (typeof file !== 'string' || file === '') return result
+    if (!(await draws($))) return result
+    $.clock.after(0, () => showAnchored($, file))
+    return result
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'wi' }, async ($, e) => {
     const parsed = commandArgs(e.args)
     if ('usage' in parsed) return { text: parsed.usage, exitCode: 2 }
-    const run = await weighin($, parsed.args, COMMAND_TIMEOUT_MS)
-    const out = answer(run)
+    if ('board' in parsed) {
+      const opened = await openBoard($)
+      return { text: opened.isPlaced ? 'Weigh-In: the board pane is open.' : opened.text }
+    }
     const [sub] = parsed.args
-    if ((sub === 'decide' || sub === 'defer') && out.exitCode === undefined) await refresh($)
+    const isWrite = sub === 'decide' || sub === 'defer'
+    const run = await weighin($, parsed.args, COMMAND_TIMEOUT_MS)
+    const out = answer(run, isWrite)
+    // A write that timed out may have landed: read the counts again as after one that did.
+    if (isWrite && (out.exitCode === undefined || run.kind === 'timed-out')) await refresh($)
     return out
+  })
+
+  on('ui.render', { component: 'Pane', requestId: BOARD_PANE }, async ($, e) => {
+    if (e.surface !== 'terminal' && e.surface !== 'desktop') {
+      const { Box, Text } = $.ui.resolve(e)
+      return <Box><Text dimColor>The Weigh-In board draws in a terminal or the desktop app.</Text></Box>
+    }
+    return drawPane($, $.ui.resolve(e), () => afterWrite($))
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (off || !DRAWS.has(e.surface)) return next(e)
     const v = await read($, view)
+    const a = e.props.hasSurvey ? null : await read($, anchored)
     if (v === null || (v.kind === 'counts' && v.counts.open === 0 && v.counts.defaults === 0)) {
       wantStatus($, e.surface, undefined)
-      return next(e)
+      if (a === null) return next(e)
+      const { Box, Text } = $.ui.resolve(e)
+      return (
+        <Box>
+          <Text key="anchored" dimColor wrap="truncate-end">{anchoredRow(a)}</Text>
+        </Box>
+      )
     }
     if (v.kind !== 'counts') {
       wantStatus($, e.surface, e.props.hasSurvey ? v.line : undefined)
@@ -314,19 +411,27 @@ export const register: Register = on => {
         </Box>
       )
     }
-    const line = e.props.hasSurvey ? null : bandLine(v.counts, e.props.bodyColumns, SIT_WIDTH)
+    const line = e.props.hasSurvey ? null : bandLine(v.counts, e.props.bodyColumns, BUTTONS_WIDTH)
     if (line === null) {
       wantStatus($, e.surface, statusLine(v.counts))
       return next(e)
     }
     wantStatus($, e.surface, undefined)
     const { Box, Button, Text } = $.ui.resolve(e)
-    // The Board button joins Sit here once the pane exists (#115): it opens BOARD_PANE.
-    return (
+    const row = (
       <Box>
         <Text key="counts" wrap="truncate-end">{line}</Text>
         <Text> </Text>
         <Button key="sit" label="Sit" hotkey="s" variant="primary" onPress={() => sit($)} />
+        <Text> </Text>
+        <Button key="board" label="Board" hotkey="b" onPress={() => board($)} />
+      </Box>
+    )
+    if (a === null) return row
+    return (
+      <Box flexDirection="column">
+        {row}
+        <Text key="anchored" dimColor wrap="truncate-end">{anchoredRow(a)}</Text>
       </Box>
     )
   })

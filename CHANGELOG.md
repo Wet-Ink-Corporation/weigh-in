@@ -6,6 +6,19 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- The board pane in Claude Code (`/wi board`, or **Board** on the band): Needs you, Decided for
+  you and Settled tabs over `weighin board export --stdout`, where grounded cards are decided,
+  deferred or dismissed and defaults reopened or acknowledged, one answer at a time through
+  `weighin board apply --surface pane`. Items no sitting grounded are read-only, board mode `off`
+  shows its one line, and the pane never publishes. Where it cannot be placed, `/wi board` prints
+  the board as text. One answer is written at a time, and a write that timed out says it may
+  have been applied (#115).
+- `/wi decide` and `/wi defer` pass what you typed after `--`, so an id, option or note that
+  starts with `-` is read as text.
+- After a `Write`, `Edit` or `MultiEdit` that succeeded, the mod shows the decisions anchored at
+  the edited file in a toast and on the band, at most three, from one `weighin decisions --path
+  <file> --json`; an edit that lists none clears the band line, and a failure to list them is
+  told once a session. The tool call and its result are unchanged (#116).
 - When an edit touches a file a decision is anchored to, the `PostToolUse` hook adds that
   decision to the model's context, one line each and at most three per edit
   (`<id> decided <choice>: <question> (path:line)`). Decisions reopened, superseded or dismissed
