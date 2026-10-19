@@ -703,3 +703,89 @@ Three code reviews since 0.2.2 are recorded on #26, with every finding fixed, re
 with a reason. Left open on purpose: whether a cloud session in this checkout captures twice when
 the organization-synced plugin also loads (#143), and the capture items held back for the pilot
 (#26). Next: slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
+
+## B-28
+
+**Every session keeps a journal; `ci-check` is the CI contract.** 2026-10-19 · Claude's call in
+the AFK cloud session, two-way, open to Ryan as weigh-in items · amends [B-21](#b-21) · from
+[#145](https://github.com/Wet-Ink-Corporation/weigh-in/issues/145).
+
+B-21 kept journals only in this repository's cloud sessions, through
+`.claude/hooks/weigh-in-journal.sh`, so a pull request from a desktop, CLI or Windows session
+carried no record of what its session raised and settled. Now the binary keeps them itself.
+After every capture hook (`Stop`, `SubagentStop`, `PostToolUse`) and every command that can
+append events (`raise`, `batch`, `decide`, `defer`, `dismiss`, `reopen`, `scan`,
+`board apply`), it appends the session's own events to `.kb/_ledger/journal/<session>.jsonl`,
+in the line format `weighin journal` prints. It does so whatever the command's result, since a
+batch that failed in part has still applied its other operations.
+
+- **Gates.** Nothing is written unless the session id can be a file name (not empty, no `/` or
+  `\`, not starting with `.`), the folder is a git worktree, `.kb/_ledger/config.json` exists and
+  parses, its `journal` key is not `false` (it defaults to `true`), and the session has an event
+  the file lacks. With nothing to add, no directory or file is created. Journals are kept in git
+  worktrees only, not in a Cowork folder outside git: the journal exists to be committed.
+  Refusing `\` (the Windows path separator) goes beyond the script's list.
+- **Append-only, deduped by line.** A complete line already in the file stays where it is,
+  whoever wrote it, and an event whose line is already there (a trailing `\r` ignored) is not
+  appended again. The only bytes ever removed are a last line with no newline that does not
+  decode, which a run killed mid-write cut short; its event is appended again in the same write.
+  A last line with no newline that does decode is kept and ended, rather than dropped as the
+  script drops it, since it may be another session's event.
+- **Lock and coexistence.** Writers take `<temp dir>/weigh-in-journal-<session>.lock`, the file
+  the script locks, waiting at most 3 s (the script's `flock -w 3`); a writer that cannot get it
+  skips, and the next run catches up. On Linux and macOS `flock(1)` and Rust's `File::lock` both
+  use `flock(2)`, so the binary and the script take turns. The script still appends the whole
+  ledger's dump to the same file, and the dedupe means neither writes a line twice. The lock
+  file is never deleted and never sits beside the ledger ([B-01](#b-01)).
+- **Failures.** A journal failure never changes a command's exit code or stdout: the CLI prints
+  `weighin: warning: session journal not updated: …` on stderr. In hooks it goes to
+  `hook-errors.log` like every other hook failure, so the next `SessionStart` says capture may
+  be off. Never silent (H-10).
+
+`weighin ci-check --base <ref> [--json]` is what CI reads. It uses only git and the checkout and
+never opens the ledger. The JSON report (schema `weighin.ci-check/1`) has `base` and `head`
+shas, `open_items`, `decisions` and `journal`. `open_items` are the items the journals at head
+leave open, minus those an atom at head or a trailer in the range closes, unless a journal
+reopened them later. "Later" is read in the range's commit order: a reopen keeps the item open
+only when the commit that added its line comes after the one that added the atom or trailer
+(an uncommitted reopen is latest, and one from before the range loses to a record in it). When
+the atom and the reopen both predate the range, the journal stands, since an atom is never
+deleted. Each one gives its triaged `door` and `authority` (null before triage, never the
+raiser's hints) and a `blocks` value read from its deadline (the deferral's, else the
+triage's):
+
+| Deadline | `blocks` |
+|---|---|
+| `before-merge`, `before-merge:<…>` | `merge` |
+| `before-release` | `release` |
+| an ISO date | `none` |
+| `blocks:<id>` | that item's, while it is open; else `unknown` (a cycle is `unknown`) |
+| none, or anything else | `unknown` |
+
+The raiser's free-text `blocks` field is not read. `decisions` are the decisions the branch
+adds, from three sources: `item_decided` lines added to journals, decision atoms added under
+`.kb`, and `Weigh-In:` trailers in the range's commits. Every message line is read, because a
+squash merge puts trailers mid-body. Each entry has its option and the commit that added it, the
+trailer's first, then the atom's, then the journal line's. Sources that name different options
+give one entry each. `journal` checks that every complete line a journal held at base is still
+in it at head, wherever it now stands (`removed`, `missing`, `altered`, `undecodable`). The
+command exits 0 whenever it writes a report, whatever the report finds, and 1 only on its own
+errors: a `--base` that names no commit (so CI must fetch the base), no git repository, git
+failing, or I/O failing. A broken config stops it as it stops every command. What CI does with
+the report is CI's policy.
+
+These were Claude's calls, all two-way and open to Ryan:
+
+- An atom-only decision reports `option: null`: decision atoms carry the recommended option but
+  not the chosen one, and trailers and journals give it. The recommended follow-up, awaiting
+  Ryan, is a `weighin_option` front-matter key, which would change the golden atom tests (HITL-1
+  in the plan, option A).
+- A date deadline is `blocks: none`, and `blocks:<id>` inherits through open items, else
+  `unknown` (HITL-2).
+- Journal failures in hooks go to `hook-errors.log` (HITL-3).
+- Journals in git worktrees only, and `\` refused in session names (above).
+- The skill's close-out asks for `.kb/_ledger/journal/` to be committed with the atoms, which
+  is what makes a pull request carry its journal; the plugin version is not bumped here.
+
+Not done: signing journals or reports, any policy on what blocks a merge, and replaying journals
+into a new container's ledger (B-21).

@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod annotate;
+mod ci;
 mod context;
 mod env;
 mod git;
@@ -105,8 +106,20 @@ enum LedgerCmd {
         #[command(subcommand)]
         cmd: BoardCmd,
     },
-    /// Every ledger event as JSON lines, for a committed journal (.kb/_ledger/journal/).
+    /// Every ledger event as JSON lines; sessions keep their own in .kb/_ledger/journal/.
     Journal,
+    /// Branch report for CI: open items, decisions since --base, append-only journals.
+    CiCheck(CiCheckArgs),
+}
+
+#[derive(Args)]
+struct CiCheckArgs {
+    /// The revision the branch is compared with (a merge base, `origin/main`, a sha).
+    #[arg(long)]
+    base: String,
+    /// The report as one JSON document (schema `weighin.ci-check/1`).
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
@@ -305,9 +318,14 @@ fn main() -> ExitCode {
         dir,
         store,
     };
-    match run(globals, cmd, &mut out).and_then(|()| out.flush().map_err(anyhow::Error::from)) {
+    let (result, warning) = run(globals, cmd, &mut out);
+    let code = match result.and_then(|()| out.flush().map_err(anyhow::Error::from)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => report(&e),
+    };
+    match warning {
+        Some(w) => warn(&w, code),
+        None => code,
     }
 }
 
@@ -401,7 +419,21 @@ fn stdin() -> Result<String> {
     Ok(s)
 }
 
-fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
+/// Run `cmd`: its result, and a warning to print after it whatever the result (`journal_after`).
+fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> (Result<()>, Option<String>) {
+    let mut env = match environment(g) {
+        Ok(env) => env,
+        Err(e) => return (Err(e), None),
+    };
+    let appends = cmd.appends();
+    let result = dispatch(&mut env, cmd, out);
+    // Whatever the result: a batch that failed in part has still applied its other operations.
+    let warning = if appends { journal_after(&env) } else { None };
+    (result, warning)
+}
+
+/// The environment the options name, refused when the folder's config is broken.
+fn environment(g: Globals) -> Result<Env> {
     let cwd = match g.dir {
         Some(d) => d,
         None => std::env::current_dir()?,
@@ -416,33 +448,93 @@ fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
             Report(e)
         );
     }
-    match cmd {
-        LedgerCmd::Prime => Ok(write!(out, "{}", hooks::prime(&env, "manual")?)?),
-        LedgerCmd::Init(a) => init(env, a, out),
-        LedgerCmd::Open(a) => open(&env, &a, out),
-        LedgerCmd::Show(a) => show(&env, &a, out),
-        LedgerCmd::Context(a) => context_pack(&env, &a, out),
-        LedgerCmd::Raise(a) => raise(&env, a, out),
-        LedgerCmd::Batch(a) => batch(&env, a, out),
-        LedgerCmd::Decide(a) => apply_one(&env, &a.into_op(), out),
-        LedgerCmd::Defer(a) => apply_one(&env, &a.into_op(), out),
-        LedgerCmd::Dismiss(a) => apply_one(&env, &a.into_op(), out),
-        LedgerCmd::Reopen(a) => apply_one(&env, &a.into_op(), out),
-        LedgerCmd::Digest(a) => digest(&env, &a, out),
-        LedgerCmd::Stats(a) => stats(&env, &a, out),
-        LedgerCmd::Trailer(a) => trailer(&env, &a, out),
-        LedgerCmd::Scan(a) => scan(&env, a, out),
-        LedgerCmd::Board {
-            cmd: BoardCmd::Export(a),
-        } => board_export(&env, a, out),
-        LedgerCmd::Board {
-            cmd: BoardCmd::Apply(a),
-        } => board_apply(&env, &a, out),
-        LedgerCmd::Journal => journal::write(&ops::stored_events(&env)?, out),
+    Ok(env)
+}
+
+impl LedgerCmd {
+    /// Whether the command can append ledger events, and so leave the session's journal behind.
+    fn appends(&self) -> bool {
+        match self {
+            Self::Raise(_)
+            | Self::Batch(_)
+            | Self::Decide(_)
+            | Self::Defer(_)
+            | Self::Dismiss(_)
+            | Self::Reopen(_)
+            | Self::Scan(_)
+            | Self::Board {
+                cmd: BoardCmd::Apply(_),
+            } => true,
+            Self::Prime
+            | Self::Init(_)
+            | Self::Open(_)
+            | Self::Show(_)
+            | Self::Context(_)
+            | Self::Digest(_)
+            | Self::Stats(_)
+            | Self::Trailer(_)
+            | Self::Board {
+                cmd: BoardCmd::Export(_),
+            }
+            | Self::Journal
+            | Self::CiCheck(_) => false,
+        }
     }
 }
 
-fn init(mut env: Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
+/// Bring this session's journal up to date after a command that appended events (B-28): the
+/// warning to print when that failed or the journal was busy, else `None`. The command's own
+/// result stands either way.
+fn journal_after(env: &Env) -> Option<String> {
+    match journal::sync(env, journal::WAIT) {
+        Ok(journal::Synced::Skipped(journal::Skip::Busy)) => {
+            Some("session journal busy; the next command or hook catches it up".to_owned())
+        }
+        Ok(
+            journal::Synced::Skipped(_) | journal::Synced::UpToDate | journal::Synced::Appended(_),
+        ) => None,
+        Err(e) => Some(format!("session journal not updated: {e:#}")),
+    }
+}
+
+/// `weighin: warning: <warning>` on stderr, and the exit code the command already earned.
+fn warn(warning: &str, code: ExitCode) -> ExitCode {
+    match writeln!(io::stderr().lock(), "weighin: warning: {warning}") {
+        // With stderr gone, as in `report`, the exit code stands; the journal catches up later.
+        Ok(()) | Err(_) => code,
+    }
+}
+
+/// Run one command. Only `init` changes the environment: it rewrites the config.
+fn dispatch(env: &mut Env, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
+    match cmd {
+        LedgerCmd::Prime => Ok(write!(out, "{}", hooks::prime(env, "manual")?)?),
+        LedgerCmd::Init(a) => init(env, a, out),
+        LedgerCmd::Open(a) => open(env, &a, out),
+        LedgerCmd::Show(a) => show(env, &a, out),
+        LedgerCmd::Context(a) => context_pack(env, &a, out),
+        LedgerCmd::Raise(a) => raise(env, a, out),
+        LedgerCmd::Batch(a) => batch(env, a, out),
+        LedgerCmd::Decide(a) => apply_one(env, &a.into_op(), out),
+        LedgerCmd::Defer(a) => apply_one(env, &a.into_op(), out),
+        LedgerCmd::Dismiss(a) => apply_one(env, &a.into_op(), out),
+        LedgerCmd::Reopen(a) => apply_one(env, &a.into_op(), out),
+        LedgerCmd::Digest(a) => digest(env, &a, out),
+        LedgerCmd::Stats(a) => stats(env, &a, out),
+        LedgerCmd::Trailer(a) => trailer(env, &a, out),
+        LedgerCmd::Scan(a) => scan(env, a, out),
+        LedgerCmd::Board {
+            cmd: BoardCmd::Export(a),
+        } => board_export(env, a, out),
+        LedgerCmd::Board {
+            cmd: BoardCmd::Apply(a),
+        } => board_apply(env, &a, out),
+        LedgerCmd::Journal => journal::write(&ops::stored_events(env)?, out),
+        LedgerCmd::CiCheck(a) => ci::run(env, &a.base, a.json, out),
+    }
+}
+
+fn init(env: &mut Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
     let c = &mut env.config;
     // Only what was given changes: a later `init --ledger` keeps a client repo's local board.
     match (a.class, a.board) {

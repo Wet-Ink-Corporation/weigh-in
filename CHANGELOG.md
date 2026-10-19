@@ -6,6 +6,15 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- The binary keeps each session's events in `.kb/_ledger/journal/<session>.jsonl` after capture
+  hooks and commands that change the ledger, on every platform, in initialised git repositories,
+  so a pull request from any session can carry its journal. Opt out with `"journal": false` in
+  `.kb/_ledger/config.json`. A journal that cannot be written never fails the command (B-28,
+  #145).
+- `weighin ci-check --base <ref> [--json]`: a report for CI, read from git and the checkout
+  alone, of the open items, the decisions the branch adds with their commits, and whether the
+  committed journals were only appended to. It exits 0 whenever it writes a report (#145).
+
 ## 1.0.0 — 2026-10-19
 
 v1: slice 1 made dependable, for daily use by Ryan (D-0008). This is the 0.9.0 candidate with one

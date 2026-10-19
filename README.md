@@ -130,13 +130,35 @@ weighin dismiss <id> <why> [--note]      not-useful | recoverable | moot | alrea
 weighin reopen <id> [--note]             reopen a decided, defaulted or dismissed item
 weighin digest [--json]                  defaults taken without you
 weighin stats [--json]                   action rate, not-useful rate, overrides, time to decide (ledger + committed journals)
-weighin journal                          every ledger event as JSON lines (cloud sessions commit it, B-21)
+weighin journal                          every ledger event as JSON lines; sessions keep their own in
+                                         .kb/_ledger/journal/ (B-28)
+weighin ci-check --base <ref> [--json]   CI report: open items, decisions since <ref>, append-only
+                                         journals (schema weighin.ci-check/1)
 weighin trailer <id>                     the commit trailer for a decided item
 weighin scan <path>…                     backfill from existing documents
 weighin board export [--out <file>]      write the board state document
 weighin board apply <path>               apply board answers (a file or a directory)
 weighin hook                             hook entry point (reads the hook JSON on stdin)
 ```
+
+### Session journals and CI
+
+In an initialised git repository, every session keeps its own events in
+`.kb/_ledger/journal/<session>.jsonl`. The binary appends them after each capture hook and each
+command that changes the ledger, append-only and each line once, so a pull request that commits
+`.kb/` carries what its session raised, deferred, dismissed and decided (B-28). Set
+`"journal": false` in `.kb/_ledger/config.json` to opt out. A journal that cannot be written
+leaves the command's result alone: the CLI warns on stderr, and hooks log it to
+`hook-errors.log`.
+
+`weighin ci-check --base <ref> --json` reads only git and the checkout, never a ledger. It reports
+`open_items` (each with its triaged `door` and `authority`, or `null` before triage, and
+`blocks`: `merge`, `release`, `none` for a date deadline, or `unknown`), the `decisions` the
+branch adds with their option, commit and `sources` (`journal`, `atom`, `trailer`), and
+`journal.ok` with the `violations` of the append-only rule. It exits 0 whenever it writes a
+report, whatever the report finds, and 1 only on its own errors: a `--base` that names no
+commit, no git repository, git or I/O failing, or a broken config. CI must have the base
+commit, so check out with `fetch-depth: 0` or fetch the base first.
 
 ## Guards the CLI enforces
 

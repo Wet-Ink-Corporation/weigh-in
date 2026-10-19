@@ -55,7 +55,7 @@ Card: `{"why":"one sentence","timing":"one sentence","evidence":[{"src":"path:li
 
 ## 5. Batch 2: one Bash call, then close
 Map answers to ops: an option → `{"op":"decide","id":"…","option":"A","note":"<user's notes>"}`; a defer option → `defer`; "Other" text naming an option → `decide` with the text as note; a bare "defer" → `{"op":"defer","id":"…","unqualified":true,"trigger":"next sitting","resolve_by":"<a week out>","default":"<recommended option>","reason":"deferred without a named fact"}`; "not mine" → `dismiss` `not-my-call:<who>`. A timed-out answer stays open; never decide it.
-Close in two lines: what was decided and where the atoms are (`.kb/_intake/decisions/`). If a choice differs from what you implemented, propose that change now. The enacting commit gets the trailer `Weigh-In: <id> decided <X>`.
+Close in two lines: what was decided and where the atoms are (`.kb/_intake/decisions/`). If a choice differs from what you implemented, propose that change now. The enacting commit gets the trailer `Weigh-In: <id> decided <X>`, and commits `.kb/_ledger/journal/` with the atoms.
 
 ## Digest
 `W digest` → one AskUserQuestion, `multiSelect`, "Which of these defaults should I reopen?" over the four widest-blast defaults → `W batch` with `{"op":"reopen","id":"…","reason":"reopened from the digest"}` for the selected and `{"op":"ack","id":"…"}` for the rest.

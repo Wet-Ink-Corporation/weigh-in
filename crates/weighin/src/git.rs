@@ -16,6 +16,20 @@ pub(crate) fn run(dir: &Path, args: &[&str]) -> Result<String> {
 /// # Errors
 /// Fails when git cannot start or exits non-zero.
 pub(crate) fn run_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<String> {
+    let out = output_env(dir, args, env)?;
+    Ok(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// Run `git -C dir args…` and return stdout as bytes, for content that need not be UTF-8 (a
+/// file at a revision).
+///
+/// # Errors
+/// Fails when git cannot start or exits non-zero.
+pub(crate) fn output(dir: &Path, args: &[&str]) -> Result<Vec<u8>> {
+    output_env(dir, args, &[])
+}
+
+fn output_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<Vec<u8>> {
     let mut cmd = Command::new("git");
     cmd.stdin(Stdio::null())
         .arg("-C")
@@ -35,7 +49,7 @@ pub(crate) fn run_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Result
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(out.stdout)
 }
 
 /// The tree the human is looking at: the current index plus tracked modifications, untracked
