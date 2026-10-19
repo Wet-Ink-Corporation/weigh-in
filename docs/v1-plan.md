@@ -7,7 +7,9 @@ live. The calls it needs are listed under [Decisions](#decisions); those taken a
 
 ## Where Weigh-In stands
 
-**Update, 2026-10-11 (0.6.0).** Phases 0 to 2 are done and Phase 3 is under way; the current
+**Update, 2026-10-19 (1.0.0).** Phases 0 to 3 are done and every exit criterion is met, with one
+week of use instead of two ([D-0019](decisions/build-decisions.md#d-0019)); 1.0.0 is 0.9.0 plus
+the #143 skill fix. **Update, 2026-10-11 (0.6.0).** Phases 0 to 2 are done and Phase 3 is under way; the current
 state and the exit criteria are kept in [`roadmap.md`](roadmap.md). The release path is set by
 [B-23](decisions/build-decisions.md#b-23): 0.6.x patches during the two weeks of use, 0.9.0 as
 the release candidate, and 1.0.0 with no new code. The rest of this section is the evaluation
@@ -243,7 +245,7 @@ B-14), and only the tag is pushed, since the workflow creates the release.
    ship a `cmd`/PowerShell hook form.
 2. **Eval seed**: label 20 items from five real sessions (the design's slice 1 eval set, not yet
    built), so marker capture precision can be measured.
-3. **Sustained use**: at least two weeks of real sittings across this repository and two of
+3. **Sustained use**: at least two weeks (one, by D-0019) of real sittings across this repository and two of
    Ryan's own repos, plus one Cowork folder. Each week, record `weighin stats` (action rate,
    not-useful rate, overrides, time to decide) and the sitting cost in this plan's issue.
 4. **Sitting cost**: either trim the batch JSON and card output until a sitting is under about

@@ -152,10 +152,10 @@ weighin hook                             hook entry point (reads the hook JSON o
 
 ## Measured in this build
 
-Measured on `main` after 0.6.2 (2026-10-14). Items marked **pending** are v1 exit criteria
-([v1 plan](docs/v1-plan.md), Phase 3) that have not been measured yet.
+Measured at 1.0.0 (2026-10-19), against the v1 exit criteria ([v1 plan](docs/v1-plan.md),
+Phase 3). Every criterion is met; macOS and Linux installs are unverified.
 
-- **Tests and lints.** 297 tests on `main` after 0.6.2 (113 core unit tests, 22 core property
+- **Tests and lints.** 297 tests at 1.0.0 (113 core unit tests, 22 core property
   tests, 7 core doctests, 93 CLI unit tests, 62 CLI integration tests including the eval scorer;
   one more end-to-end test runs on Windows only). CI runs them, fmt and rustdoc on Linux, Windows
   and macOS; `cargo deny`, the plugin package check and temper's lint
@@ -199,14 +199,16 @@ Measured on `main` after 0.6.2 (2026-10-14). Items marked **pending** are v1 exi
     without Git Bash (V7). They also found cards printed as text and the ledger left in the cloud
     in Projects tasks (#126), and a Windows desktop sitting that could not reach the binary
     (#127); 0.6.2 fixes both (D-0018, B-26).
-  - **Pending:** Ryan's re-checks on 0.6.2: the Projects card and folder ledger (#126, #16, the
-    Cowork half of V6 in #20) and the Windows desktop sitting with and without Git Bash (#127,
-    #21).
-- **Use.** **Pending:** two weeks and 30 presented items of real sittings, whichever comes later
-  (#23; week 1 opened on 2026-10-12, its stats are due on or after 2026-10-19).
-  These give the action rate (target at least 60%), the not-useful rate (at most 10%, or
-  per-category suppression comes into v1, #25), overrides and time to decide. `weighin stats`
-  and `scripts/weekly-stats.sh` produce them.
+  - Ryan's re-checks on 0.9.0 (2026-10-18): the Windows desktop sitting reaches the ledger with
+    and without Git Bash (#127, #21), and a Projects task with a connected folder shows a
+    tappable one-way card, records nothing before the tap, and writes the decision and its atom
+    into the folder (#126, #16, #20). That run found the connected-folder binary fallback took
+    any version; from 1.0.0 it only runs this release's (#143).
+- **Use** (#23, one week by D-0019): 2026-10-12 to 10-18 across six folders (this repository,
+  four of Ryan's other repositories and a connected folder). 90 items presented, action rate
+  73% (target at least 60%), not-useful 0% (at most 10%, so per-category suppression, #25,
+  stays out), 9 overrides of 66 decided, 0 hook errors. `weighin stats` and
+  `scripts/weekly-stats.sh` produce these.
 
 ## Open items
 

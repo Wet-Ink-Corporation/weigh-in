@@ -6,6 +6,14 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 1.0.0 — 2026-10-19
+
+v1: slice 1 made dependable, for daily use by Ryan (D-0008). This is the 0.9.0 candidate with one
+skill fix and the closing documents; there is no new Rust, and capture is unchanged. Every exit
+criterion in `docs/v1-plan.md` is met on one week of use (D-0019): 90 items presented across six
+folders, a 73% action rate, 0% not useful, no hook errors, and Ryan's re-checks on Windows and in
+a Projects task passed.
+
 - In Cowork and in Projects tasks with a connected folder, the skill only uses a Weigh-In binary
   from a connected folder if it is this release's version. It skips other copies, such as an old
   checkout's build, and names them; before, it ran the first one it found, and an older build can
