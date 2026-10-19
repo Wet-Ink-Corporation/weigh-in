@@ -87,16 +87,17 @@ The plugin's files are under `~/.claude/plugins/cache/weigh-in/`. Uninstalling l
 ledger and every `.kb/` atom where it is; delete a ledger's folder (below) yourself if you want
 it gone.
 
-## The band above the prompt (Claude Code)
+## The band, the board pane and edit toasts (Claude Code)
 
 The plugin also ships a mod: a hooks module (`hooks/mod/register.tsx`) that shows this
 repository's ledger above the prompt, `Weigh-In · 3 open here · 1 one-way · 2 defaults`, with a
-**Sit** button that runs `/weigh-in`. The band is hidden when nothing is open and no default
+**Sit** button that runs `/weigh-in` and a **Board** button that opens the board pane. The band is hidden when nothing is open and no default
 waits for review, and where the row is too narrow it moves to the status line under the prompt.
 It refreshes when the session starts and once after each turn, from `weighin open --repo --json`
 and `weighin digest --json`. It also adds `/wi`, answered without a Claude turn:
 
     /wi open                                       open items in this repository
+    /wi board                                      the board pane (below)
     /wi stats                                      the ledger's health numbers
     /wi decide <id> <option> [note]                also <id>: <option> (note: …), as the board copies it
     /wi defer <id> — trigger: …; resolve by: …; default: <X> (note: …)
@@ -104,6 +105,32 @@ and `weighin digest --json`. It also adds `/wi`, answered without a Claude turn:
 `decide` and `defer` take the same arguments as the board's "Copy as prompt" strings, with
 `/wi` in place of `/weigh-in`, and print what `weighin` printed. When the plugin has no binary
 for your platform, the band and `/wi` say "capture is off", as SessionStart does (B-11).
+
+**The board pane** (`/wi board`, or **Board** on the band) is the local board (D-0017): it runs
+on your machine and never publishes. It reads `weighin board export --stdout` and has three tabs.
+*Needs you* holds the cards a sitting has grounded, by rank, each in full: the question, why it
+matters, the door and its note, the blast radius, resolve-by, the evidence as `path:line` text you
+can select, the excerpt, the options with what each holds if and costs if wrong, and the
+recommendation. A one-way door lists its options first and pre-selects none, not even the
+default of a deferral. Type an optional note,
+then press an option to decide, **Defer…** for a trigger, a resolve-by and a default, or
+**Dismiss…** with a reason. Items no sitting has grounded are listed read-only: settle them in a
+sitting. *Decided for you* lists the defaults taken without you, each with **Reopen** and **Ack**,
+and *Settled* the decisions already made. Each press writes one answer through `weighin board
+apply --surface pane` (an acknowledgement through `weighin batch`), shows what `weighin` printed,
+refused answers included, and reads the board again; a press while an answer is still being
+written is ignored, and a write that timed out says it may have been applied. Under board mode `off` (or with no
+`.kb/_ledger/config.json`) the pane shows `weighin`'s one line and nothing else. Where the pane
+cannot be placed, `/wi board` answers with the board as text, and **Board** writes it to the
+transcript; a pane left waiting undrawn is not read again until it is placed.
+
+**Edit toasts.** After a `Write`, `Edit` or `MultiEdit` that succeeded, the mod runs `weighin
+decisions --path <file> --json` once and, when decisions stand at that file, shows at most three
+of them in a toast and on a second band line, newest first, in the line format the model reads.
+The model's come from the `PostToolUse` hook, which ranks them by the line the edit touched, so
+the two may pick different three when more stand at a file. An edit that lists none clears the
+band line. If `weighin` cannot list them, the transcript says so once a session. It never changes
+the tool call or its result, and runs nothing after a failed or refused one.
 
 It needs Claude Code 2.1.287 or later in a terminal, or the desktop app 2.1.286 or later. Older
 versions ignore the module and run the hooks and the skill as before. It draws only in a terminal

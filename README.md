@@ -19,6 +19,9 @@ It stands on its own until redkiln-rs is ready to receive it.
 | Convention and open counts | `SessionStart` command hook | ~150 per session |
 | Sweep, five filters, grounding, cards | `/weigh-in` skill, in the chat that raised them | one sitting, 3–4 requests |
 | Record | `weighin` CLI: event, atom in `.kb/_intake/`, source annotation | 0 |
+| Ledger band and `/wi` commands, Claude Code only | the mod (`plugin/hooks/mod/`) | 0 |
+| Local board pane: decide, defer, dismiss, reopen or ack grounded cards and defaults | the mod, through `board export --stdout` and `board apply --surface pane` | 0 |
+| Toast for past decisions at an edited file, for the person | the mod's `tool.call` hook | 0 |
 
 The ledger is an event log in happenstance's SQLite schema at
 `<git-common-dir>/weighin/ledger.sqlite3`: shared by every worktree of the repo, never

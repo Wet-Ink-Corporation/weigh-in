@@ -862,3 +862,37 @@ the local part of `user.email`, slugged the same way, and without that, `ryan` a
 keeps its owner, and `--owner` still sets it. Folders with a config pay nothing: git is asked only
 when there is none, and then only when an owner is needed (a decision, a deferral or `init`), so
 hooks and reads never ask it.
+
+## B-32
+
+**The board pane writes through `board apply --surface pane`, and acks through `batch`.**
+2026-10-19 · Claude's calls in the AFK cloud session, two-way, open to Ryan · the mod half of
+[#115](https://github.com/Wet-Ink-Corporation/weigh-in/issues/115) and
+[#116](https://github.com/Wet-Ink-Corporation/weigh-in/issues/116), over [B-30](#b-30)'s CLI.
+
+- The pane (`plugin/hooks/mod/pane.tsx`) reads `board export --stdout` and `open --repo --json`,
+  and sends each choice, deferral, dismissal or reopen as one Answer on stdin to
+  `board apply --surface pane`, showing the CLI's receipt or refusal word for word. Raw items
+  are listed read-only. Under board mode `off` or without a config it shows the export's one
+  refusal line.
+- The Answer format has no acknowledgement, so **Ack** on a default runs `weighin batch` with
+  one `ack` operation, as the sitting's digest does. It is the pane's only write outside
+  `board apply`.
+- A deferral's flip is its trigger, as the CLI already records it, so the form asks for a
+  trigger, a resolve-by and a default, not a separate flip.
+- Where `$.ui.open` reports the pane is not placed, `/wi board` answers with the board as text
+  and the band's Board button writes that text to the transcript.
+- On a successful Write, Edit or MultiEdit the mod shows, as a toast and a band line, at most
+  three of the decisions anchored at the file (`decisions --path --json`, newest first), each
+  line clipped as `recall::Anchored::line` clips it. The PostToolUse hook gives the model at most
+  three too, but ranked by the edited line, so where more stand the two can differ. An edit that
+  lists none clears the band line; a failure to list them is told once a session. It never
+  alters the tool call or its result.
+- After review: one write at a time (a press while an answer is being written is ignored, so a
+  double press is not refused as already answered); a write that timed out says it may have been
+  applied and the board is read again; a pane waiting undrawn is not read at each turn end; a
+  one-way door's deferral pre-selects no default; `/wi decide` and `/wi defer` pass typed text as
+  `--flag=value` and the positionals after `--`; each load clears a status entry a previous load
+  left up.
+
+Not done: recording a presentation when the pane shows a card.
