@@ -596,12 +596,11 @@ The Artifact `db` board changes the brief's cross-client problem from "build an 
 
 The remaining uncertainty is narrow and cheap to close: six 15-minute checks on Cowork session identity, ArtifactData availability, worktree reads, link schemes, `db` limits and preview rendering. The one call with consequences beyond Ryan's own repos is whether client-repo decisions may ever leave the machine.
 
-## Amendment (draft, 2026-10-14): what v1 shipped
+## Amendment (2026-10-19): what v1 shipped
 
-**Draft for [#26](https://github.com/Wet-Ink-Corporation/weigh-in/issues/26), not a decision.**
-It records the state at 0.6.2 against the design above. v1 is not live: 1.0.0 is not tagged, and
-some exit criteria below are pending. 0.9.0 is the release candidate and 1.0.0 adds no code to it
-([B-23](../decisions/build-decisions.md#b-23)). The decision records in
+This records 1.0.0 against the design above ([#26](https://github.com/Wet-Ink-Corporation/weigh-in/issues/26)).
+1.0.0 is 0.9.0 plus one skill fix ([#143](https://github.com/Wet-Ink-Corporation/weigh-in/issues/143)),
+with no new Rust ([B-23](../decisions/build-decisions.md#b-23)). The decision records in
 [`docs/decisions/`](../decisions/README.md) win where this summary and they differ.
 
 **What v1 built.** Slice 1, plus slice 2's board:
@@ -642,8 +641,10 @@ some exit criteria below are pending. 0.9.0 is the release candidate and 1.0.0 a
 
 - **V1** (Cowork session id): passed on 2026-10-13 in a Projects-based Cowork task. The same run
   found cards printed as text and the ledger left in the cloud workspace, fixed in 0.6.2
-  ([#126](https://github.com/Wet-Ink-Corporation/weigh-in/issues/126)); Ryan's re-check is
-  pending ([#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16)).
+  ([#126](https://github.com/Wet-Ink-Corporation/weigh-in/issues/126)). Re-checked on 0.9.0 on
+  2026-10-18: a tappable one-way card, nothing recorded before the tap, and the decision and its
+  atom in the connected folder ([#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16)).
+  The same re-check found the binary fallback took any version, fixed in 1.0.0 (#143).
 - **V2** (ArtifactData from Cowork): deferred to slice 2; the board does not run from Cowork in v1
   ([B-17](../decisions/build-decisions.md#b-17)).
 - **V3** (sibling worktrees' ledgers): made moot by [wi-6e2a47](../decisions/wi-6e2a47.md), since
@@ -653,42 +654,42 @@ some exit criteria below are pending. 0.9.0 is the release candidate and 1.0.0 a
   text ([#18](https://github.com/Wet-Ink-Corporation/weigh-in/issues/18)).
 - **V5** (`db` limits): closed. One document holds at most 262,144 bytes; a 1,000-default ledger
   exports 59,678 bytes with 200 shown ([#19](https://github.com/Wet-Ink-Corporation/weigh-in/issues/19)).
-- **V6** (previews): passed in the desktop Code tab. The Cowork question card is re-checked on
-  0.6.2 with V1 ([#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20)).
+- **V6** (previews): passed in the desktop Code tab, and the question card passed in a Projects
+  task with V1's re-check on 2026-10-18 ([#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20)).
 - **V7** (added: the Windows binary from an installed plugin): verified on 2026-10-03 with Git
   Bash, and hooks captured without Git Bash on 2026-10-13. The same run found the desktop app's
   sitting could not reach the binary, fixed in 0.6.2
-  ([#127](https://github.com/Wet-Ink-Corporation/weigh-in/issues/127)); Ryan's re-check is pending
-  ([#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)).
+  ([#127](https://github.com/Wet-Ink-Corporation/weigh-in/issues/127)). Re-checked on 0.9.0 on
+  2026-10-18 in the desktop app, with and without Git Bash: the sitting reaches the ledger through
+  the copied binary ([#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)).
 
 **Left out of v1.** The rest of slice 2 and all of slice 3: the grounder and stability check,
 `serve --wait` (replaced by the mod pane, D-0017), just-in-time surfacing, the board from Cowork,
 reliance drills and the door classifier ([D-0013](../decisions/build-decisions.md#d-0013),
 tracked in [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)). Per-category
-suppression comes into v1 only if the not-useful rate exceeds 10%
+suppression stays out: the not-useful rate was 0%
 ([#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25)).
 
-**Exit criteria on 2026-10-14.** The design's slice 1 criteria, as the [v1 plan](../v1-plan.md)
-restates them:
+**Exit criteria at 1.0.0.** The design's slice 1 criteria, as the [v1 plan](../v1-plan.md)
+restates them, with one week of use instead of two ([D-0019](../decisions/build-decisions.md#d-0019)):
 
-- Action rate at least 60%, not-useful at most 10%: **pending.** Week 1 of use opened on
-  2026-10-12; its stats are due on or after 2026-10-19
+- Action rate at least 60%, not-useful at most 10%: **met.** Week 1 (2026-10-12 to 10-18), six
+  folders: 90 presented, action rate 73%, not-useful 0%
   ([#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23)).
 - Marker capture precision at least 80%: **met**, 15 of 15 on 110 items, with the bar in force
   (wi-a9df17) and the labels reviewed by Ryan ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)).
 - No "pending" item reported as "done", and one sitting that returns "no decisions need you":
-  **pending**, measured over the two weeks of use. From 0.6.2 a sitting whose writes fail says
-  nothing was recorded and keeps every item open.
-- Every V-item closed or deferred by a decision: **pending** Ryan's re-checks of V1, the Cowork
-  half of V6 and V7 on 0.6.2.
-- No ledger corruption and no unexplained `hook-errors.log` lines: **pending**, measured over the
-  two weeks.
+  **met.** Sittings whose writes failed said nothing was recorded and kept their items open, and
+  sittings on 2026-10-18 returned "no decisions need you".
+- Every V-item closed or deferred by a decision: **met.** V1, V6 and V7 passed their re-checks on
+  0.9.0; V2 is deferred (B-17), V3 is moot (B-24), V4 and V5 are closed.
+- No ledger corruption and no unexplained `hook-errors.log` lines: **met**, 0 hook errors across
+  the six ledgers in week 1.
 - Each of Ryan's machines installs without Rust: **met** for the organization-synced
   `weigh-in-plugin` copy on Windows and in Cowork ([#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76))
   and the `marketplace` branch on Windows ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13));
   macOS and Linux unverified.
-- A 0.2.2 ledger opens under the candidate: fixture tests pass on `main`
-  ([B-10](../decisions/build-decisions.md#b-10)); to recheck on the 1.0.0 candidate.
+- A 0.2.2 ledger opens under 1.0.0: fixture tests pass ([B-10](../decisions/build-decisions.md#b-10)).
 
 **Reviews since 0.2.2.** Three `/code-review` passes (#26): 14 candidates on 2026-10-06 (7 fixed),
 34 at 0.5.4 (24 fixed), and 17 at 0.6.2 (5 fixed in #133 and #134; the rest left
