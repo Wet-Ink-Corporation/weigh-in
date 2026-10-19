@@ -32,3 +32,4 @@
 {"t":"2026-10-19T16:14:14.662Z","sid":"57a0dc54-3d0f-5025-aae8-da9bd0eb38d8","ccr":"cse_01PrLsxZrjcKndqdoYjEhauy","agent":"temper:rust-reviewer","event":"subagent-start","type":"temper:rust-reviewer"}
 {"t":"2026-10-19T16:15:02.568Z","sid":"57a0dc54-3d0f-5025-aae8-da9bd0eb38d8","ccr":"cse_01PrLsxZrjcKndqdoYjEhauy","agent":"main","event":"gate-start","pid":24486,"timeoutMs":1200000}
 {"t":"2026-10-19T16:15:02.939Z","sid":"57a0dc54-3d0f-5025-aae8-da9bd0eb38d8","ccr":"cse_01PrLsxZrjcKndqdoYjEhauy","agent":"main","event":"stop-blocked","reason":"no-review","fp":"b825b0d855716453","ms":367,"cached":true,"pid":24486}
+{"t":"2026-10-19T16:15:10.285Z","sid":"57a0dc54-3d0f-5025-aae8-da9bd0eb38d8","ccr":"cse_01PrLsxZrjcKndqdoYjEhauy","agent":"main","event":"stop-declared","status":"WIP"}
