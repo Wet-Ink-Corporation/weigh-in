@@ -676,3 +676,30 @@ its length differs: copies are kept per version, and two builds of one version h
 length only in development. The path printed is always the running version's, so an older copy
 is never run against the ledger (B-05). Outside git, and on other platforms, nothing is copied.
 Capture is unchanged.
+
+## B-27
+
+**v1 is live.** 2026-10-19 · Ryan's call · closes Phase 4 of the [v1 plan](../v1-plan.md)
+([#26](https://github.com/Wet-Ink-Corporation/weigh-in/issues/26)).
+
+Ryan tagged 1.0.0 on 2026-10-19, after one week of use ([D-0019](#d-0019)). The
+[release workflow](https://github.com/Wet-Ink-Corporation/weigh-in/actions/runs/39191411957)
+passed. It published the plugin zip, the Linux musl, Windows msvc and macOS arm64 binaries, and
+SHA256SUMS, and it moved the `marketplace` branch and `weigh-in-plugin`'s `main` to 1.0.0, with all
+three binaries under `libexec` ([B-19](#b-19)). These are the plan's exit criteria and their
+results:
+
+| Criterion | Result |
+|---|---|
+| Action rate ≥ 60%, not-useful ≤ 10% | Met: week 1 of [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23), six folders: 90 presented, 73% action rate, 0% not useful. [#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) stays out of v1 |
+| Capture precision ≥ 80% on the seed | Met: 15 of 15 (110 items, 27 labelled `capture`; wi-a9df17), with labels reviewed ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)) |
+| No "pending" item reported as "done"; one sitting returns "no decisions need you" | Met: sittings whose writes failed said nothing was recorded, and the sittings on 2026-10-18 returned "no decisions need you" |
+| Every V-item closed or deferred past 1.0 | Met: V1, V6 and V7 passed their re-checks on 0.9.0 ([#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16), [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20), [#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)); V2 deferred ([B-17](#b-17)), V3 moot ([B-24](#b-24)), V4 and V5 closed |
+| No ledger corruption, no unexplained `hook-errors.log` lines | Met: 0 hook errors across six ledgers in week 1 |
+| Each machine reaches a working `/weigh-in` without Rust; Cowork works | Met on Windows and in Cowork through the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)) and the organization-synced copy ([#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76)). macOS and Linux installs are unverified. Projects tasks use a connected checkout's binary only when it is this release's ([#143](https://github.com/Wet-Ink-Corporation/weigh-in/issues/143)) |
+| A 0.2.2 ledger opens and reads under the candidate | Met: fixture tests pass at 1.0.0 ([B-10](#b-10)) |
+
+Three code reviews since 0.2.2 are recorded on #26, with every finding fixed, refuted or left
+with a reason. Left open on purpose: whether a cloud session in this checkout captures twice when
+the organization-synced plugin also loads (#143), and the capture items held back for the pilot
+(#26). Next: slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
