@@ -87,6 +87,36 @@ The plugin's files are under `~/.claude/plugins/cache/weigh-in/`. Uninstalling l
 ledger and every `.kb/` atom where it is; delete a ledger's folder (below) yourself if you want
 it gone.
 
+## The band above the prompt (Claude Code)
+
+The plugin also ships a mod: a hooks module (`hooks/mod/register.tsx`) that shows this
+repository's ledger above the prompt, `Weigh-In · 3 open here · 1 one-way · 2 defaults`, with a
+**Sit** button that runs `/weigh-in`. The band is hidden when nothing is open and no default
+waits for review, and where the row is too narrow it moves to the status line under the prompt.
+It refreshes when the session starts and once after each turn, from `weighin open --repo --json`
+and `weighin digest --json`. It also adds `/wi`, answered without a Claude turn:
+
+    /wi open                                       open items in this repository
+    /wi stats                                      the ledger's health numbers
+    /wi decide <id> <option> [note]                also <id>: <option> (note: …), as the board copies it
+    /wi defer <id> — trigger: …; resolve by: …; default: <X> (note: …)
+
+`decide` and `defer` take the same arguments as the board's "Copy as prompt" strings, with
+`/wi` in place of `/weigh-in`, and print what `weighin` printed. When the plugin has no binary
+for your platform, the band and `/wi` say "capture is off", as SessionStart does (B-11).
+
+It needs Claude Code 2.1.287 or later in a terminal, or the desktop app 2.1.286 or later. Older
+versions ignore the module and run the hooks and the skill as before. It draws only in a terminal
+and in the desktop app: in the VS Code panel, cloud sessions, Cowork and `claude -p` it registers
+nothing and runs nothing.
+
+To turn it off and keep the rest of the plugin, set `WEIGHIN_MOD=0` in the environment Claude
+Code starts with, or in the `env` block of `~/.claude/settings.json`:
+
+    { "env": { "WEIGHIN_MOD": "0" } }
+
+`disableAllHooks` and `--safe-mode` turn it off too, with every other hook.
+
 ## Cowork
 
 Cowork takes plugins from your claude.ai account, and while releases are internal its skill

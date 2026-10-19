@@ -44,6 +44,39 @@ impl Channel {
     }
 }
 
+/// Where an item was shown or decided: the spellings [`Presented::surface`] and
+/// [`Decided::via`] use.
+///
+/// Those fields stay strings, so a stored event with any other spelling still decodes; this is
+/// the vocabulary writers use, so `weighin stats` and the journals keep the surfaces apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Surface {
+    /// A card in the chat that raised the item (a sitting).
+    Chat,
+    /// The claude.ai Artifact board.
+    Board,
+    /// The local review page.
+    Local,
+    /// The local board pane of a Claude Code mod, which never publishes (D-0017).
+    Pane,
+    /// A `weighin` command typed by hand.
+    Cli,
+}
+
+impl Surface {
+    /// The wire spelling: `chat`, `board`, `local`, `pane` or `cli`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Chat => "chat",
+            Self::Board => "board",
+            Self::Local => "local",
+            Self::Pane => "pane",
+            Self::Cli => "cli",
+        }
+    }
+}
+
 /// How far a wrong answer would reach (the blast radius), as the triage pass judged it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -341,7 +374,7 @@ pub struct Grounded {
 pub struct Presented {
     /// The item shown.
     pub item_id: ItemId,
-    /// `chat`, `board` or `local`.
+    /// `chat`, `board`, `local` or `pane` (a [`Surface`]).
     pub surface: String,
     /// The tree the human saw (redkiln-rs ADR-0105 clause 4: temporary index, untracked excluded).
     ///
@@ -372,7 +405,7 @@ pub struct Decided {
     /// Whether `option` is the card's recommended option; `None` when the item had no card.
     #[serde(default)]
     pub matched_recommendation: Option<bool>,
-    /// `chat`, `board`, `cli`.
+    /// `chat`, `board`, `pane` or `cli` (a [`Surface`]).
     pub via: String,
     /// Seconds from the latest presentation to the decision, unless the caller reported a figure.
     ///
@@ -715,6 +748,21 @@ mod tests {
         assert!(text.contains("\"type\":\"item_dismissed\""), "{text}");
         assert_eq!(EventEnvelope::from_json(&bytes).unwrap(), e);
         assert!(EVENT_TYPES.contains(&e.event.event_type()));
+    }
+
+    #[test]
+    fn every_surface_has_its_wire_spelling() {
+        let all = [
+            Surface::Chat,
+            Surface::Board,
+            Surface::Local,
+            Surface::Pane,
+            Surface::Cli,
+        ];
+
+        let spelled = all.map(Surface::as_str);
+
+        assert_eq!(spelled, ["chat", "board", "local", "pane", "cli"]);
     }
 
     #[test]

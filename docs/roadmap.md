@@ -68,7 +68,7 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 - **No board from Cowork:** slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 - **happenstance is held at 0.3.2**, now with a way past it: a schema change is one more ledger
   migration step ([B-10](decisions/build-decisions.md#b-10)).
-- **The default owner is `ryan`** unless `init --owner` sets it; after v1 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
+- **The default owner comes from git** (`user.name`, else the email's local part, else `ryan`) unless `init --owner` sets it ([B-31](decisions/build-decisions.md#b-31), [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 - **Sitting cost follows session length:** about 3 × the context at the cache-read price plus
   about 5,600 output tokens, recorded as the v1 figure ([D-0016](decisions/build-decisions.md#d-0016), [#24](https://github.com/Wet-Ink-Corporation/weigh-in/issues/24)).
 - **Agents marked few of their own calls before 0.5.2.** On the eval seed at 72 items (20 labelled

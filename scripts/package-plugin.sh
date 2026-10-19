@@ -70,5 +70,6 @@ sed "s/V=[^;]*; S=[^;]*;/V=$version; S=$sha;/" "$skill" > "$skill.new" && mv "$s
 mkdir -p dist
 out="$root/dist/weigh-in-plugin-$version.zip"
 rm -f "$out"
-(cd "$stage" && zip -qr "$out" . -x '*.DS_Store')
+# The mod's tests run from the repository (tests/mod-check.sh), not from the installed plugin.
+(cd "$stage" && zip -qr "$out" . -x '*.DS_Store' -x '*.test.ts')
 echo "dist/weigh-in-plugin-$version.zip · stamped v$version · linux sha256 $sha"

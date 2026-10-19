@@ -789,3 +789,76 @@ These were Claude's calls, all two-way and open to Ryan:
 
 Not done: signing journals or reports, any policy on what blocks a merge, and replaying journals
 into a new container's ledger (B-21).
+
+## B-29
+
+**The Claude Code mod ships inside `weigh`.** 2026-10-19 · Claude's call in the AFK cloud
+session, from the spike on [#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113);
+two-way, open to Ryan · implements [D-0017](#d-0017)'s first step ([#114](https://github.com/Wet-Ink-Corporation/weigh-in/issues/114)).
+
+The spike asked whether the plugin can carry a hooks module (`"modules"` in `hooks/hooks.json`
+beside the command hooks) without breaking a route that works today. On Claude Code 2.1.303,
+`claude plugin validate` and `package-plugin.sh --no-download` pass, and a `--plugin-dir` run
+loads the module next to the command hooks. Claude Code 2.1.200 ignores `modules`: it validates
+the zip, registers the plugin's four command hooks and runs SessionStart. The organization sync
+already delivers a plugin with a module (temper 1.4.0 ships `./lens/register.tsx` and loads in
+cloud sessions), so the sync does not refuse `modules` the way it refuses `plugin/bin/` ([B-03](#b-03)).
+So the mod lives in `plugin/hooks/mod/register.tsx`, with its state contract in
+`plugin/types/index.d.ts`, rather than in a second plugin. Not yet seen: the plugin loading in
+Cowork with the module present, and `$.process.run` starting `weighin.exe` or `weighin.cmd` on
+Windows; both are Ryan's runs on #113. A failure in either moves the mod to `weigh-mod@weigh-in`.
+
+The mod reads `open --repo --json` and `digest --json` and writes only through `decide` and
+`defer`, run by argv; it draws only in a terminal or the desktop app, and `WEIGHIN_MOD=0` turns
+it off. Its tests (`plugin/hooks/mod/mod.test.ts`) run with `tests/mod-check.sh` (validate,
+`claude plugin test`, strict `tsc`) and stay out of the zip. Running that script in CI is a CI
+change, so it waits for Ryan.
+
+## B-30
+
+**The local board pane reads the board on stdout and answers through stdin, as surface `pane`.**
+2026-10-19 · Claude's calls in the AFK cloud session, two-way, open to Ryan as weigh-in items ·
+the CLI half of [#115](https://github.com/Wet-Ink-Corporation/weigh-in/issues/115) · follows
+[D-0017](#d-0017) and keeps [B-25](#b-25)'s guard.
+
+- **Export.** `weighin board export --stdout` prints the board state document (the same
+  `BoardState` the Artifact board reads) as one JSON line, under a `local` or an `artifact`
+  board. It writes no file, creates no ledger, and never publishes; Claude pushing a file to
+  claude.ai is still the only way a board leaves the machine, and `--stdout` gives it no file.
+  It refuses a folder never initialised, a broken config and board mode `off`, which shows
+  nothing. Without `--stdout`, `board export` is unchanged and still refuses outside `artifact`.
+  A flag rather than a `board state` subcommand, so one export path holds the guard.
+- **Apply.** `weighin board apply` reads its answers from stdin when it is given `-` or no path,
+  in the forms a file takes, at most 256 KiB, so the pane leaves no temporary file beside the
+  ledger ([B-01](#b-01)). `--surface pane` (the default is `board`) records its decisions with
+  `via: pane` and its other reasons as `in the pane`, refuses an answer for an item no sitting
+  grounded (it has no card, so it is read-only in the pane), refuses under board mode `off` or
+  with no config, and fails the command when any answer was refused, after applying the rest,
+  since the pane sends one answer at a time and must know. A choice or deferral read from an older card
+  (a stale `card_rev`) is refused by the answer validation the board already uses. From the board, `board apply` is unchanged.
+- **Surface vocabulary.** `weighin_core::event::Surface` names the spellings of
+  `item_presented.surface` and `item_decided.via`: `chat`, `board`, `local`, `pane`, `cli`. The
+  stored fields stay strings, so no event changes shape. `weighin stats --json` gains
+  `decided_via`, the decisions still standing by where they were taken, so pane, chat and board
+  stay apart; the journal already keeps each event's surface. The text line of `stats` is
+  unchanged.
+
+Not done: the pane itself (the mod), and recording a presentation when the pane shows a card.
+
+## B-31
+
+**The default owner comes from git.** 2026-10-19 · Claude's call in the AFK cloud session,
+two-way, open to Ryan as a weigh-in item · the [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)
+item "owner default from git config instead of `ryan`".
+
+Decisions record `human:<owner>` and deferrals an owner, and the owner was `ryan` in every folder
+whose config did not name one, which is wrong as soon as anyone else uses Weigh-In. Now, where
+a folder has no usable config (none, or one that does not parse, which only hooks run on), the
+owner is `git config user.name` as git reads it from the folder, made a slug: lower-case ASCII
+letters and digits, any other ASCII character separating words, characters outside ASCII dropped,
+words joined with `-` (`Ana Lima` becomes `ana-lima`). Without a name that leaves a word, it is
+the local part of `user.email`, slugged the same way, and without that, `ryan` as before. A first
+`weighin init` without `--owner` writes that owner into the new config; a config that exists
+keeps its owner, and `--owner` still sets it. Folders with a config pay nothing: git is asked only
+when there is none, and then only when an owner is needed (a decision, a deferral or `init`), so
+hooks and reads never ask it.

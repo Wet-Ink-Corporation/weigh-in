@@ -15,6 +15,7 @@ It stands on its own until redkiln-rs is ready to receive it.
 |---|---|---|
 | Capture: `weigh-in` blocks in the agent's last message | `Stop` / `SubagentStop` command hook | 0 |
 | Capture: "Open questions" bullets and new TODOs in written files | `PostToolUse` command hook | 0 |
+| Past decisions anchored at an edited file, at most three lines per edit | `PostToolUse` command hook | ~40 per line shown |
 | Convention and open counts | `SessionStart` command hook | ~150 per session |
 | Sweep, five filters, grounding, cards | `/weigh-in` skill, in the chat that raised them | one sitting, 3–4 requests |
 | Record | `weighin` CLI: event, atom in `.kb/_intake/`, source annotation | 0 |
@@ -112,7 +113,8 @@ checkout of the `marketplace` branch.
 weighin [--store <file>] [--dir <folder>] [--session <id>] <command>
 weighin prime                            the marker convention and open counts
 weighin init [--class own|client] [--board artifact|local|off] [--board-url <url>] [--owner <who>]
-             [--ledger <path>]
+             [--ledger <path>]       a first init takes the owner from `git config user.name`
+                                     (else the email's local part, else `ryan`); later ones keep it
 weighin open [--repo | --all] [--with-context] [--top <n>] [--json]
                                          open items, ranked (one-way, blocking, authority first);
                                          `--all` lists closed ones too
@@ -135,11 +137,31 @@ weighin journal                          every ledger event as JSON lines; sessi
 weighin ci-check --base <ref> [--json]   CI report: open items, decisions since <ref>, append-only
                                          journals (schema weighin.ci-check/1)
 weighin trailer <id>                     the commit trailer for a decided item
+weighin decisions --path <file> [--line <n>] [--json]
+                                         decisions still standing that are anchored at a file,
+                                         nearest the line first, else newest first
 weighin scan <path>…                     backfill from existing documents
-weighin board export [--out <file>]      write the board state document
-weighin board apply <path>               apply board answers (a file or a directory)
+weighin board export [--out <file> | --stdout]
+                                         write the board state document; `--stdout` prints it
+                                         under a `local` or `artifact` board and writes no file
+weighin board apply [<path> | -] [--surface board|pane]
+                                         apply board answers (a file, a directory, or stdin);
+                                         `--surface pane` records them as the local pane's
 weighin hook                             hook entry point (reads the hook JSON on stdin)
 ```
+
+### Decisions on edits
+
+When a `Write`, `Edit` or `MultiEdit` touches a file that a decision still standing is anchored
+to (its `at:`, or the file it was scanned from), the `PostToolUse` hook adds that decision to
+the model's context, one line each and at most three per edit:
+`<id> decided <choice>: <question> (path:line)`. After an `Edit` the decisions nearest the edited
+line come first; after a `Write`, the newest. Only decided items count: one reopened,
+superseded or dismissed since is not shown, and neither is a default (the agent's own call, or
+one taken on expiry), which the digest reviews. The hook still raises exactly what it did
+before and nothing more; a failure here goes to `hook-errors.log` and adds nothing. It works on
+every surface where hooks run, cloud sessions included, but not in Cowork, whose hooks run in a
+scratch workspace (#116). `weighin decisions --path <file>` lists the same decisions.
 
 ### Session journals and CI
 
@@ -171,6 +193,10 @@ commit, so check out with `fetch-depth: 0` or fetch the base first.
 - `board export` writes a board only where `.kb/_ledger/config.json` chose the `artifact` board:
   it refuses a `local` or `off` mode, a folder never initialised (run `weighin init --class own`
   or `--class client` first) and a config that does not parse (wi-7c21e4).
+- `board export --stdout`, for the local board pane, prints the state under a `local` or
+  `artifact` board and never writes or publishes it; it refuses `off` and a folder never
+  initialised. `board apply --surface pane` records decisions with surface `pane`, leaves items
+  no sitting grounded read-only, and fails when an answer is refused (D-0017, B-30).
 
 ## Measured in this build
 
