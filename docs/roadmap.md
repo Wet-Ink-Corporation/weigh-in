@@ -7,12 +7,11 @@ State at 1.0.0 (2026-10-19). v1 is slice 1 made dependable, and every exit crite
 ([B-23](decisions/build-decisions.md#b-23)). The next milestone is slice 2
 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 
-**Where to pick up.** The 1.0.0 bump is merged and waits on Ryan's `v1.0.0` tag, following
-[`releasing.md`](releasing.md); cloud sessions cannot push tags. After the release workflow,
-check the release, the `marketplace` branch and `weigh-in-plugin` at 1.0.0, record "v1 live" with
-the tag date, and open the slice 2 milestone. Left open on purpose: whether a cloud session in
-this checkout captures twice when the organization-synced plugin also loads (noted on #143), and
-the capture items held back for the pilot on #26.
+**Where to pick up.** v1 is live: Ryan tagged 1.0.0 on 2026-10-19, and the release reached the
+`marketplace` branch and `weigh-in-plugin` ([B-27](decisions/build-decisions.md#b-27)). Next is
+slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)). Left open on purpose:
+whether a cloud session in this checkout captures twice when the organization-synced plugin also
+loads (noted on #143), and the capture items held back for the pilot on #26.
 
 v1 exit criteria ([v1 plan](v1-plan.md), Phase 3), at 1.0.0:
 
@@ -35,7 +34,7 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 | 1: use it here, upgrade safety (0.3.0) · **done** | [#7](https://github.com/Wet-Ink-Corporation/weigh-in/issues/7) use Weigh-In on this repository · [#8](https://github.com/Wet-Ink-Corporation/weigh-in/issues/8) ledger schema version · [#9](https://github.com/Wet-Ink-Corporation/weigh-in/issues/9) SessionStart says when capture is off · [#10](https://github.com/Wet-Ink-Corporation/weigh-in/issues/10) `weighin.cmd` picks the newer build · [#11](https://github.com/Wet-Ink-Corporation/weigh-in/issues/11) release |
 | 2: distribution (0.4.x) · **done** | [#12](https://github.com/Wet-Ink-Corporation/weigh-in/issues/12) `marketplace` branch from `release.yml` · [#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13) install from it; Cowork through a connected checkout · [#14](https://github.com/Wet-Ink-Corporation/weigh-in/issues/14) install guide · [#15](https://github.com/Wet-Ink-Corporation/weigh-in/issues/15) release · fixes from the installs: [#43](https://github.com/Wet-Ink-Corporation/weigh-in/issues/43) release rerun, [#46](https://github.com/Wet-Ink-Corporation/weigh-in/issues/46) auto-update, [#48](https://github.com/Wet-Ink-Corporation/weigh-in/issues/48) 0.4.1 |
 | 3: verify and use (0.9.x) · **done** | [#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16) V1 · [#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17) V2 · [#18](https://github.com/Wet-Ink-Corporation/weigh-in/issues/18) V4 · [#19](https://github.com/Wet-Ink-Corporation/weigh-in/issues/19) V5 · [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20) V6 · [#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21) V7 and hooks without Git Bash · [#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22) eval seed · [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23) two weeks of daily use · [#24](https://github.com/Wet-Ink-Corporation/weigh-in/issues/24) sitting cost (**done**, D-0016) · [#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) suppression, only if not-useful exceeds 10% |
-| 4: v1.0 · **1.0.0 bumped; Ryan pushes the tag** | [#26](https://github.com/Wet-Ink-Corporation/weigh-in/issues/26) release 1.0.0 and record v1 live |
+| 4: v1.0 · **done** (1.0.0, 2026-10-19) | [#26](https://github.com/Wet-Ink-Corporation/weigh-in/issues/26) release 1.0.0 and record v1 live |
 | After v1: the next milestone | [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27) slice 2 and later |
 
 ## Not yet verified
