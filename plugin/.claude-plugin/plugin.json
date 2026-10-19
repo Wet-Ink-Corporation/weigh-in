@@ -6,5 +6,6 @@
   "homepage": "https://github.com/Wet-Ink-Corporation/weigh-in",
   "repository": "https://github.com/Wet-Ink-Corporation/weigh-in",
   "license": "MIT OR Apache-2.0",
+  "types": "./types/index.d.ts",
   "keywords": ["decisions", "hitl", "adr", "kb", "redkiln"]
 }

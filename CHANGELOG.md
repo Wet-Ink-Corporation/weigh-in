@@ -14,6 +14,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - `weighin ci-check --base <ref> [--json]`: a report for CI, read from git and the checkout
   alone, of the open items, the decisions the branch adds with their commits, and whether the
   committed journals were only appended to. It exits 0 whenever it writes a report (#145).
+- A band above the prompt in Claude Code (2.1.287 or later, desktop 2.1.286) shows this
+  repository's open items, one-way doors and unreviewed defaults, with **Sit** to run
+  `/weigh-in`; `/wi open`, `/wi stats`, `/wi decide` and `/wi defer` answer without a Claude turn.
+  `WEIGHIN_MOD=0` turns it off; nothing changes in the VS Code panel, cloud sessions or Cowork
+  (#114).
 
 ## 1.0.0 — 2026-10-19
 

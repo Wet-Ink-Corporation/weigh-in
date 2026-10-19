@@ -10,7 +10,8 @@ what it does, `docs/decisions/` before changing behaviour, and `docs/roadmap.md`
 
 - `crates/weighin-core` — no I/O: events, ids, markers, scanning, cards, projection, atoms, board format.
 - `crates/weighin` — the CLI: store, git, context packs, hooks, the batch write path.
-- `plugin/` — the plugin: `skills/weigh-in/SKILL.md`, `hooks/hooks.json`, `libexec/` launcher and built binaries.
+- `plugin/` — the plugin: `skills/weigh-in/SKILL.md`, `hooks/hooks.json`, the mod (`hooks/mod/register.tsx`, `types/`, B-29), `libexec/` launcher and built binaries.
+- `tests/` — the mod's checks (`mod-check.sh`) and the plugin API types they compile against.
 - `scripts/` — `build-plugin-bins.sh` (Linux musl and Windows gnu), `build-plugin-bins.ps1` (Windows msvc), `package-plugin.sh` (zip for upload), `marketplace-branch.sh` (the `marketplace` branch commit, from that zip), `changelog-section.sh` (a version's `CHANGELOG.md` section: the release notes, and CI's check that a bump has its entry), `weekly-stats.sh` (`weighin stats` across folders, as markdown for #23).
 - `docs/` — research report and notes, decision records, roadmap.
 
@@ -25,6 +26,7 @@ cargo deny check                             # advisories, licences, sources (de
 ./scripts/build-plugin-bins.sh               # binaries into plugin/libexec/<target>/
 ./scripts/package-plugin.sh --no-download    # dist/weigh-in-plugin-<version>.zip
 claude plugin validate .                     # marketplace and plugin manifests
+bash tests/mod-check.sh                      # the mod: validate --strict, claude plugin test, strict tsc
 ```
 
 `.github/workflows/ci.yml` runs fmt, tests and docs on every push to `main` and every pull request,

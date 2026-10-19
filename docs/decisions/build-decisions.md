@@ -789,3 +789,27 @@ These were Claude's calls, all two-way and open to Ryan:
 
 Not done: signing journals or reports, any policy on what blocks a merge, and replaying journals
 into a new container's ledger (B-21).
+
+## B-29
+
+**The Claude Code mod ships inside `weigh`.** 2026-10-19 · Claude's call in the AFK cloud
+session, from the spike on [#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113);
+two-way, open to Ryan · implements [D-0017](#d-0017)'s first step ([#114](https://github.com/Wet-Ink-Corporation/weigh-in/issues/114)).
+
+The spike asked whether the plugin can carry a hooks module (`"modules"` in `hooks/hooks.json`
+beside the command hooks) without breaking a route that works today. On Claude Code 2.1.303,
+`claude plugin validate` and `package-plugin.sh --no-download` pass, and a `--plugin-dir` run
+loads the module next to the command hooks. Claude Code 2.1.200 ignores `modules`: it validates
+the zip, registers the plugin's four command hooks and runs SessionStart. The organization sync
+already delivers a plugin with a module (temper 1.4.0 ships `./lens/register.tsx` and loads in
+cloud sessions), so the sync does not refuse `modules` the way it refuses `plugin/bin/` ([B-03](#b-03)).
+So the mod lives in `plugin/hooks/mod/register.tsx`, with its state contract in
+`plugin/types/index.d.ts`, rather than in a second plugin. Not yet seen: the plugin loading in
+Cowork with the module present, and `$.process.run` starting `weighin.exe` or `weighin.cmd` on
+Windows; both are Ryan's runs on #113. A failure in either moves the mod to `weigh-mod@weigh-in`.
+
+The mod reads `open --repo --json` and `digest --json` and writes only through `decide` and
+`defer`, run by argv; it draws only in a terminal or the desktop app, and `WEIGHIN_MOD=0` turns
+it off. Its tests (`plugin/hooks/mod/mod.test.ts`) run with `tests/mod-check.sh` (validate,
+`claude plugin test`, strict `tsc`) and stay out of the zip. Running that script in CI is a CI
+change, so it waits for Ryan.
