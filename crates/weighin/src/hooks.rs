@@ -30,8 +30,8 @@ use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Config, ConfigSource, Env};
 use crate::ops::{RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
-use crate::shell_bin;
 use crate::text::{Report, clip};
+use crate::{journal, shell_bin};
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
 /// (possibly nothing). Never fails: output that cannot be written is logged like any other hook
@@ -150,14 +150,24 @@ impl Hook {
                     .unwrap_or("startup");
                 return session_start(env, source);
             }
-            "Stop" | "SubagentStop" => capture(env, payload),
-            "PostToolUse" => scan(env, payload),
+            "Stop" | "SubagentStop" => self.journalled(capture(env, payload)),
+            "PostToolUse" => self.journalled(scan(env, payload)),
             _ => Ok(String::new()),
         };
         result.unwrap_or_else(|e| {
             self.log(&e);
             String::new()
         })
+    }
+
+    /// `result`, after bringing the session's journal up to date, whatever `result` is: a
+    /// capture that failed part way may have raised items first (B-28). A journal failure is
+    /// logged like any other hook failure, and the result is unchanged.
+    fn journalled(&self, result: Result<String>) -> Result<String> {
+        if let Err(e) = journal::sync(&self.env, journal::WAIT) {
+            self.log(&e.context("updating the session journal"));
+        }
+        result
     }
 }
 

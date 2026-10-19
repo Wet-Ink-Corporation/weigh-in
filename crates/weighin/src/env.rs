@@ -85,6 +85,8 @@ pub(crate) struct Config {
     /// from more than one computer, point this outside the synced tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) store: Option<String>,
+    /// Whether sessions keep their events in `.kb/_ledger/journal/<session>.jsonl` (B-28).
+    pub(crate) journal: bool,
 }
 
 impl Default for Config {
@@ -96,6 +98,7 @@ impl Default for Config {
             caps: Caps::default(),
             scan: ScanConfig::default(),
             store: None,
+            journal: true,
         }
     }
 }
