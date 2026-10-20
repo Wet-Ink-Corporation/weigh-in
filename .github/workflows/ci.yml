@@ -16,13 +16,19 @@ concurrency:
 
 jobs:
   check:
+    # The name stays keyed to the GitHub-hosted label the ruleset requires, e.g. `check (ubuntu-latest)`.
+    name: check (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         # Linux is what Cowork runs; Windows is where the launcher, paths and CRLF guards matter;
         # macOS is a release target, and its symlinked temp dirs are a B-08 case.
-        os: [blacksmith-4vcpu-ubuntu-2404, blacksmith-4vcpu-windows-2025, blacksmith-6vcpu-macos-15]
-    runs-on: ${{ matrix.os }}
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - { os: ubuntu-latest, runner: blacksmith-4vcpu-ubuntu-2404 }
+          - { os: windows-latest, runner: blacksmith-4vcpu-windows-2025 }
+          - { os: macos-latest, runner: blacksmith-6vcpu-macos-15 }
+    runs-on: ${{ matrix.runner }}
     env:
       CARGO_TERM_COLOR: always
       # On a pull request rust.yml's gate already runs fmt, the tests and the docs on Linux, so
@@ -52,7 +58,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: useblacksmith/checkout@v1 # v7.0.1
+      - uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1.8.1
       - name: toolchain (pinned by rust-toolchain.toml)
         run: rustup toolchain install
       - name: stamp, versions and changelog
@@ -110,5 +116,5 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: useblacksmith/checkout@v1 # v7.0.1
+      - uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1.8.1
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
