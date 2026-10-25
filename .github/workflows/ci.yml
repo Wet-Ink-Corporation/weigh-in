@@ -16,19 +16,15 @@ concurrency:
 
 jobs:
   check:
-    # The name stays keyed to the GitHub-hosted label the ruleset requires, e.g. `check (ubuntu-latest)`.
-    name: check (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         # Linux is what Cowork runs; Windows is where the launcher, paths and CRLF guards matter;
         # macOS is a release target, and its symlinked temp dirs are a B-08 case.
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        include:
-          - { os: ubuntu-latest, runner: blacksmith-4vcpu-ubuntu-2404 }
-          - { os: windows-latest, runner: blacksmith-4vcpu-windows-2025 }
-          - { os: macos-latest, runner: blacksmith-6vcpu-macos-15 }
-    runs-on: ${{ matrix.runner }}
+        # Windows and macOS run only while the org variable CI_NON_LINUX is 'true'
+        # (paused 2026-10 while hosted Actions minutes are exhausted).
+        os: ${{ fromJSON(vars.CI_NON_LINUX == 'true' && '["ubuntu-latest", "windows-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
       # On a pull request rust.yml's gate already runs fmt, the tests and the docs on Linux, so
@@ -54,11 +50,11 @@ jobs:
     # The plugin as shipped: manifests valid, the skill's one stamp intact, versions and changelog
     # in step, package-plugin.sh producing a zip whose skill is stamped and launcher runs, and the
     # marketplace branch the release would publish from that zip.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1.8.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: toolchain (pinned by rust-toolchain.toml)
         run: rustup toolchain install
       - name: stamp, versions and changelog
@@ -114,7 +110,7 @@ jobs:
     # Advisories, licences and sources of every dependency (deny.toml). On a pull request
     # rust.yml's gate runs `cargo deny` already (wi-218cc3); pushes and the release still run it.
     if: github.event_name != 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
-      - uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1.8.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
