@@ -6,7 +6,7 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
-## 1.1.0 — 2026-10-19
+## 1.1.0 — 2026-10-29
 
 Slice 2: the CI contract for assay, and the Claude Code mod (the ledger band, `/wi`, the local
 board pane and decisions shown on edits).
