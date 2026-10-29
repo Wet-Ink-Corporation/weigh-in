@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 1.1.0 — 2026-10-29
+
+Slice 2: the CI contract for assay, and the Claude Code mod (the ledger band, `/wi`, the local
+board pane and decisions shown on edits).
+
 - The board pane in Claude Code (`/wi board`, or **Board** on the band): Needs you, Decided for
   you and Settled tabs over `weighin board export --stdout`, where grounded cards are decided,
   deferred or dismissed and defaults reopened or acknowledged, one answer at a time through

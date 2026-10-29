@@ -92,6 +92,10 @@ jobs:
         run: |
           npm install -g @anthropic-ai/claude-code
           claude plugin validate .
+      - name: mod (validate --strict, claude plugin test, strict tsc)
+        env:
+          TSC: npx --yes -p typescript@6.0.2 tsc
+        run: bash tests/mod-check.sh
       - name: marketplace branch as the release builds it (D-0009)
         run: |
           mp="$RUNNER_TEMP/marketplace"

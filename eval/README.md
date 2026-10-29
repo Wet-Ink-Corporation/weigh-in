@@ -149,3 +149,8 @@ One JSON object per line:
   wrap-up and the guided Cowork and Windows checks that found #126 and #127. All are true
   negatives. The seed is 100 items, 25 labelled `capture`, 15 captured (precision 100%, recall
   60%).
+
+  Added 2026-10-19: five end-of-turn messages from s21, the AFK slice 2 session (`rs21-01` to
+  `rs21-05`). Two carry blocks: one has three calls (a fresh ledger lists a logged default first),
+  and one is the Actions-outage question. Three are true negatives. The seed is 124 items, 32
+  labelled `capture`, 17 captured (precision 100%, recall 53%).
