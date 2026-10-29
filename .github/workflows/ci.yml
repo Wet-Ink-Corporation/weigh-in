@@ -21,7 +21,9 @@ jobs:
       matrix:
         # Linux is what Cowork runs; Windows is where the launcher, paths and CRLF guards matter;
         # macOS is a release target, and its symlinked temp dirs are a B-08 case.
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Windows and macOS run only while the org variable CI_NON_LINUX is 'true'
+        # (paused 2026-10 while hosted Actions minutes are exhausted).
+        os: ${{ fromJSON(vars.CI_NON_LINUX == 'true' && '["ubuntu-latest", "windows-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
