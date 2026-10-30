@@ -8,9 +8,17 @@ State at 1.0.0 (2026-10-19). v1 is slice 1 made dependable, and every exit crite
 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 
 **Where to pick up.** v1 is live: Ryan tagged 1.0.0 on 2026-10-19, and the release reached the
-`marketplace` branch and `weigh-in-plugin` ([B-27](decisions/build-decisions.md#b-27)). Next is
-slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)). Left open on purpose:
-whether a cloud session in this checkout captures twice when the organization-synced plugin also
+`marketplace` branch and `weigh-in-plugin` ([B-27](decisions/build-decisions.md#b-27)). Slice 2
+([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27), milestone `v1.1`) is built on
+`main` but not released: the CI contract for assay ([#145](https://github.com/Wet-Ink-Corporation/weigh-in/issues/145), B-28),
+and the Claude Code mod ([#112](https://github.com/Wet-Ink-Corporation/weigh-in/issues/112)): the band and `/wi`
+([#114](https://github.com/Wet-Ink-Corporation/weigh-in/issues/114), B-29), the local board pane
+([#115](https://github.com/Wet-Ink-Corporation/weigh-in/issues/115), B-30, B-32), decisions shown on edits
+([#116](https://github.com/Wet-Ink-Corporation/weigh-in/issues/116)), and the owner from git config (B-31).
+Waiting on Ryan: the mod's Cowork and Windows runs ([#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113)),
+V2 from Cowork ([#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17), labelled `blocked`), whether
+[#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) closes, and the next release tag. Left open on
+purpose: whether a cloud session in this checkout captures twice when the organization-synced plugin also
 loads (noted on #143), and the capture items held back for the pilot on #26.
 
 v1 exit criteria ([v1 plan](v1-plan.md), Phase 3), at 1.0.0:
