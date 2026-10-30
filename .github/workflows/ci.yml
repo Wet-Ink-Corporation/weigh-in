@@ -21,9 +21,7 @@ jobs:
       matrix:
         # Linux is what Cowork runs; Windows is where the launcher, paths and CRLF guards matter;
         # macOS is a release target, and its symlinked temp dirs are a B-08 case.
-        # Windows and macOS run only while the org variable CI_NON_LINUX is 'true'
-        # (paused 2026-10 while hosted Actions minutes are exhausted).
-        os: ${{ fromJSON(vars.CI_NON_LINUX == 'true' && '["ubuntu-latest", "windows-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
@@ -92,6 +90,10 @@ jobs:
         run: |
           npm install -g @anthropic-ai/claude-code
           claude plugin validate .
+      - name: mod (validate --strict, claude plugin test, strict tsc)
+        env:
+          TSC: npx --yes -p typescript@6.0.2 tsc
+        run: bash tests/mod-check.sh
       - name: marketplace branch as the release builds it (D-0009)
         run: |
           mp="$RUNNER_TEMP/marketplace"
