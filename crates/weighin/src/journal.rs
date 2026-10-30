@@ -2,10 +2,15 @@
 //!
 //! A cloud session's ledger goes with its container (D-0014), and with it every presentation,
 //! dismissal, deferral and default the pilot is judged on (#23); only decisions survive, as
-//! atoms. Such a session writes its ledger's events to `<DIR>/<session>.jsonl` with
-//! `weighin journal`, the file is committed with the session's work, and `stats` folds every
-//! journal with the ledger. An event held twice, in the ledger and a journal or in two journals,
-//! counts once.
+//! atoms. So every session keeps its own events in `<DIR>/<session>.jsonl`: the binary appends
+//! them after each capture hook and each command that changes the ledger ([`sync`], B-28), the
+//! file is committed with the session's work, and `stats` folds every journal with the ledger.
+//! An event held twice, in the ledger and a journal or in two journals, counts once.
+//! `weighin journal` prints the whole ledger in the same line format.
+
+mod append;
+
+pub(crate) use append::{Skip, Synced, WAIT, kept, sync, sync_events};
 
 use anyhow::{Context as _, Result};
 use std::collections::HashSet;
@@ -16,45 +21,122 @@ use weighin_core::{EventEnvelope, Ledger};
 /// Where journals live, relative to the worktree root.
 pub(crate) const DIR: &str = ".kb/_ledger/journal";
 
+/// One line of a journal file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Line<'a> {
+    /// 1-based line number.
+    pub(crate) number: u64,
+    /// The line's bytes without its `\n` and one trailing `\r`.
+    pub(crate) text: &'a [u8],
+    /// Whether a `\n` ended the line; only the last line of a file can lack one.
+    pub(crate) complete: bool,
+}
+
+impl Line<'_> {
+    /// Whether the line is UTF-8 whitespace only.
+    pub(crate) fn is_blank(&self) -> bool {
+        std::str::from_utf8(self.text).is_ok_and(|l| l.trim().is_empty())
+    }
+}
+
+/// The lines of a journal file's `bytes`, in order.
+pub(crate) fn lines(bytes: &[u8]) -> impl Iterator<Item = Line<'_>> {
+    (1_u64..)
+        .zip(bytes.split_inclusive(|&b| b == b'\n'))
+        .map(|(number, piece)| match piece.strip_suffix(b"\n") {
+            Some(text) => Line {
+                number,
+                text: text.strip_suffix(b"\r").unwrap_or(text),
+                complete: true,
+            },
+            None => Line {
+                number,
+                text: piece,
+                complete: false,
+            },
+        })
+}
+
+/// The journal line for `env`: its JSON and a newline. `write` and `sync` both use it, so a
+/// session's own journal holds the bytes `weighin journal` prints.
+///
+/// # Errors
+/// Fails when the event cannot be encoded.
+pub(crate) fn line(env: &EventEnvelope) -> serde_json::Result<Vec<u8>> {
+    let mut bytes = env.to_json()?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
 /// Write `events` as one JSON envelope per line, in the order given.
 ///
 /// # Errors
 /// Fails when an event cannot be encoded or `out` cannot be written.
 pub(crate) fn write(events: &[(u64, EventEnvelope)], out: &mut impl Write) -> Result<()> {
     for (_, env) in events {
-        out.write_all(&env.to_json()?)?;
-        out.write_all(b"\n")?;
+        out.write_all(&line(env)?)?;
     }
     Ok(())
 }
 
-/// Every event in the journals under `root`: files in name order, lines in file order, blank
-/// lines passed over. No journal directory reads as no events. A file's last line that has no
-/// trailing newline and does not decode is passed over too: a run killed mid-append cut it short.
-/// The hook script drops such a line and appends its event again while the session's ledger is
-/// there, but a journal committed before that, or after the container went, still holds it.
+/// A journal file as read from the worktree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct JournalFile {
+    /// The path relative to the worktree root, with `/` separators.
+    pub(crate) path: String,
+    /// The file's contents.
+    pub(crate) bytes: Vec<u8>,
+}
+
+/// Every `*.jsonl` file directly under `<root>/DIR`, in name order. No journal directory reads
+/// as no files.
 ///
 /// # Errors
-/// Fails when the directory or a journal cannot be read, or any other line is not an event; the
-/// error names the file and line.
-pub(crate) fn read(root: &Path) -> Result<Vec<EventEnvelope>> {
+/// Fails when the directory or a journal cannot be read.
+pub(crate) fn files(root: &Path) -> Result<Vec<JournalFile>> {
     let dir = root.join(DIR);
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(e).with_context(|| format!("reading {}", dir.display())),
     };
-    let mut files = entries
+    let mut paths = entries
         .map(|e| e.map(|e| e.path()))
         .collect::<std::io::Result<Vec<PathBuf>>>()
         .with_context(|| format!("reading {}", dir.display()))?;
-    files.retain(|p| p.extension().is_some_and(|x| x == "jsonl"));
-    files.sort();
+    paths.retain(|p| p.extension().is_some_and(|x| x == "jsonl"));
+    paths.sort();
+    paths
+        .iter()
+        .map(|p| {
+            // Bytes, not a string: a line cut short can end inside a multi-byte character.
+            let bytes = std::fs::read(p).with_context(|| format!("reading {}", p.display()))?;
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_default();
+            Ok(JournalFile {
+                path: format!("{DIR}/{name}"),
+                bytes,
+            })
+        })
+        .collect()
+}
+
+/// Every event in the journals under `root`: files in name order, lines in file order, blank
+/// lines passed over. No journal directory reads as no events. A file's last line that has no
+/// trailing newline and does not decode is passed over too: a run killed mid-append cut it short.
+/// The next write to that journal drops such a line and appends its event again while the
+/// session's ledger is there, but a journal committed before that, or after the container went,
+/// still holds it.
+///
+/// # Errors
+/// Fails when the directory or a journal cannot be read, or any other line is not an event; the
+/// error names the file and line.
+pub(crate) fn read(root: &Path) -> Result<Vec<EventEnvelope>> {
     let mut events = Vec::new();
-    for file in &files {
-        // Bytes, not a string: a line cut short can end inside a multi-byte character.
-        let bytes = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
-        parse(file, &bytes, &mut events)?;
+    for file in files(root)? {
+        parse(&file.path, &file.bytes, &mut events)?;
     }
     Ok(events)
 }
@@ -64,23 +146,15 @@ pub(crate) fn read(root: &Path) -> Result<Vec<EventEnvelope>> {
 ///
 /// # Errors
 /// Fails when a line other than a cut-short last line is not an event.
-fn parse(file: &Path, bytes: &[u8], events: &mut Vec<EventEnvelope>) -> Result<()> {
-    for (n, piece) in (1_u64..).zip(bytes.split_inclusive(|&b| b == b'\n')) {
-        // Only the last piece can lack its newline.
-        let (line, cut_short) = match piece.strip_suffix(b"\n") {
-            Some(line) => (line.strip_suffix(b"\r").unwrap_or(line), false),
-            None => (piece, true),
-        };
-        if std::str::from_utf8(line).is_ok_and(|l| l.trim().is_empty()) {
-            continue;
-        }
-        match EventEnvelope::from_json(line) {
+fn parse(file: &str, bytes: &[u8], events: &mut Vec<EventEnvelope>) -> Result<()> {
+    for line in lines(bytes).filter(|l| !l.is_blank()) {
+        match EventEnvelope::from_json(line.text) {
             Ok(env) => events.push(env),
-            // A cut-short last line is a write the hook repeats, not a failure to report.
-            Err(_) if cut_short => {}
+            // A cut-short last line is a write the next run repeats, not a failure to report.
+            Err(_) if !line.complete => {}
             Err(e) => {
                 return Err(e)
-                    .with_context(|| format!("{} line {n}: not a ledger event", file.display()));
+                    .with_context(|| format!("{file} line {}: not a ledger event", line.number));
             }
         }
     }
@@ -205,6 +279,39 @@ mod tests {
 
         let msg = format!("{e:#}");
         assert!(msg.contains("s.jsonl line 2: not a ledger event"), "{msg}");
+        Ok(())
+    }
+
+    #[test]
+    fn lines_strips_newlines_and_one_cr_and_marks_an_unterminated_last_line() {
+        let text = b"a\r\nb\n\nc\r\r\nd";
+
+        let got: Vec<Line<'_>> = lines(text).collect();
+
+        let line = |number, text: &'static [u8], complete| Line {
+            number,
+            text,
+            complete,
+        };
+        assert_eq!(
+            got,
+            vec![
+                line(1, b"a", true),
+                line(2, b"b", true),
+                line(3, b"", true),
+                line(4, b"c\r", true),
+                line(5, b"d", false),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_journal_line_is_the_envelope_json_and_a_newline() -> Result<()> {
+        let env = EventEnvelope::from_json(RAISED.as_bytes())?;
+        let mut expected = env.to_json()?;
+        expected.push(b'\n');
+
+        assert_eq!(line(&env)?, expected);
         Ok(())
     }
 

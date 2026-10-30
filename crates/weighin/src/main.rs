@@ -6,27 +6,32 @@
 #![forbid(unsafe_code)]
 
 mod annotate;
+mod ci;
 mod context;
 mod env;
 mod git;
 mod hooks;
 mod journal;
 mod ops;
+mod pane;
+mod recall;
 mod shell_bin;
 mod store;
 mod text;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use clap::{Args, Parser, Subcommand};
+use std::collections::BTreeMap;
 use std::io::{self, Read as _, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use weighin_core::board::{self, Answer, Scope, ValidAnswer};
+use weighin_core::event::Surface;
 use weighin_core::marker::{Door, parse_markers};
 use weighin_core::projection::Health;
 use weighin_core::{Item, Ledger, Status};
 
-use crate::env::{Config, ConfigSource, Env};
+use crate::env::{BoardUse, ConfigSource, Env};
 use crate::ops::{DecideOp, DeferOp, Op, RaiseInput, Session, read_ledger};
 use crate::text::Report;
 
@@ -98,6 +103,8 @@ enum LedgerCmd {
     Stats(JsonArgs),
     /// The commit trailer for a decided item.
     Trailer(TrailerArgs),
+    /// Decisions still standing that are anchored at a file, nearest the line first.
+    Decisions(DecisionsArgs),
     /// Raise every open question and new TODO in a document or source file (backfill).
     Scan(ScanArgs),
     /// Exchange with the Artifact board.
@@ -105,8 +112,20 @@ enum LedgerCmd {
         #[command(subcommand)]
         cmd: BoardCmd,
     },
-    /// Every ledger event as JSON lines, for a committed journal (.kb/_ledger/journal/).
+    /// Every ledger event as JSON lines; sessions keep their own in .kb/_ledger/journal/.
     Journal,
+    /// Branch report for CI: open items, decisions since --base, append-only journals.
+    CiCheck(CiCheckArgs),
+}
+
+#[derive(Args)]
+struct CiCheckArgs {
+    /// The revision the branch is compared with (a merge base, `origin/main`, a sha).
+    #[arg(long)]
+    base: String,
+    /// The report as one JSON document (schema `weighin.ci-check/1`).
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
@@ -264,6 +283,18 @@ struct TrailerArgs {
 }
 
 #[derive(Args)]
+struct DecisionsArgs {
+    /// The file, relative to the working directory or absolute.
+    #[arg(long)]
+    path: PathBuf,
+    /// Rank the anchors nearest this line first (else the newest decision first).
+    #[arg(long)]
+    line: Option<usize>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
 struct ScanArgs {
     paths: Vec<PathBuf>,
 }
@@ -278,13 +309,46 @@ enum BoardCmd {
 
 #[derive(Args)]
 struct ExportArgs {
-    #[arg(long)]
+    #[arg(long, conflicts_with = "stdout")]
     out: Option<PathBuf>,
+    /// Print the state on stdout and write no file, under a `local` or `artifact` board (the pane).
+    #[arg(long)]
+    stdout: bool,
 }
 
 #[derive(Args)]
 struct ApplyArgs {
-    path: PathBuf,
+    /// A JSON file, an array, or a directory of documents; `-` or nothing reads stdin.
+    path: Option<PathBuf>,
+    /// Where the answers were given: the Artifact board, or the local board pane.
+    #[arg(long, value_enum, default_value_t = AnswerSurface::Board)]
+    surface: AnswerSurface,
+}
+
+/// Where `board apply`'s answers were given; their decisions carry it as `via` (D-0017).
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum AnswerSurface {
+    /// The claude.ai Artifact board.
+    Board,
+    /// The local board pane: it never publishes, and leaves raw items read-only.
+    Pane,
+}
+
+impl AnswerSurface {
+    fn surface(self) -> Surface {
+        match self {
+            Self::Board => Surface::Board,
+            Self::Pane => Surface::Pane,
+        }
+    }
+
+    /// Where, as a receipt's reason says it: `on the board`, `in the pane`.
+    fn place(self) -> &'static str {
+        match self {
+            Self::Board => "on the board",
+            Self::Pane => "in the pane",
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -305,9 +369,14 @@ fn main() -> ExitCode {
         dir,
         store,
     };
-    match run(globals, cmd, &mut out).and_then(|()| out.flush().map_err(anyhow::Error::from)) {
+    let (result, warning) = run(globals, cmd, &mut out);
+    let code = match result.and_then(|()| out.flush().map_err(anyhow::Error::from)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => report(&e),
+    };
+    match warning {
+        Some(w) => warn(&w, code),
+        None => code,
     }
 }
 
@@ -401,7 +470,21 @@ fn stdin() -> Result<String> {
     Ok(s)
 }
 
-fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
+/// Run `cmd`: its result, and a warning to print after it whatever the result (`journal_after`).
+fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> (Result<()>, Option<String>) {
+    let mut env = match environment(g) {
+        Ok(env) => env,
+        Err(e) => return (Err(e), None),
+    };
+    let appends = cmd.appends();
+    let result = dispatch(&mut env, cmd, out);
+    // Whatever the result: a batch that failed in part has still applied its other operations.
+    let warning = if appends { journal_after(&env) } else { None };
+    (result, warning)
+}
+
+/// The environment the options name, refused when the folder's config is broken.
+fn environment(g: Globals) -> Result<Env> {
     let cwd = match g.dir {
         Some(d) => d,
         None => std::env::current_dir()?,
@@ -416,34 +499,110 @@ fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
             Report(e)
         );
     }
-    match cmd {
-        LedgerCmd::Prime => Ok(write!(out, "{}", hooks::prime(&env, "manual")?)?),
-        LedgerCmd::Init(a) => init(env, a, out),
-        LedgerCmd::Open(a) => open(&env, &a, out),
-        LedgerCmd::Show(a) => show(&env, &a, out),
-        LedgerCmd::Context(a) => context_pack(&env, &a, out),
-        LedgerCmd::Raise(a) => raise(&env, a, out),
-        LedgerCmd::Batch(a) => batch(&env, a, out),
-        LedgerCmd::Decide(a) => apply_one(&env, &a.into_op(), out),
-        LedgerCmd::Defer(a) => apply_one(&env, &a.into_op(), out),
-        LedgerCmd::Dismiss(a) => apply_one(&env, &a.into_op(), out),
-        LedgerCmd::Reopen(a) => apply_one(&env, &a.into_op(), out),
-        LedgerCmd::Digest(a) => digest(&env, &a, out),
-        LedgerCmd::Stats(a) => stats(&env, &a, out),
-        LedgerCmd::Trailer(a) => trailer(&env, &a, out),
-        LedgerCmd::Scan(a) => scan(&env, a, out),
-        LedgerCmd::Board {
-            cmd: BoardCmd::Export(a),
-        } => board_export(&env, a, out),
-        LedgerCmd::Board {
-            cmd: BoardCmd::Apply(a),
-        } => board_apply(&env, &a, out),
-        LedgerCmd::Journal => journal::write(&ops::stored_events(&env)?, out),
+    Ok(env)
+}
+
+impl LedgerCmd {
+    /// Whether the command can append ledger events, and so leave the session's journal behind.
+    fn appends(&self) -> bool {
+        match self {
+            Self::Raise(_)
+            | Self::Batch(_)
+            | Self::Decide(_)
+            | Self::Defer(_)
+            | Self::Dismiss(_)
+            | Self::Reopen(_)
+            | Self::Scan(_)
+            | Self::Board {
+                cmd: BoardCmd::Apply(_),
+            } => true,
+            Self::Prime
+            | Self::Init(_)
+            | Self::Open(_)
+            | Self::Show(_)
+            | Self::Context(_)
+            | Self::Digest(_)
+            | Self::Stats(_)
+            | Self::Trailer(_)
+            | Self::Decisions(_)
+            | Self::Board {
+                cmd: BoardCmd::Export(_),
+            }
+            | Self::Journal
+            | Self::CiCheck(_) => false,
+        }
     }
 }
 
-fn init(mut env: Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
+/// Bring this session's journal up to date after a command that appended events (B-28): the
+/// warning to print when that failed or the journal was busy, else `None`. The command's own
+/// result stands either way.
+fn journal_after(env: &Env) -> Option<String> {
+    match journal::sync(env, journal::WAIT) {
+        Ok(journal::Synced::Skipped(journal::Skip::Busy)) => {
+            Some("session journal busy; the next command or hook catches it up".to_owned())
+        }
+        Ok(
+            journal::Synced::Skipped(_) | journal::Synced::UpToDate | journal::Synced::Appended(_),
+        ) => None,
+        Err(e) => Some(format!("session journal not updated: {e:#}")),
+    }
+}
+
+/// `weighin: warning: <warning>` on stderr, and the exit code the command already earned.
+fn warn(warning: &str, code: ExitCode) -> ExitCode {
+    match writeln!(io::stderr().lock(), "weighin: warning: {warning}") {
+        // With stderr gone, as in `report`, the exit code stands; the journal catches up later.
+        Ok(()) | Err(_) => code,
+    }
+}
+
+/// Run one command. Only `init` changes the environment: it rewrites the config.
+fn dispatch(env: &mut Env, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
+    match cmd {
+        LedgerCmd::Prime => Ok(write!(out, "{}", hooks::prime(env, "manual")?)?),
+        LedgerCmd::Init(a) => init(env, a, out),
+        LedgerCmd::Open(a) => open(env, &a, out),
+        LedgerCmd::Show(a) => show(env, &a, out),
+        LedgerCmd::Context(a) => context_pack(env, &a, out),
+        LedgerCmd::Raise(a) => raise(env, a, out),
+        LedgerCmd::Batch(a) => batch(env, a, out),
+        LedgerCmd::Decide(a) => apply_one(env, &a.into_op(), out),
+        LedgerCmd::Defer(a) => apply_one(env, &a.into_op(), out),
+        LedgerCmd::Dismiss(a) => apply_one(env, &a.into_op(), out),
+        LedgerCmd::Reopen(a) => apply_one(env, &a.into_op(), out),
+        LedgerCmd::Digest(a) => digest(env, &a, out),
+        LedgerCmd::Stats(a) => stats(env, &a, out),
+        LedgerCmd::Trailer(a) => trailer(env, &a, out),
+        LedgerCmd::Decisions(a) => recall::list(
+            env,
+            &recall::Query {
+                path: &a.path,
+                line: a.line,
+                json: a.json,
+            },
+            out,
+        ),
+        LedgerCmd::Scan(a) => scan(env, a, out),
+        LedgerCmd::Board {
+            cmd: BoardCmd::Export(a),
+        } => board_export(env, a, out),
+        LedgerCmd::Board {
+            cmd: BoardCmd::Apply(a),
+        } => board_apply(env, &a, out),
+        LedgerCmd::Journal => journal::write(&ops::stored_events(env)?, out),
+        LedgerCmd::CiCheck(a) => ci::run(env, &a.base, a.json, out),
+    }
+}
+
+fn init(env: &mut Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
+    // A config's owner stands unless `--owner` is given; a first config takes git's (B-31).
+    let owner = match a.owner {
+        Some(o) => o,
+        None => env.owner().to_owned(),
+    };
     let c = &mut env.config;
+    c.owner = owner;
     // Only what was given changes: a later `init --ledger` keeps a client repo's local board.
     match (a.class, a.board) {
         (class, Some(board)) => {
@@ -465,9 +624,6 @@ fn init(mut env: Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
     }
     if a.board_url.is_some() {
         c.board.url = a.board_url;
-    }
-    if let Some(o) = a.owner {
-        c.owner = o;
     }
     if let Some(l) = a.ledger {
         c.store = Some(l).filter(|l| !l.trim().is_empty());
@@ -838,7 +994,11 @@ fn stats(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()> {
     let ledger = journal::pool(ops::stored_events(env)?, journal::read(&env.root())?)?;
     let h = Health::of(&ledger);
     if a.json {
-        writeln!(out, "{}", serde_json::to_string(&h)?)?;
+        let json = StatsJson {
+            health: &h,
+            decided_via: decided_via(&ledger),
+        };
+        writeln!(out, "{}", serde_json::to_string(&json)?)?;
         return Ok(());
     }
     writeln!(
@@ -862,6 +1022,31 @@ fn stats(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+/// What `stats --json` prints: the health numbers, and beside them the decisions still standing
+/// by where they were taken, so pane, chat and board stay apart (B-30).
+#[derive(serde::Serialize)]
+struct StatsJson<'l> {
+    #[serde(flatten)]
+    health: &'l Health,
+    decided_via: BTreeMap<&'l str, usize>,
+}
+
+/// The items in `ledger` decided and still standing, presented or not, counted by where they
+/// were decided (the decision's `via`: `chat`, `board`, `pane`, `cli`).
+fn decided_via(ledger: &Ledger) -> BTreeMap<&str, usize> {
+    let mut counts = BTreeMap::new();
+    let standing = ledger
+        .items
+        .values()
+        .filter(|i| i.status == Status::Decided)
+        .filter_map(|i| i.decision.as_ref());
+    for d in standing {
+        let n: &mut usize = counts.entry(d.via.as_str()).or_default();
+        *n = n.saturating_add(1);
+    }
+    counts
 }
 
 /// `n` of `d` as a whole percentage, rounded half to even as `{:.0}` rounds a float, or `—`
@@ -930,6 +1115,9 @@ fn trailer(env: &Env, a: &TrailerArgs, out: &mut impl Write) -> Result<()> {
 }
 
 fn board_export(env: &Env, a: ExportArgs, out: &mut impl Write) -> Result<()> {
+    if a.stdout {
+        return pane::export(env, board_scope(env), &env::now(), out);
+    }
     // The default state file sits beside the ledger; writing it would create the ledger's
     // directory where no item was ever raised. Only a stored ledger has items to keep off
     // claude.ai, so only its export asks whether this folder may publish.
@@ -986,25 +1174,13 @@ fn board_export(env: &Env, a: ExportArgs, out: &mut impl Write) -> Result<()> {
 /// `artifact` board (decision wi-7c21e4). A folder never initialised may be a client's, so the
 /// defaults do not count as a choice.
 fn publishable(env: &Env) -> Result<()> {
-    match &env.config_source {
-        ConfigSource::File => {}
-        ConfigSource::Absent => bail!(
-            "no {} here, so no board mode was chosen: run `weighin init --class own`, or \
-             `weighin init --class client` for a client's repository (its board stays local), \
-             before exporting the board",
-            Config::PATH
-        ),
-        // `run` normally rejects a broken config before any command; this keeps export safe alone.
-        ConfigSource::Broken(e) => bail!("not exporting the board: {}", Report(e)),
-    }
-    let mode = &env.config.board.mode;
-    if mode != "artifact" {
-        bail!(
-            "this repo's board mode is `{mode}`: its items are not published to claude.ai, so \
-             there is no board to export (`weighin init --board artifact` changes the mode)"
-        );
-    }
-    Ok(())
+    env.board_allows(&BoardUse {
+        modes: &["artifact"],
+        before: " (its board stays local), before exporting the board",
+        refusing: "not exporting the board",
+        other_mode: "its items are not published to claude.ai, so there is no board to export \
+                     (`weighin init --board artifact` changes the mode)",
+    })
 }
 
 /// Where the board's items come from, as the board shows it.
@@ -1026,17 +1202,30 @@ fn board_scope(env: &Env) -> Scope {
     }
 }
 
+/// Apply board answers. From the board, a refused answer is a receipt and the command succeeds;
+/// from the pane, which applies one answer at a time and must know, it fails the command after
+/// the others are applied, and the board mode must allow a board at all (`pane::allowed`).
 fn board_apply(env: &Env, a: &ApplyArgs, out: &mut impl Write) -> Result<()> {
-    let answers = read_answers(&a.path)?;
+    let pane = a.surface == AnswerSurface::Pane;
+    if pane {
+        pane::allowed(env)?;
+    }
+    let answers = match a.path.as_deref() {
+        Some(path) if path != std::path::Path::new("-") => read_answers(path)?,
+        Some(_) | None => answers_in(&pane::read_capped(io::stdin().lock())?, "")
+            .context("reading answers from stdin")?,
+    };
     let mut s = Session::open(env, "cli")?;
     let mut receipts = Receipts::new(out);
     let mut applied = Vec::new();
+    let mut refused = 0_usize;
     for (doc_id, answer) in answers {
-        let op = match board::validate_answer(&s.ledger, &answer) {
-            Ok(v) => to_op(&answer.item_id, v),
-            Err(board::AnswerError::AlreadyApplied) => continue,
+        let op = match answer_op(&s.ledger, &answer, a.surface) {
+            Ok(Some(op)) => op,
+            Ok(None) => continue,
             Err(e) => {
-                receipts.line(format_args!("✗ {doc_id}: {e}"));
+                refused += 1;
+                receipts.line(format_args!("✗ {doc_id}: {e:#}"));
                 continue;
             }
         };
@@ -1045,7 +1234,10 @@ fn board_apply(env: &Env, a: &ApplyArgs, out: &mut impl Write) -> Result<()> {
                 receipts.line(format_args!("✓ {r}"));
                 applied.push(doc_id);
             }
-            Err(e) => receipts.line(format_args!("✗ {doc_id}: {e:#}")),
+            Err(e) => {
+                refused += 1;
+                receipts.line(format_args!("✗ {doc_id}: {e:#}"));
+            }
         }
     }
     receipts.line(format_args!(
@@ -1056,10 +1248,32 @@ fn board_apply(env: &Env, a: &ApplyArgs, out: &mut impl Write) -> Result<()> {
             applied.join(" ")
         }
     ));
-    receipts.finish(Ok(()))
+    let outcome = if pane && refused > 0 {
+        Err(anyhow!("{refused} answer(s) from the pane refused"))
+    } else {
+        Ok(())
+    };
+    receipts.finish(outcome)
 }
 
-fn to_op(id: &str, v: ValidAnswer) -> Op {
+/// The operation an answer asks for, or `None` for one applied already. The pane may answer only
+/// items a sitting grounded.
+///
+/// # Errors
+/// Fails when the answer cannot be applied to the ledger as it stands.
+fn answer_op(ledger: &Ledger, answer: &Answer, surface: AnswerSurface) -> Result<Option<Op>> {
+    if surface == AnswerSurface::Pane {
+        pane::grounded(ledger, answer)?;
+    }
+    match board::validate_answer(ledger, answer) {
+        Ok(v) => Ok(Some(to_op(&answer.item_id, v, surface))),
+        Err(board::AnswerError::AlreadyApplied) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn to_op(id: &str, v: ValidAnswer, surface: AnswerSurface) -> Op {
+    let place = surface.place();
     match v {
         ValidAnswer::Choose {
             option,
@@ -1070,7 +1284,7 @@ fn to_op(id: &str, v: ValidAnswer) -> Op {
             option,
             note: Some(note),
             provenance: None,
-            via: Some("board".into()),
+            via: Some(surface.surface().as_str().into()),
             seconds,
         }),
         ValidAnswer::Defer {
@@ -1087,34 +1301,34 @@ fn to_op(id: &str, v: ValidAnswer) -> Op {
             owner: None,
             unqualified: false,
             reason: if note.is_empty() {
-                "deferred from the board".into()
+                format!("deferred from the {}", surface.surface().as_str())
             } else {
                 note
             },
         }),
         ValidAnswer::Dismiss { reason, note } => {
             let why = match reason.as_str() {
-                "already-decided" => "already-decided:board".to_owned(),
-                "duplicate" => "duplicate-of:board".to_owned(),
+                "already-decided" => format!("already-decided:{}", surface.surface().as_str()),
+                "duplicate" => format!("duplicate-of:{}", surface.surface().as_str()),
                 r => r.to_owned(),
             };
             Op::Dismiss {
                 id: id.into(),
                 why,
                 note: Some(note),
-                reason: "dismissed on the board".into(),
+                reason: format!("dismissed {place}"),
             }
         }
         ValidAnswer::NotMyCall { who, note } => Op::Dismiss {
             id: id.into(),
             why: format!("not-my-call:{who}"),
             note: Some(note),
-            reason: "handed off on the board".into(),
+            reason: format!("handed off {place}"),
         },
         ValidAnswer::Reopen { note } => Op::Reopen {
             id: id.into(),
             note: Some(note),
-            reason: "reopened on the board".into(),
+            reason: format!("reopened {place}"),
         },
     }
 }
@@ -1146,29 +1360,36 @@ fn read_answers(path: &std::path::Path) -> Result<Vec<(String, Answer)>> {
     }
     let mut out = Vec::new();
     for f in files {
-        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&f)?)
+        let stem = f
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let answers = answers_in(&std::fs::read_to_string(&f)?, &stem)
             .with_context(|| format!("parsing {}", f.display()))?;
-        let docs = match v {
-            serde_json::Value::Array(a) => a,
-            other => vec![other],
+        out.extend(answers);
+    }
+    Ok(out)
+}
+
+/// The answers in one JSON text, as [`read_answers`] reads a file: a bare answer's document id is
+/// `stem`, or its `item_id` when `stem` is empty (stdin).
+fn answers_in(text: &str, stem: &str) -> Result<Vec<(String, Answer)>> {
+    let docs = match serde_json::from_str(text)? {
+        serde_json::Value::Array(a) => a,
+        other => vec![other],
+    };
+    let mut out = Vec::with_capacity(docs.len());
+    for d in docs {
+        let (id, data) = match (d.get("id").and_then(|x| x.as_str()), d.get("data")) {
+            (Some(id), Some(data)) => (id.to_owned(), data.clone()),
+            _ => (stem.to_owned(), d),
         };
-        for d in docs {
-            let (id, data) = match (d.get("id").and_then(|x| x.as_str()), d.get("data")) {
-                (Some(id), Some(data)) => (id.to_owned(), data.clone()),
-                _ => (
-                    f.file_stem()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_default(),
-                    d.clone(),
-                ),
-            };
-            let mut a: Answer =
-                serde_json::from_value(data).with_context(|| format!("answer {id}"))?;
-            if a.item_id.is_empty() {
-                a.item_id.clone_from(&id);
-            }
-            out.push((id, a));
+        let mut a: Answer = serde_json::from_value(data).with_context(|| format!("answer {id}"))?;
+        if a.item_id.is_empty() {
+            a.item_id.clone_from(&id);
         }
+        let id = if id.is_empty() { a.item_id.clone() } else { id };
+        out.push((id, a));
     }
     Ok(out)
 }
@@ -1231,12 +1452,14 @@ fn write_line(out: &mut impl Write, i: &Item) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BatchArgs, Stdout, batch, clip, digest_json, is_closed_stdout, percent};
+    use super::{
+        BatchArgs, Stdout, batch, clip, decided_via, digest_json, is_closed_stdout, percent,
+    };
     use crate::env::{Config, ConfigSource, Env};
     use crate::ops::read_ledger;
     use anyhow::Context as _;
     use std::io::{self, Write as _};
-    use weighin_core::event::{Channel, Raised};
+    use weighin_core::event::{Channel, Decided, Provenance, Raised, Reopened};
     use weighin_core::marker::{Authority, Door, Kind};
     use weighin_core::{EventEnvelope, ItemId, Ledger, LedgerEvent};
 
@@ -1409,6 +1632,8 @@ mod tests {
             config: Config::default(),
             config_source: ConfigSource::Absent,
             store_override: Some(dir.path().join("ledger.sqlite3")),
+            // Set, so the test never asks the machine's git for an owner.
+            git_owner: Config::default().owner.into(),
         };
         let file = dir.path().join("batch.json");
         std::fs::write(
@@ -1427,5 +1652,76 @@ mod tests {
         assert_eq!(printed.lines().count(), 1, "{printed}");
         assert_eq!(read_ledger(&env)?.open().len(), 3);
         Ok(())
+    }
+
+    /// A ledger of `events`, each at the next position.
+    fn ledger_of(events: Vec<LedgerEvent>) -> Ledger {
+        let envelopes: Vec<EventEnvelope> = events
+            .into_iter()
+            .map(|event| EventEnvelope {
+                event,
+                actor: "test".into(),
+                session_id: Some("s1".into()),
+                worktree: None,
+                branch: None,
+                head: None,
+                ts: "2026-10-19T00:00:00Z".into(),
+            })
+            .collect();
+        Ledger::fold((1_u64..).zip(&envelopes))
+    }
+
+    #[test]
+    fn standing_decisions_are_counted_by_where_they_were_taken() {
+        let ids: Vec<ItemId> = ["a?", "b?", "c?", "d?", "e?"]
+            .iter()
+            .map(|q| ItemId::mint("s1", q))
+            .collect();
+        let mut events = Vec::new();
+        for (id, via) in ids.iter().zip(["chat", "board", "pane", "pane", "pane"]) {
+            events.push(LedgerEvent::ItemRaised(Raised {
+                item_id: id.clone(),
+                kind: Kind::Question,
+                question: id.to_string(),
+                did: None,
+                flip: None,
+                at: None,
+                sym: None,
+                blocks: None,
+                door_hint: Door::TwoWay,
+                authority_hint: Authority::Authority,
+                channel: Channel::Marker,
+                quote: id.to_string(),
+                source_path: None,
+                source_line: None,
+            }));
+            events.push(LedgerEvent::ItemDecided(Decided {
+                item_id: id.clone(),
+                option: "A".into(),
+                decider: "human:ryan".into(),
+                provenance: Provenance::UserDirected,
+                note: String::new(),
+                tree_hash: None,
+                matched_recommendation: None,
+                via: via.into(),
+                seconds_to_decide: None,
+                reason: "answered".into(),
+            }));
+        }
+        events.extend(ids.last().map(|id| {
+            LedgerEvent::ItemReopened(Reopened {
+                item_id: id.clone(),
+                note: String::new(),
+                reason: "reopened".into(),
+            })
+        }));
+        let ledger = ledger_of(events);
+
+        let counted = decided_via(&ledger);
+
+        assert_eq!(
+            counted.into_iter().collect::<Vec<_>>(),
+            [("board", 1), ("chat", 1), ("pane", 2)]
+        );
     }
 }

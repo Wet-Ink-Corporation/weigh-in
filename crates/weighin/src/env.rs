@@ -1,11 +1,13 @@
 //! Where the CLI is running: repository, common dir, worktree, branch, session and config.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use std::cell::OnceCell;
 use std::path::{Component, Path, PathBuf};
 use weighin_core::event::{EventEnvelope, LedgerEvent};
 
 use crate::git;
+use crate::text::Report;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -85,17 +87,70 @@ pub(crate) struct Config {
     /// from more than one computer, point this outside the synced tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) store: Option<String>,
+    /// Whether sessions keep their events in `.kb/_ledger/journal/<session>.jsonl` (B-28).
+    pub(crate) journal: bool,
+}
+
+/// The owner when git names no user either (B-31).
+const FALLBACK_OWNER: &str = "ryan";
+
+/// The owner a folder with no usable config gets (B-31): `git config user.name` as read from
+/// `dir`, as a slug; else the local part of `user.email`; else [`FALLBACK_OWNER`].
+fn owner_from_git(dir: &Path) -> String {
+    // `--get-regexp` exits 1 when neither key is set, which is the fallback, not a failure.
+    git::run(dir, &["config", "--get-regexp", r"^user\.(name|email)$"])
+        .ok()
+        .and_then(|listed| owner_in(&listed))
+        .unwrap_or_else(|| FALLBACK_OWNER.to_owned())
+}
+
+/// The owner `git config --get-regexp` output names: the last `user.name` as a slug, else the
+/// local part of the last `user.email`; `None` when neither gives a slug.
+fn owner_in(listed: &str) -> Option<String> {
+    let last = |key: &str| {
+        listed
+            .lines()
+            .filter_map(|l| l.split_once(' '))
+            .filter(|(k, _)| *k == key)
+            .map(|(_, v)| v)
+            .next_back()
+    };
+    last("user.name").and_then(slug).or_else(|| {
+        last("user.email")
+            .and_then(|e| e.split('@').next())
+            .and_then(slug)
+    })
+}
+
+/// `name` as lower-case ASCII words joined with `-`: any other ASCII character separates words,
+/// and characters outside ASCII are dropped. `None` when no word is left.
+fn slug(name: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut gap = false;
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            if gap && !out.is_empty() {
+                out.push('-');
+            }
+            gap = false;
+            out.push(c.to_ascii_lowercase());
+        } else if c.is_ascii() {
+            gap = true;
+        }
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             repo_class: "own".into(),
-            owner: "ryan".into(),
+            owner: FALLBACK_OWNER.into(),
             board: BoardConfig::default(),
             caps: Caps::default(),
             scan: ScanConfig::default(),
             store: None,
+            journal: true,
         }
     }
 }
@@ -178,6 +233,19 @@ pub(crate) enum ConfigSource {
     Broken(ConfigError),
 }
 
+/// A use of the board that only some board modes allow, and how [`Env::board_allows`] words its
+/// refusals.
+pub(crate) struct BoardUse {
+    /// The board modes that allow it.
+    pub(crate) modes: &'static [&'static str],
+    /// The end of the refusal with no config, after "for a client's repository".
+    pub(crate) before: &'static str,
+    /// The start of the refusal under a broken config: `not exporting the board`.
+    pub(crate) refusing: &'static str,
+    /// Why another mode refuses, after "this repo's board mode is `<mode>`: ".
+    pub(crate) other_mode: &'static str,
+}
+
 #[derive(Debug)]
 pub(crate) struct Env {
     pub(crate) cwd: PathBuf,
@@ -191,6 +259,9 @@ pub(crate) struct Env {
     pub(crate) config_source: ConfigSource,
     /// `--store`, which wins over everything else.
     pub(crate) store_override: Option<PathBuf>,
+    /// The owner git names, for a folder with no usable config: asked of git only when an owner
+    /// is needed (see [`Env::owner`]), so hooks and reads never spawn git for it.
+    pub(crate) git_owner: OnceCell<String>,
 }
 
 /// Whether this process runs inside Cowork's cloud workspace, where the project directory is a
@@ -314,6 +385,7 @@ impl Env {
             config,
             config_source,
             store_override: None,
+            git_owner: OnceCell::new(),
         }
     }
 
@@ -380,9 +452,47 @@ impl Env {
         }
     }
 
+    /// The folder's owner: its config's, or for a folder with no usable config the one git names
+    /// (B-31), asked of git the first time it is needed.
+    #[must_use]
+    pub(crate) fn owner(&self) -> &str {
+        match self.config_source {
+            ConfigSource::File => &self.config.owner,
+            ConfigSource::Absent | ConfigSource::Broken(_) => {
+                self.git_owner.get_or_init(|| owner_from_git(&self.root()))
+            }
+        }
+    }
+
+    /// Whether this folder's config allows `board`: a config file whose board mode is one of
+    /// `board.modes`. A folder never initialised has chosen no mode, so the defaults never count.
+    ///
+    /// # Errors
+    /// Fails when the folder has no config, a broken one, or another board mode, each refusal
+    /// worded by `board`.
+    pub(crate) fn board_allows(&self, board: &BoardUse) -> Result<()> {
+        match &self.config_source {
+            ConfigSource::File => {}
+            ConfigSource::Absent => bail!(
+                "no {} here, so no board mode was chosen: run `weighin init --class own`, or \
+                 `weighin init --class client` for a client's repository{}",
+                Config::PATH,
+                board.before
+            ),
+            // `run` normally rejects a broken config before any command; this keeps each use
+            // safe alone.
+            ConfigSource::Broken(e) => bail!("{}: {}", board.refusing, Report(e)),
+        }
+        let mode = &self.config.board.mode;
+        if !board.modes.contains(&mode.as_str()) {
+            bail!("this repo's board mode is `{mode}`: {}", board.other_mode);
+        }
+        Ok(())
+    }
+
     #[must_use]
     pub(crate) fn human(&self) -> String {
-        format!("human:{}", self.config.owner)
+        format!("human:{}", self.owner())
     }
 
     /// Repo-relative, forward-slash form of a path the agent or a hook gave us.
@@ -464,6 +574,55 @@ pub(crate) fn age(ts: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_becomes_lower_case_ascii_words_joined_by_dashes() {
+        let slugs = [
+            "Ana Lima",
+            "  O'Brien,  Seán ",
+            "J.R.R. Tolkien",
+            "日本",
+            "--",
+        ]
+        .map(slug);
+
+        assert_eq!(
+            slugs,
+            [
+                Some("ana-lima".to_owned()),
+                Some("o-brien-sen".to_owned()),
+                Some("j-r-r-tolkien".to_owned()),
+                None,
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn the_owner_is_the_git_user_name_else_the_email_local_part() {
+        let both = "user.email ana@example.com\nuser.name Ana Lima\n";
+        let email = "user.email j.doe@example.com\n";
+        let neither = "user.name 日本\nuser.email @example.com\n";
+
+        let owners = [both, email, neither, ""].map(owner_in);
+
+        assert_eq!(
+            owners,
+            [
+                Some("ana-lima".to_owned()),
+                Some("j-doe".to_owned()),
+                None,
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn the_last_git_user_name_wins_as_git_reads_it() {
+        let listed = "user.name Global Name\nuser.name Repo Name\n";
+
+        assert_eq!(owner_in(listed), Some("repo-name".to_owned()));
+    }
 
     /// A git repository at `<tmp>/repo` holding `docs/plan.md`. Hooks pass paths as the surface
     /// spells them (an 8.3 short name on Windows, a symlinked temp dir on macOS, `..`

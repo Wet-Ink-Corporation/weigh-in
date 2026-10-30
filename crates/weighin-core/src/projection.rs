@@ -74,7 +74,7 @@ pub struct Decision {
     pub provenance: Provenance,
     /// The human's own words with the choice; empty when none.
     pub note: String,
-    /// Where it was decided: `chat`, `board` or `cli`.
+    /// Where it was decided: `chat`, `board`, `pane` or `cli`.
     pub via: String,
     /// Whether the choice was the card's recommendation; `None` when the item had no card.
     pub matched_recommendation: Option<bool>,

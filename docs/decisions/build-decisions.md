@@ -219,6 +219,18 @@ items. When the work was in a cloud checkout, the cloud ledger stays, and the jo
 committed as for any cloud session ([B-21](#b-21)). In the same change, Projects tasks ask cards
 with their own decision card tool (`ask_decision`) instead of printing them as text.
 
+## D-0019
+
+**One week of daily use is enough for v1.** 2026-10-18 · Ryan, in the project thread, after the
+week 1 numbers · amends the "two weeks" in [D-0008](#d-0008)'s exit criteria and `docs/v1-plan.md`
+· from [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23).
+
+The design's slice 1 exit asks for two weeks or 30 presented items, whichever comes later. Week 1
+(2026-10-12 to 10-18) already met every measured target across six folders: 90 presented,
+action rate 73%, not-useful 0%, no hook errors, no ledger corruption, and a sitting that said no
+decisions needed Ryan. A second week would mostly re-measure the same capture behaviour, so v1
+closes on week 1's numbers. #25 (suppression) stays out, since not-useful is under 10%.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.
@@ -664,3 +676,223 @@ its length differs: copies are kept per version, and two builds of one version h
 length only in development. The path printed is always the running version's, so an older copy
 is never run against the ledger (B-05). Outside git, and on other platforms, nothing is copied.
 Capture is unchanged.
+
+## B-27
+
+**v1 is live.** 2026-10-19 · Ryan's call · closes Phase 4 of the [v1 plan](../v1-plan.md)
+([#26](https://github.com/Wet-Ink-Corporation/weigh-in/issues/26)).
+
+Ryan tagged 1.0.0 on 2026-10-19, after one week of use ([D-0019](#d-0019)). The
+[release workflow](https://github.com/Wet-Ink-Corporation/weigh-in/actions/runs/39191411957)
+passed. It published the plugin zip, the Linux musl, Windows msvc and macOS arm64 binaries, and
+SHA256SUMS, and it moved the `marketplace` branch and `weigh-in-plugin`'s `main` to 1.0.0, with all
+three binaries under `libexec` ([B-19](#b-19)). These are the plan's exit criteria and their
+results:
+
+| Criterion | Result |
+|---|---|
+| Action rate ≥ 60%, not-useful ≤ 10% | Met: week 1 of [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23), six folders: 90 presented, 73% action rate, 0% not useful. [#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) stays out of v1 |
+| Capture precision ≥ 80% on the seed | Met: 15 of 15 (110 items, 27 labelled `capture`; wi-a9df17), with labels reviewed ([#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22)) |
+| No "pending" item reported as "done"; one sitting returns "no decisions need you" | Met: sittings whose writes failed said nothing was recorded, and the sittings on 2026-10-18 returned "no decisions need you" |
+| Every V-item closed or deferred past 1.0 | Met: V1, V6 and V7 passed their re-checks on 0.9.0 ([#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16), [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20), [#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21)); V2 deferred ([B-17](#b-17)), V3 moot ([B-24](#b-24)), V4 and V5 closed |
+| No ledger corruption, no unexplained `hook-errors.log` lines | Met: 0 hook errors across six ledgers in week 1 |
+| Each machine reaches a working `/weigh-in` without Rust; Cowork works | Met on Windows and in Cowork through the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)) and the organization-synced copy ([#76](https://github.com/Wet-Ink-Corporation/weigh-in/issues/76)). macOS and Linux installs are unverified. Projects tasks use a connected checkout's binary only when it is this release's ([#143](https://github.com/Wet-Ink-Corporation/weigh-in/issues/143)) |
+| A 0.2.2 ledger opens and reads under the candidate | Met: fixture tests pass at 1.0.0 ([B-10](#b-10)) |
+
+Three code reviews since 0.2.2 are recorded on #26, with every finding fixed, refuted or left
+with a reason. Left open on purpose: whether a cloud session in this checkout captures twice when
+the organization-synced plugin also loads (#143), and the capture items held back for the pilot
+(#26). Next: slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
+
+## B-28
+
+**Every session keeps a journal; `ci-check` is the CI contract.** 2026-10-19 · Claude's call in
+the AFK cloud session, two-way, open to Ryan as weigh-in items · amends [B-21](#b-21) · from
+[#145](https://github.com/Wet-Ink-Corporation/weigh-in/issues/145).
+
+B-21 kept journals only in this repository's cloud sessions, through
+`.claude/hooks/weigh-in-journal.sh`, so a pull request from a desktop, CLI or Windows session
+carried no record of what its session raised and settled. Now the binary keeps them itself.
+After every capture hook (`Stop`, `SubagentStop`, `PostToolUse`) and every command that can
+append events (`raise`, `batch`, `decide`, `defer`, `dismiss`, `reopen`, `scan`,
+`board apply`), it appends the session's own events to `.kb/_ledger/journal/<session>.jsonl`,
+in the line format `weighin journal` prints. It does so whatever the command's result, since a
+batch that failed in part has still applied its other operations.
+
+- **Gates.** Nothing is written unless the session id can be a file name (not empty, no `/` or
+  `\`, not starting with `.`), the folder is a git worktree, `.kb/_ledger/config.json` exists and
+  parses, its `journal` key is not `false` (it defaults to `true`), and the session has an event
+  the file lacks. With nothing to add, no directory or file is created. Journals are kept in git
+  worktrees only, not in a Cowork folder outside git: the journal exists to be committed.
+  Refusing `\` (the Windows path separator) goes beyond the script's list.
+- **Append-only, deduped by line.** A complete line already in the file stays where it is,
+  whoever wrote it, and an event whose line is already there (a trailing `\r` ignored) is not
+  appended again. The only bytes ever removed are a last line with no newline that does not
+  decode, which a run killed mid-write cut short; its event is appended again in the same write.
+  A last line with no newline that does decode is kept and ended, rather than dropped as the
+  script drops it, since it may be another session's event.
+- **Lock and coexistence.** Writers take `<temp dir>/weigh-in-journal-<session>.lock`, the file
+  the script locks, waiting at most 3 s (the script's `flock -w 3`); a writer that cannot get it
+  skips, and the next run catches up. On Linux and macOS `flock(1)` and Rust's `File::lock` both
+  use `flock(2)`, so the binary and the script take turns. The script still appends the whole
+  ledger's dump to the same file, and the dedupe means neither writes a line twice. The lock
+  file is never deleted and never sits beside the ledger ([B-01](#b-01)).
+- **Failures.** A journal failure never changes a command's exit code or stdout: the CLI prints
+  `weighin: warning: session journal not updated: …` on stderr. In hooks it goes to
+  `hook-errors.log` like every other hook failure, so the next `SessionStart` says capture may
+  be off. Never silent (H-10).
+
+`weighin ci-check --base <ref> [--json]` is what CI reads. It uses only git and the checkout and
+never opens the ledger. The JSON report (schema `weighin.ci-check/1`) has `base` and `head`
+shas, `open_items`, `decisions` and `journal`. `open_items` are the items the journals at head
+leave open, minus those an atom at head or a trailer in the range closes, unless a journal
+reopened them later. "Later" is read in the range's commit order: a reopen keeps the item open
+only when the commit that added its line comes after the one that added the atom or trailer
+(an uncommitted reopen is latest, and one from before the range loses to a record in it). When
+the atom and the reopen both predate the range, the journal stands, since an atom is never
+deleted. Each one gives its triaged `door` and `authority` (null before triage, never the
+raiser's hints) and a `blocks` value read from its deadline (the deferral's, else the
+triage's):
+
+| Deadline | `blocks` |
+|---|---|
+| `before-merge`, `before-merge:<…>` | `merge` |
+| `before-release` | `release` |
+| an ISO date | `none` |
+| `blocks:<id>` | that item's, while it is open; else `unknown` (a cycle is `unknown`) |
+| none, or anything else | `unknown` |
+
+The raiser's free-text `blocks` field is not read. `decisions` are the decisions the branch
+adds, from three sources: `item_decided` lines added to journals, decision atoms added under
+`.kb`, and `Weigh-In:` trailers in the range's commits. Every message line is read, because a
+squash merge puts trailers mid-body. Each entry has its option and the commit that added it, the
+trailer's first, then the atom's, then the journal line's. Sources that name different options
+give one entry each. `journal` checks that every complete line a journal held at base is still
+in it at head, wherever it now stands (`removed`, `missing`, `altered`, `undecodable`). The
+command exits 0 whenever it writes a report, whatever the report finds, and 1 only on its own
+errors: a `--base` that names no commit (so CI must fetch the base), no git repository, git
+failing, or I/O failing. A broken config stops it as it stops every command. What CI does with
+the report is CI's policy.
+
+These were Claude's calls, all two-way and open to Ryan:
+
+- An atom-only decision reports `option: null`: decision atoms carry the recommended option but
+  not the chosen one, and trailers and journals give it. The recommended follow-up, awaiting
+  Ryan, is a `weighin_option` front-matter key, which would change the golden atom tests (HITL-1
+  in the plan, option A).
+- A date deadline is `blocks: none`, and `blocks:<id>` inherits through open items, else
+  `unknown` (HITL-2).
+- Journal failures in hooks go to `hook-errors.log` (HITL-3).
+- Journals in git worktrees only, and `\` refused in session names (above).
+- The skill's close-out asks for `.kb/_ledger/journal/` to be committed with the atoms, which
+  is what makes a pull request carry its journal; the plugin version is not bumped here.
+
+Not done: signing journals or reports, any policy on what blocks a merge, and replaying journals
+into a new container's ledger (B-21).
+
+## B-29
+
+**The Claude Code mod ships inside `weigh`.** 2026-10-19 · Claude's call in the AFK cloud
+session, from the spike on [#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113);
+two-way, open to Ryan · implements [D-0017](#d-0017)'s first step ([#114](https://github.com/Wet-Ink-Corporation/weigh-in/issues/114)).
+
+The spike asked whether the plugin can carry a hooks module (`"modules"` in `hooks/hooks.json`
+beside the command hooks) without breaking a route that works today. On Claude Code 2.1.303,
+`claude plugin validate` and `package-plugin.sh --no-download` pass, and a `--plugin-dir` run
+loads the module next to the command hooks. Claude Code 2.1.200 ignores `modules`: it validates
+the zip, registers the plugin's four command hooks and runs SessionStart. The organization sync
+already delivers a plugin with a module (temper 1.4.0 ships `./lens/register.tsx` and loads in
+cloud sessions), so the sync does not refuse `modules` the way it refuses `plugin/bin/` ([B-03](#b-03)).
+So the mod lives in `plugin/hooks/mod/register.tsx`, with its state contract in
+`plugin/types/index.d.ts`, rather than in a second plugin. Not yet seen: the plugin loading in
+Cowork with the module present, and `$.process.run` starting `weighin.exe` or `weighin.cmd` on
+Windows; both are Ryan's runs on #113. A failure in either moves the mod to `weigh-mod@weigh-in`.
+
+The mod reads `open --repo --json` and `digest --json` and writes only through `decide` and
+`defer`, run by argv; it draws only in a terminal or the desktop app, and `WEIGHIN_MOD=0` turns
+it off. Its tests (`plugin/hooks/mod/mod.test.ts`) run with `tests/mod-check.sh` (validate,
+`claude plugin test`, strict `tsc`) and stay out of the zip. Running that script in CI is a CI
+change, so it waits for Ryan.
+
+## B-30
+
+**The local board pane reads the board on stdout and answers through stdin, as surface `pane`.**
+2026-10-19 · Claude's calls in the AFK cloud session, two-way, open to Ryan as weigh-in items ·
+the CLI half of [#115](https://github.com/Wet-Ink-Corporation/weigh-in/issues/115) · follows
+[D-0017](#d-0017) and keeps [B-25](#b-25)'s guard.
+
+- **Export.** `weighin board export --stdout` prints the board state document (the same
+  `BoardState` the Artifact board reads) as one JSON line, under a `local` or an `artifact`
+  board. It writes no file, creates no ledger, and never publishes; Claude pushing a file to
+  claude.ai is still the only way a board leaves the machine, and `--stdout` gives it no file.
+  It refuses a folder never initialised, a broken config and board mode `off`, which shows
+  nothing. Without `--stdout`, `board export` is unchanged and still refuses outside `artifact`.
+  A flag rather than a `board state` subcommand, so one export path holds the guard.
+- **Apply.** `weighin board apply` reads its answers from stdin when it is given `-` or no path,
+  in the forms a file takes, at most 256 KiB, so the pane leaves no temporary file beside the
+  ledger ([B-01](#b-01)). `--surface pane` (the default is `board`) records its decisions with
+  `via: pane` and its other reasons as `in the pane`, refuses an answer for an item no sitting
+  grounded (it has no card, so it is read-only in the pane), refuses under board mode `off` or
+  with no config, and fails the command when any answer was refused, after applying the rest,
+  since the pane sends one answer at a time and must know. A choice or deferral read from an older card
+  (a stale `card_rev`) is refused by the answer validation the board already uses. From the board, `board apply` is unchanged.
+- **Surface vocabulary.** `weighin_core::event::Surface` names the spellings of
+  `item_presented.surface` and `item_decided.via`: `chat`, `board`, `local`, `pane`, `cli`. The
+  stored fields stay strings, so no event changes shape. `weighin stats --json` gains
+  `decided_via`, the decisions still standing by where they were taken, so pane, chat and board
+  stay apart; the journal already keeps each event's surface. The text line of `stats` is
+  unchanged.
+
+Not done: the pane itself (the mod), and recording a presentation when the pane shows a card.
+
+## B-31
+
+**The default owner comes from git.** 2026-10-19 · Claude's call in the AFK cloud session,
+two-way, open to Ryan as a weigh-in item · the [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)
+item "owner default from git config instead of `ryan`".
+
+Decisions record `human:<owner>` and deferrals an owner, and the owner was `ryan` in every folder
+whose config did not name one, which is wrong as soon as anyone else uses Weigh-In. Now, where
+a folder has no usable config (none, or one that does not parse, which only hooks run on), the
+owner is `git config user.name` as git reads it from the folder, made a slug: lower-case ASCII
+letters and digits, any other ASCII character separating words, characters outside ASCII dropped,
+words joined with `-` (`Ana Lima` becomes `ana-lima`). Without a name that leaves a word, it is
+the local part of `user.email`, slugged the same way, and without that, `ryan` as before. A first
+`weighin init` without `--owner` writes that owner into the new config; a config that exists
+keeps its owner, and `--owner` still sets it. Folders with a config pay nothing: git is asked only
+when there is none, and then only when an owner is needed (a decision, a deferral or `init`), so
+hooks and reads never ask it.
+
+## B-32
+
+**The board pane writes through `board apply --surface pane`, and acks through `batch`.**
+2026-10-19 · Claude's calls in the AFK cloud session, two-way, open to Ryan · the mod half of
+[#115](https://github.com/Wet-Ink-Corporation/weigh-in/issues/115) and
+[#116](https://github.com/Wet-Ink-Corporation/weigh-in/issues/116), over [B-30](#b-30)'s CLI.
+
+- The pane (`plugin/hooks/mod/pane.tsx`) reads `board export --stdout` and `open --repo --json`,
+  and sends each choice, deferral, dismissal or reopen as one Answer on stdin to
+  `board apply --surface pane`, showing the CLI's receipt or refusal word for word. Raw items
+  are listed read-only. Under board mode `off` or without a config it shows the export's one
+  refusal line.
+- The Answer format has no acknowledgement, so **Ack** on a default runs `weighin batch` with
+  one `ack` operation, as the sitting's digest does. It is the pane's only write outside
+  `board apply`.
+- A deferral's flip is its trigger, as the CLI already records it, so the form asks for a
+  trigger, a resolve-by and a default, not a separate flip.
+- Where `$.ui.open` reports the pane is not placed, `/wi board` answers with the board as text
+  and the band's Board button writes that text to the transcript.
+- On a successful Write, Edit or MultiEdit the mod shows, as a toast and a band line, at most
+  three of the decisions anchored at the file (`decisions --path --json`, newest first), each
+  line clipped as `recall::Anchored::line` clips it. The PostToolUse hook gives the model at most
+  three too, but ranked by the edited line, so where more stand the two can differ. An edit that
+  lists none clears the band line; a failure to list them is told once a session. It never
+  alters the tool call or its result.
+- After review: one write at a time (a press while an answer is being written is ignored, so a
+  double press is not refused as already answered); a write that timed out says it may have been
+  applied and the board is read again; a pane waiting undrawn is not read at each turn end; a
+  one-way door's deferral pre-selects no default; `/wi decide` and `/wi defer` pass typed text as
+  `--flag=value` and the positionals after `--`; each load clears a status entry a previous load
+  left up.
+
+Not done: recording a presentation when the pane shows a card.

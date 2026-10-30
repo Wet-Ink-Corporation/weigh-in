@@ -6,6 +6,64 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 1.1.0 — 2026-10-29
+
+Slice 2: the CI contract for assay, and the Claude Code mod (the ledger band, `/wi`, the local
+board pane and decisions shown on edits).
+
+- The board pane in Claude Code (`/wi board`, or **Board** on the band): Needs you, Decided for
+  you and Settled tabs over `weighin board export --stdout`, where grounded cards are decided,
+  deferred or dismissed and defaults reopened or acknowledged, one answer at a time through
+  `weighin board apply --surface pane`. Items no sitting grounded are read-only, board mode `off`
+  shows its one line, and the pane never publishes. Where it cannot be placed, `/wi board` prints
+  the board as text. One answer is written at a time, and a write that timed out says it may
+  have been applied (#115).
+- `/wi decide` and `/wi defer` pass what you typed after `--`, so an id, option or note that
+  starts with `-` is read as text.
+- After a `Write`, `Edit` or `MultiEdit` that succeeded, the mod shows the decisions anchored at
+  the edited file in a toast and on the band, at most three, from one `weighin decisions --path
+  <file> --json`; an edit that lists none clears the band line, and a failure to list them is
+  told once a session. The tool call and its result are unchanged (#116).
+- When an edit touches a file a decision is anchored to, the `PostToolUse` hook adds that
+  decision to the model's context, one line each and at most three per edit
+  (`<id> decided <choice>: <question> (path:line)`). Decisions reopened, superseded or dismissed
+  since, and defaults, are not shown, and capture is unchanged. Not in Cowork. `weighin decisions
+  --path <file> [--line <n>] [--json]` lists them (#116).
+- For the local board pane (D-0017): `weighin board export --stdout` prints the board state
+  under a `local` or `artifact` board and writes no file; `weighin board apply` reads answers
+  from stdin given `-` or no path; `--surface pane` records decisions with surface `pane`, refuses
+  items no sitting grounded and fails when an answer is refused. `weighin stats --json` adds
+  `decided_via`, so pane, chat and board decisions stay apart (B-30, #115).
+- A first `weighin init` without `--owner`, and a folder with no config, take the owner from
+  `git config user.name` (lower-case ASCII words joined with `-`), else the local part of
+  `user.email`, else `ryan` as before. An existing config keeps its owner (B-31, #27).
+- The binary keeps each session's events in `.kb/_ledger/journal/<session>.jsonl` after capture
+  hooks and commands that change the ledger, on every platform, in initialised git repositories,
+  so a pull request from any session can carry its journal. Opt out with `"journal": false` in
+  `.kb/_ledger/config.json`. A journal that cannot be written never fails the command (B-28,
+  #145).
+- `weighin ci-check --base <ref> [--json]`: a report for CI, read from git and the checkout
+  alone, of the open items, the decisions the branch adds with their commits, and whether the
+  committed journals were only appended to. It exits 0 whenever it writes a report (#145).
+- A band above the prompt in Claude Code (2.1.287 or later, desktop 2.1.286) shows this
+  repository's open items, one-way doors and unreviewed defaults, with **Sit** to run
+  `/weigh-in`; `/wi open`, `/wi stats`, `/wi decide` and `/wi defer` answer without a Claude turn.
+  `WEIGHIN_MOD=0` turns it off; nothing changes in the VS Code panel, cloud sessions or Cowork
+  (#114).
+
+## 1.0.0 — 2026-10-19
+
+v1: slice 1 made dependable, for daily use by Ryan (D-0008). This is the 0.9.0 candidate with one
+skill fix and the closing documents; there is no new Rust, and capture is unchanged. Every exit
+criterion in `docs/v1-plan.md` is met on one week of use (D-0019): 90 items presented across six
+folders, a 73% action rate, 0% not useful, no hook errors, and Ryan's re-checks on Windows and in
+a Projects task passed.
+
+- In Cowork and in Projects tasks with a connected folder, the skill only uses a Weigh-In binary
+  from a connected folder if it is this release's version. It skips other copies, such as an old
+  checkout's build, and names them; before, it ran the first one it found, and an older build can
+  reopen the ledger under its own journal mode (#143).
+
 ## 0.9.0 — 2026-10-14
 
 The v1.0 release candidate (B-23): 0.6.2 plus the fixes from the third code review (#26). 1.0.0

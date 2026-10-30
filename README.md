@@ -15,9 +15,13 @@ It stands on its own until redkiln-rs is ready to receive it.
 |---|---|---|
 | Capture: `weigh-in` blocks in the agent's last message | `Stop` / `SubagentStop` command hook | 0 |
 | Capture: "Open questions" bullets and new TODOs in written files | `PostToolUse` command hook | 0 |
+| Past decisions anchored at an edited file, at most three lines per edit | `PostToolUse` command hook | ~40 per line shown |
 | Convention and open counts | `SessionStart` command hook | ~150 per session |
 | Sweep, five filters, grounding, cards | `/weigh-in` skill, in the chat that raised them | one sitting, 3–4 requests |
 | Record | `weighin` CLI: event, atom in `.kb/_intake/`, source annotation | 0 |
+| Ledger band and `/wi` commands, Claude Code only | the mod (`plugin/hooks/mod/`) | 0 |
+| Local board pane: decide, defer, dismiss, reopen or ack grounded cards and defaults | the mod, through `board export --stdout` and `board apply --surface pane` | 0 |
+| Toast for past decisions at an edited file, for the person | the mod's `tool.call` hook | 0 |
 
 The ledger is an event log in happenstance's SQLite schema at
 `<git-common-dir>/weighin/ledger.sqlite3`: shared by every worktree of the repo, never
@@ -112,7 +116,8 @@ checkout of the `marketplace` branch.
 weighin [--store <file>] [--dir <folder>] [--session <id>] <command>
 weighin prime                            the marker convention and open counts
 weighin init [--class own|client] [--board artifact|local|off] [--board-url <url>] [--owner <who>]
-             [--ledger <path>]
+             [--ledger <path>]       a first init takes the owner from `git config user.name`
+                                     (else the email's local part, else `ryan`); later ones keep it
 weighin open [--repo | --all] [--with-context] [--top <n>] [--json]
                                          open items, ranked (one-way, blocking, authority first);
                                          `--all` lists closed ones too
@@ -130,13 +135,55 @@ weighin dismiss <id> <why> [--note]      not-useful | recoverable | moot | alrea
 weighin reopen <id> [--note]             reopen a decided, defaulted or dismissed item
 weighin digest [--json]                  defaults taken without you
 weighin stats [--json]                   action rate, not-useful rate, overrides, time to decide (ledger + committed journals)
-weighin journal                          every ledger event as JSON lines (cloud sessions commit it, B-21)
+weighin journal                          every ledger event as JSON lines; sessions keep their own in
+                                         .kb/_ledger/journal/ (B-28)
+weighin ci-check --base <ref> [--json]   CI report: open items, decisions since <ref>, append-only
+                                         journals (schema weighin.ci-check/1)
 weighin trailer <id>                     the commit trailer for a decided item
+weighin decisions --path <file> [--line <n>] [--json]
+                                         decisions still standing that are anchored at a file,
+                                         nearest the line first, else newest first
 weighin scan <path>…                     backfill from existing documents
-weighin board export [--out <file>]      write the board state document
-weighin board apply <path>               apply board answers (a file or a directory)
+weighin board export [--out <file> | --stdout]
+                                         write the board state document; `--stdout` prints it
+                                         under a `local` or `artifact` board and writes no file
+weighin board apply [<path> | -] [--surface board|pane]
+                                         apply board answers (a file, a directory, or stdin);
+                                         `--surface pane` records them as the local pane's
 weighin hook                             hook entry point (reads the hook JSON on stdin)
 ```
+
+### Decisions on edits
+
+When a `Write`, `Edit` or `MultiEdit` touches a file that a decision still standing is anchored
+to (its `at:`, or the file it was scanned from), the `PostToolUse` hook adds that decision to
+the model's context, one line each and at most three per edit:
+`<id> decided <choice>: <question> (path:line)`. After an `Edit` the decisions nearest the edited
+line come first; after a `Write`, the newest. Only decided items count: one reopened,
+superseded or dismissed since is not shown, and neither is a default (the agent's own call, or
+one taken on expiry), which the digest reviews. The hook still raises exactly what it did
+before and nothing more; a failure here goes to `hook-errors.log` and adds nothing. It works on
+every surface where hooks run, cloud sessions included, but not in Cowork, whose hooks run in a
+scratch workspace (#116). `weighin decisions --path <file>` lists the same decisions.
+
+### Session journals and CI
+
+In an initialised git repository, every session keeps its own events in
+`.kb/_ledger/journal/<session>.jsonl`. The binary appends them after each capture hook and each
+command that changes the ledger, append-only and each line once, so a pull request that commits
+`.kb/` carries what its session raised, deferred, dismissed and decided (B-28). Set
+`"journal": false` in `.kb/_ledger/config.json` to opt out. A journal that cannot be written
+leaves the command's result alone: the CLI warns on stderr, and hooks log it to
+`hook-errors.log`.
+
+`weighin ci-check --base <ref> --json` reads only git and the checkout, never a ledger. It reports
+`open_items` (each with its triaged `door` and `authority`, or `null` before triage, and
+`blocks`: `merge`, `release`, `none` for a date deadline, or `unknown`), the `decisions` the
+branch adds with their option, commit and `sources` (`journal`, `atom`, `trailer`), and
+`journal.ok` with the `violations` of the append-only rule. It exits 0 whenever it writes a
+report, whatever the report finds, and 1 only on its own errors: a `--base` that names no
+commit, no git repository, git or I/O failing, or a broken config. CI must have the base
+commit, so check out with `fetch-depth: 0` or fetch the base first.
 
 ## Guards the CLI enforces
 
@@ -149,13 +196,17 @@ weighin hook                             hook entry point (reads the hook JSON o
 - `board export` writes a board only where `.kb/_ledger/config.json` chose the `artifact` board:
   it refuses a `local` or `off` mode, a folder never initialised (run `weighin init --class own`
   or `--class client` first) and a config that does not parse (wi-7c21e4).
+- `board export --stdout`, for the local board pane, prints the state under a `local` or
+  `artifact` board and never writes or publishes it; it refuses `off` and a folder never
+  initialised. `board apply --surface pane` records decisions with surface `pane`, leaves items
+  no sitting grounded read-only, and fails when an answer is refused (D-0017, B-30).
 
 ## Measured in this build
 
-Measured on `main` after 0.6.2 (2026-10-14). Items marked **pending** are v1 exit criteria
-([v1 plan](docs/v1-plan.md), Phase 3) that have not been measured yet.
+Measured at 1.0.0 (2026-10-19), against the v1 exit criteria ([v1 plan](docs/v1-plan.md),
+Phase 3). Every criterion is met; macOS and Linux installs are unverified.
 
-- **Tests and lints.** 297 tests on `main` after 0.6.2 (113 core unit tests, 22 core property
+- **Tests and lints.** 297 tests at 1.0.0 (113 core unit tests, 22 core property
   tests, 7 core doctests, 93 CLI unit tests, 62 CLI integration tests including the eval scorer;
   one more end-to-end test runs on Windows only). CI runs them, fmt and rustdoc on Linux, Windows
   and macOS; `cargo deny`, the plugin package check and temper's lint
@@ -199,14 +250,16 @@ Measured on `main` after 0.6.2 (2026-10-14). Items marked **pending** are v1 exi
     without Git Bash (V7). They also found cards printed as text and the ledger left in the cloud
     in Projects tasks (#126), and a Windows desktop sitting that could not reach the binary
     (#127); 0.6.2 fixes both (D-0018, B-26).
-  - **Pending:** Ryan's re-checks on 0.6.2: the Projects card and folder ledger (#126, #16, the
-    Cowork half of V6 in #20) and the Windows desktop sitting with and without Git Bash (#127,
-    #21).
-- **Use.** **Pending:** two weeks and 30 presented items of real sittings, whichever comes later
-  (#23; week 1 opened on 2026-10-12, its stats are due on or after 2026-10-19).
-  These give the action rate (target at least 60%), the not-useful rate (at most 10%, or
-  per-category suppression comes into v1, #25), overrides and time to decide. `weighin stats`
-  and `scripts/weekly-stats.sh` produce them.
+  - Ryan's re-checks on 0.9.0 (2026-10-18): the Windows desktop sitting reaches the ledger with
+    and without Git Bash (#127, #21), and a Projects task with a connected folder shows a
+    tappable one-way card, records nothing before the tap, and writes the decision and its atom
+    into the folder (#126, #16, #20). That run found the connected-folder binary fallback took
+    any version; from 1.0.0 it only runs this release's (#143).
+- **Use** (#23, one week by D-0019): 2026-10-12 to 10-18 across six folders (this repository,
+  four of Ryan's other repositories and a connected folder). 90 items presented, action rate
+  73% (target at least 60%), not-useful 0% (at most 10%, so per-category suppression, #25,
+  stays out), 9 overrides of 66 decided, 0 hook errors. `weighin stats` and
+  `scripts/weekly-stats.sh` produce these.
 
 ## Open items
 
