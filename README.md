@@ -44,7 +44,7 @@ the session; your files are on your computer, behind its shell. So in Cowork:
 - The skill runs `weighin` through your computer's shell, against the connected folder you
   worked in. With public releases, it downloads the Linux binary of its own release from
   GitHub on first use in a chat, into the shell's per-chat scratch space (outside every
-  connected folder), and checks it against the SHA-256 stamped into the skill. Otherwise (1.1.0
+  connected folder), and checks it against the SHA-256 stamped into the skill. Otherwise (1.0.0
   and earlier, packaged while this repository was internal, B-33), it uses the copy in a connected folder holding a checkout
   of the `marketplace` branch (`plugin/libexec/`, [install](docs/install.md#cowork)); a checkout
   of `main` has no binaries (B-18). Failing both, it settles in chat and hands you Y-statements.

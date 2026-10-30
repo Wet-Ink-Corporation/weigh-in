@@ -6,16 +6,16 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
-- In Cowork, the skill downloads this release's Linux binary from GitHub on first use in a chat
-  and checks it against the SHA-256 stamped into the skill, so a connected checkout of the
-  `marketplace` branch is no longer needed. It is the first release packaged while the repository
-  is public (B-33); the connected checkout stays the fallback when the download fails.
-
 ## 1.1.0 — 2026-10-29
 
 Slice 2: the CI contract for assay, and the Claude Code mod (the ledger band, `/wi`, the local
 board pane and decisions shown on edits).
 
+- In Cowork, the skill downloads this release's Linux binary from GitHub on first use in a chat
+  and checks it against the SHA-256 stamped into the skill, so a connected checkout of the
+  `marketplace` branch is only the fallback. It is the first release tagged while the repository
+  is public, which is when the release workflow stamps the checksum (B-33; added after the
+  release, which shipped it without a note).
 - The board pane in Claude Code (`/wi board`, or **Board** on the band): Needs you, Decided for
   you and Settled tabs over `weighin board export --stdout`, where grounded cards are decided,
   deferred or dismissed and defaults reopened or acknowledged, one answer at a time through

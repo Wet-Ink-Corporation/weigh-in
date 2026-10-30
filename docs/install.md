@@ -146,11 +146,11 @@ Code starts with, or in the `env` block of `~/.claude/settings.json`:
 
 ## Cowork
 
-Cowork takes plugins from your claude.ai account. From the first release after 1.1.0 its skill
-downloads the Linux binary of its own release on first use in a chat and checks its SHA-256
-(B-33), so it needs no connected checkout. 1.1.0 and earlier were packaged while the repository
-was internal and cannot download, so they use a binary in a connected folder, as does any release
-whose download fails (D-0012):
+Cowork takes plugins from your claude.ai account. From 1.1.0 its skill downloads the Linux
+binary of its own release on first use in a chat and checks its SHA-256 (B-33), so it needs no
+connected checkout. 1.0.0 and earlier were packaged while the repository was internal and cannot
+download, so they use a binary in a connected folder, as does any release whose download fails
+(D-0012):
 
 1. Keep a checkout of the `marketplace` branch:
 
