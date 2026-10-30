@@ -90,8 +90,8 @@ changelog entry. The workflow tests, builds Linux,
 Windows and macOS binaries, packages the plugin and publishes the release. It then replaces the
 `marketplace` branch (D-0009) and the default branch of `Wet-Ink-Corporation/weigh-in-plugin`,
 which claude.ai's organization sync reads (B-19); that push needs the
-`WEIGH_IN_PLUGIN_DEPLOY_KEY` secret. While the repository is internal it packages with
-`--no-download` (D-0007).
+`WEIGH_IN_PLUGIN_DEPLOY_KEY` secret. It stamps the Cowork download's checksum only while the
+repository is public, as it is since B-33; otherwise it packages with `--no-download` (D-0007).
 
 ## temper (Claude Code specifics)
 

@@ -1,8 +1,8 @@
 # Installing Weigh-In
 
 For using Weigh-In. Building it from source, for development, is in the
-[README](../README.md#install). Releases are internal for v1 (D-0012), so every route below that
-clones from GitHub needs read access to `Wet-Ink-Corporation/weigh-in`.
+[README](../README.md#install). `Wet-Ink-Corporation/weigh-in` is public (B-33), so the routes
+below that clone it need no access; the release repository `weigh-in-plugin` stays internal.
 
 ## Through your organization (recommended)
 
@@ -146,8 +146,11 @@ Code starts with, or in the `env` block of `~/.claude/settings.json`:
 
 ## Cowork
 
-Cowork takes plugins from your claude.ai account, and while releases are internal its skill
-cannot download the binary, so it uses one in a connected folder (D-0012).
+Cowork takes plugins from your claude.ai account. From the first release after 1.1.0 its skill
+downloads the Linux binary of its own release on first use in a chat and checks its SHA-256
+(B-33), so it needs no connected checkout. 1.1.0 and earlier were packaged while the repository
+was internal and cannot download, so they use a binary in a connected folder, as does any release
+whose download fails (D-0012):
 
 1. Keep a checkout of the `marketplace` branch:
 

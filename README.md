@@ -44,8 +44,8 @@ the session; your files are on your computer, behind its shell. So in Cowork:
 - The skill runs `weighin` through your computer's shell, against the connected folder you
   worked in. With public releases, it downloads the Linux binary of its own release from
   GitHub on first use in a chat, into the shell's per-chat scratch space (outside every
-  connected folder), and checks it against the SHA-256 stamped into the skill. Otherwise, and
-  while this repository is internal, it uses the copy in a connected folder holding a checkout
+  connected folder), and checks it against the SHA-256 stamped into the skill. Otherwise (1.1.0
+  and earlier, packaged while this repository was internal, B-33), it uses the copy in a connected folder holding a checkout
   of the `marketplace` branch (`plugin/libexec/`, [install](docs/install.md#cowork)); a checkout
   of `main` has no binaries (B-18). Failing both, it settles in chat and hands you Y-statements.
 - Hooks write nothing (`CLAUDE_CODE_ENTRYPOINT=remote_cowork`): `SessionStart` still teaches the
@@ -105,10 +105,10 @@ then replaces the `marketplace` branch with one commit holding that zip's plugin
 pushes the same commit to the default branch of `Wet-Ink-Corporation/weigh-in-plugin` for the
 organization sync (B-19). The zip and the Linux binary must come from the same build, which is why
 the release is made only there; `scripts/package-plugin.sh` run locally gives a zip that matches
-only a local build. The download needs public release assets: while the repository is internal
-the workflow packages with `--no-download`, and so should a local build
-(`scripts/package-plugin.sh --no-download`); the skill then uses the binary in a connected
-checkout of the `marketplace` branch.
+only a local build. The download needs public release assets: the workflow stamps the checksum only when the
+repository is public, as it is since 2026-10-30 (B-33). A local build has no matching release, so
+package it with `scripts/package-plugin.sh --no-download`; the skill then uses the binary in a
+connected checkout of the `marketplace` branch.
 
 ## Commands
 
