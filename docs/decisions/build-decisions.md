@@ -912,12 +912,13 @@ packaging is unchanged) · records [#154](https://github.com/Wet-Ink-Corporation
   With the repository public, hosted minutes are free, and #159 runs the `check` matrix on
   `ubuntu-latest`, `windows-latest` and `macos-latest` again, which the `main` ruleset requires.
   No Blacksmith runner or action remains in the workflows.
-- **The Cowork download is on from the next release.** Ryan chose it on 2026-10-30, ending the
-  dormancy [D-0012](#d-0012) put on [D-0003](#d-0003). No workflow change is needed:
-  `release.yml` already packages without `--no-download` when the repository is public, so the
-  next release's skill carries the SHA-256 of its Linux binary and downloads it from the public
-  release. CI keeps `--no-download`, because its zip has no matching release. A connected
-  checkout of the `marketplace` branch stays the fallback, and 1.1.0 and earlier, packaged while
-  the repository was internal, still need it. Ryan checks the download in Cowork after the next
-  tag. The research clean-up is the rest of "going public" on
+- **The Cowork download is on, from 1.1.0.** Ryan chose to keep it on (2026-10-30), ending the
+  dormancy [D-0012](#d-0012) put on [D-0003](#d-0003). No workflow change was needed:
+  `release.yml` packages without `--no-download` when the repository is public, and the
+  repository was already public when `v1.1.0` was tagged. The synced 1.1.0 skill is stamped
+  `S=6c3e54e0…`, which is the SHA-256 of the public `weighin-x86_64-unknown-linux-musl` asset of
+  v1.1.0 (checked 2026-10-30, correcting the first version of this entry, which said 1.1.0 could
+  not download). CI keeps `--no-download`, because its zip has no matching release. A connected
+  checkout of the `marketplace` branch stays the fallback when the download fails, and 1.0.0 and
+  earlier still need it. Ryan checks the download in Cowork. The research clean-up is the rest of "going public" on
   [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27).

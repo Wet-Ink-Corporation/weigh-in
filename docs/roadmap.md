@@ -16,7 +16,7 @@ failure moves the mod to a second plugin, B-29) and V2 from Cowork
 ([#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17), labelled `blocked`). The rest
 of slice 2 and later is the backlog on [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27),
 starting with the research clean-up, the rest of going public. The Cowork download is on from
-the next release (B-33); Ryan checks it in Cowork after that tag. Per-category suppression
+1.1.0 (B-33); Ryan checks it in Cowork. Per-category suppression
 ([#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25)) was not built: the pilot's
 not-useful rate was 0%, under D-0013's 10% trigger. Left open on purpose: whether a cloud session
 in this checkout captures twice when the organization-synced plugin also loads (noted on #143),
@@ -67,7 +67,7 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 - **No binaries on `main`:** install from the `marketplace` branch instead ([B-14](decisions/build-decisions.md#b-14));
   verified on Windows and in Cowork ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)); macOS and Linux installs are unverified.
   A plugin without a binary says capture is off ([B-11](decisions/build-decisions.md#b-11)).
-- **Cowork download is untried:** it is on from the next release ([B-33](decisions/build-decisions.md#b-33)). 1.1.0 and
+- **Cowork download is untried:** it is on from 1.1.0 ([B-33](decisions/build-decisions.md#b-33)). 1.0.0 and
   earlier cannot download ([D-0012](decisions/build-decisions.md#d-0012)), so Cowork uses a connected checkout of the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)).
 - **This repository's ledger does not outlive a cloud session** ([D-0014](decisions/build-decisions.md#d-0014)):
   cloud sessions settle or defer everything before they end. Ryan's own clones, now installed from
