@@ -1,25 +1,26 @@
 # Roadmap and open items
 
-State at 1.0.0 (2026-10-19). v1 is slice 1 made dependable, and every exit criterion of the
+State at 1.1.0 (2026-10-30). v1 is slice 1 made dependable, and every exit criterion of the
 [v1 plan](v1-plan.md) is met, with one week of daily use instead of two
-([D-0019](decisions/build-decisions.md#d-0019)). 1.0.0 is the 0.9.0 candidate plus one skill fix
-([#143](https://github.com/Wet-Ink-Corporation/weigh-in/issues/143)), with no new Rust
-([B-23](decisions/build-decisions.md#b-23)). The next milestone is slice 2
-([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
+([D-0019](decisions/build-decisions.md#d-0019)). 1.0.0 shipped it on 2026-10-19
+([B-27](decisions/build-decisions.md#b-27)). 1.1.0 (2026-10-29) shipped the first of slice 2: the
+CI contract for assay ([#145](https://github.com/Wet-Ink-Corporation/weigh-in/issues/145), B-28)
+and the Claude Code mod ([#112](https://github.com/Wet-Ink-Corporation/weigh-in/issues/112)): the
+band and `/wi` (#114, B-29), the local board pane (#115, B-30, B-32), decisions shown on edits
+(#116), and the owner from git config (B-31). The repository is public since 2026-10-30, and CI
+runs on GitHub-hosted Linux, Windows and macOS runners ([B-33](decisions/build-decisions.md#b-33)).
 
-**Where to pick up.** v1 is live: Ryan tagged 1.0.0 on 2026-10-19, and the release reached the
-`marketplace` branch and `weigh-in-plugin` ([B-27](decisions/build-decisions.md#b-27)). Slice 2
-([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27), milestone `v1.1`) is built on
-`main` but not released: the CI contract for assay ([#145](https://github.com/Wet-Ink-Corporation/weigh-in/issues/145), B-28),
-and the Claude Code mod ([#112](https://github.com/Wet-Ink-Corporation/weigh-in/issues/112)): the band and `/wi`
-([#114](https://github.com/Wet-Ink-Corporation/weigh-in/issues/114), B-29), the local board pane
-([#115](https://github.com/Wet-Ink-Corporation/weigh-in/issues/115), B-30, B-32), decisions shown on edits
-([#116](https://github.com/Wet-Ink-Corporation/weigh-in/issues/116)), and the owner from git config (B-31).
-Waiting on Ryan: the mod's Cowork and Windows runs ([#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113)),
-V2 from Cowork ([#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17), labelled `blocked`), whether
-[#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) closes, and the next release tag. Left open on
-purpose: whether a cloud session in this checkout captures twice when the organization-synced plugin also
-loads (noted on #143), and the capture items held back for the pilot on #26.
+**Where to pick up.** Waiting on Ryan: the mod's Cowork and Windows runs on the released plugin
+([#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113), steps on the issue; a Cowork
+failure moves the mod to a second plugin, B-29) and V2 from Cowork
+([#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17), labelled `blocked`). The rest
+of slice 2 and later is the backlog on [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27),
+starting with the research clean-up, the rest of going public. The Cowork download is on from
+the next release (B-33); Ryan checks it in Cowork after that tag. Per-category suppression
+([#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25)) was not built: the pilot's
+not-useful rate was 0%, under D-0013's 10% trigger. Left open on purpose: whether a cloud session
+in this checkout captures twice when the organization-synced plugin also loads (noted on #143),
+and the capture items held back for the pilot on #26.
 
 v1 exit criteria ([v1 plan](v1-plan.md), Phase 3), at 1.0.0:
 
@@ -43,7 +44,8 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 | 2: distribution (0.4.x) · **done** | [#12](https://github.com/Wet-Ink-Corporation/weigh-in/issues/12) `marketplace` branch from `release.yml` · [#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13) install from it; Cowork through a connected checkout · [#14](https://github.com/Wet-Ink-Corporation/weigh-in/issues/14) install guide · [#15](https://github.com/Wet-Ink-Corporation/weigh-in/issues/15) release · fixes from the installs: [#43](https://github.com/Wet-Ink-Corporation/weigh-in/issues/43) release rerun, [#46](https://github.com/Wet-Ink-Corporation/weigh-in/issues/46) auto-update, [#48](https://github.com/Wet-Ink-Corporation/weigh-in/issues/48) 0.4.1 |
 | 3: verify and use (0.9.x) · **done** | [#16](https://github.com/Wet-Ink-Corporation/weigh-in/issues/16) V1 · [#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17) V2 · [#18](https://github.com/Wet-Ink-Corporation/weigh-in/issues/18) V4 · [#19](https://github.com/Wet-Ink-Corporation/weigh-in/issues/19) V5 · [#20](https://github.com/Wet-Ink-Corporation/weigh-in/issues/20) V6 · [#21](https://github.com/Wet-Ink-Corporation/weigh-in/issues/21) V7 and hooks without Git Bash · [#22](https://github.com/Wet-Ink-Corporation/weigh-in/issues/22) eval seed · [#23](https://github.com/Wet-Ink-Corporation/weigh-in/issues/23) two weeks of daily use · [#24](https://github.com/Wet-Ink-Corporation/weigh-in/issues/24) sitting cost (**done**, D-0016) · [#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25) suppression, only if not-useful exceeds 10% |
 | 4: v1.0 · **done** (1.0.0, 2026-10-19) | [#26](https://github.com/Wet-Ink-Corporation/weigh-in/issues/26) release 1.0.0 and record v1 live |
-| After v1: the next milestone | [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27) slice 2 and later |
+| Slice 2, first release (1.1.0, 2026-10-29) | [#145](https://github.com/Wet-Ink-Corporation/weigh-in/issues/145) CI contract for assay · [#112](https://github.com/Wet-Ink-Corporation/weigh-in/issues/112) the Claude Code mod: [#114](https://github.com/Wet-Ink-Corporation/weigh-in/issues/114) band and `/wi`, [#115](https://github.com/Wet-Ink-Corporation/weigh-in/issues/115) board pane, [#116](https://github.com/Wet-Ink-Corporation/weigh-in/issues/116) decisions on edits, [#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113) its Cowork and Windows runs |
+| After 1.1.0 | [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27) slice 2 and later |
 
 ## Not yet verified
 
@@ -65,8 +67,8 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 - **No binaries on `main`:** install from the `marketplace` branch instead ([B-14](decisions/build-decisions.md#b-14));
   verified on Windows and in Cowork ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)); macOS and Linux installs are unverified.
   A plugin without a binary says capture is off ([B-11](decisions/build-decisions.md#b-11)).
-- **Cowork download is dormant** while releases are internal ([D-0012](decisions/build-decisions.md#d-0012));
-  Cowork uses a connected checkout of the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)).
+- **Cowork download is untried:** it is on from the next release ([B-33](decisions/build-decisions.md#b-33)). 1.1.0 and
+  earlier cannot download ([D-0012](decisions/build-decisions.md#d-0012)), so Cowork uses a connected checkout of the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)).
 - **This repository's ledger does not outlive a cloud session** ([D-0014](decisions/build-decisions.md#d-0014)):
   cloud sessions settle or defer everything before they end. Ryan's own clones, now installed from
   the `marketplace` branch, keep theirs. Since [B-21](decisions/build-decisions.md#b-21) the

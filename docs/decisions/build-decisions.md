@@ -896,3 +896,28 @@ hooks and reads never ask it.
   left up.
 
 Not done: recording a presentation when the pane shows a card.
+
+## B-33
+
+**The repository is public, and CI runs on GitHub-hosted runners on all three platforms.**
+2026-10-30 · Ryan's calls, two-way · amends [D-0012](#d-0012) (the repository half; release
+packaging is unchanged) · records [#154](https://github.com/Wet-Ink-Corporation/weigh-in/pull/154),
+[#157](https://github.com/Wet-Ink-Corporation/weigh-in/pull/157) and
+[#159](https://github.com/Wet-Ink-Corporation/weigh-in/pull/159).
+
+- Ryan made `Wet-Ink-Corporation/weigh-in` public after 1.1.0. `weigh-in-plugin`, the release
+  repository the organization sync reads ([B-19](#b-19)), stays internal.
+- CI moved to Blacksmith runners (#154) while hosted minutes were exhausted, and was moved back
+  (#157), which paused the Windows and macOS `check` legs behind the `CI_NON_LINUX` variable.
+  With the repository public, hosted minutes are free, and #159 runs the `check` matrix on
+  `ubuntu-latest`, `windows-latest` and `macos-latest` again, which the `main` ruleset requires.
+  No Blacksmith runner or action remains in the workflows.
+- **The Cowork download is on from the next release.** Ryan chose it on 2026-10-30, ending the
+  dormancy [D-0012](#d-0012) put on [D-0003](#d-0003). No workflow change is needed:
+  `release.yml` already packages without `--no-download` when the repository is public, so the
+  next release's skill carries the SHA-256 of its Linux binary and downloads it from the public
+  release. CI keeps `--no-download`, because its zip has no matching release. A connected
+  checkout of the `marketplace` branch stays the fallback, and 1.1.0 and earlier, packaged while
+  the repository was internal, still need it. Ryan checks the download in Cowork after the next
+  tag. The research clean-up is the rest of "going public" on
+  [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27).

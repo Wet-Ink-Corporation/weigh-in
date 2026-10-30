@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- In Cowork, the skill downloads this release's Linux binary from GitHub on first use in a chat
+  and checks it against the SHA-256 stamped into the skill, so a connected checkout of the
+  `marketplace` branch is no longer needed. It is the first release packaged while the repository
+  is public (B-33); the connected checkout stays the fallback when the download fails.
+
 ## 1.1.0 — 2026-10-29
 
 Slice 2: the CI contract for assay, and the Claude Code mod (the ledger band, `/wi`, the local
