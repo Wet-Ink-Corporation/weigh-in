@@ -144,6 +144,7 @@ The aim is that every later change arrives by PR, is gated, and is tracked.
 1. **Ruleset on `main`** (GitHub settings): require a pull request, require the `ci` checks
    (`check (ubuntu-latest)`, `check (windows-latest)`) to pass, block force pushes and deletion,
    squash or rebase merges only so history stays linear. Ryan may bypass, for emergencies only.
+   (Superseded by D-0020: PRs now land as merge commits, and linear history is no longer required.)
 2. **Tag ruleset for `v*`**: only Ryan creates them. Add a step to `release.yml` that fails unless
    the tagged commit is an ancestor of `origin/main`.
 3. **Work tracking (P-5)**: labels `verify`, `gap`, `release`, `decision`, `slice-2`, `deps`;

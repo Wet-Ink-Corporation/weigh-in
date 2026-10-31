@@ -231,6 +231,22 @@ action rate 73%, not-useful 0%, no hook errors, no ledger corruption, and a sitt
 decisions needed Ryan. A second week would mostly re-measure the same capture behaviour, so v1
 closes on week 1's numbers. #25 (suppression) stays out, since not-useful is under 10%.
 
+## D-0020
+
+**Pull requests land on `main` as merge commits.** 2026-10-31 · Ryan's call, in the project
+thread · supersedes the "squash or rebase merges only so history stays linear" part of Phase 0
+in [`v1-plan.md`](../v1-plan.md) and the squash merge in [`releasing.md`](../releasing.md).
+
+The `main` ruleset and the repository's General settings allow merge commits only, so each
+PR's commits reach `main` unchanged, with their `Weigh-In:` trailers where they were written.
+The ruleset's "Require linear history" was still on from Phase 0. It forbids the merge commit
+that the only allowed method creates, so GitHub offered no merge button, only the bypass, and
+showed "This branch must not contain merge commits" on every PR. Ryan merged #166 through the
+bypass (`283c63f`, a merge commit), then turned "Require linear history" off.
+
+The ruleset still requires a pull request, the six status checks and resolved review threads,
+and blocks force pushes and deletion. Ryan remains the only bypass actor.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.

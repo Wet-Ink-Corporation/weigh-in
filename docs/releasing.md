@@ -41,7 +41,7 @@ One PR, titled `Release <version>: <what it is for>`:
       claude plugin validate .
       ```
 - [ ] CI is green on the PR (ci.yml on Linux, Windows and macOS, rust.yml's temper gate, the
-      package check), no review thread is open, and the PR is squash-merged.
+      package check), no review thread is open, and the PR is merged with a merge commit (D-0020).
 
 ## 3. The tag (Ryan)
 
