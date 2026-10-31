@@ -8,9 +8,9 @@ allowed-tools: Bash(sh:*), Bash(git:*), Read, Grep, Glob, AskUserQuestion, mcp__
 
 # Weigh-In sitting
 
-Ledger (injected). If this shows a command or a placeholder instead of output: with the device shell (`mcp__remote-devices__device_bash`) you are in Cowork, go to **Cowork** below; otherwise run it with Bash first. In a Claude Projects task (`mcp__hearthbot__` tools listed) whose work was in a connected folder on the user's computer (`$HOME/mnt/<name>` through the device shell), the ledger follows the work: go to **Cowork**, and carry over this session's items shown here as swept items, since this workspace and its ledger end with the task.
+Ledger (injected). If this shows a command, a placeholder or "(weighin did not run here)" instead of output: with the device shell (`mcp__remote-devices__device_bash`) you are in Cowork, go to **Cowork** below; otherwise run it with Bash first. In a Claude Projects task (`mcp__hearthbot__` tools listed) whose work was in a connected folder on the user's computer (`$HOME/mnt/<name>` through the device shell), the ledger follows the work: go to **Cowork**, and carry over this session's items shown here as swept items, since this workspace and its ledger end with the task.
 
-!`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session "${CLAUDE_SESSION_ID}" --dir "${CLAUDE_PROJECT_DIR}" open --with-context --top 8`
+!`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session "${CLAUDE_SESSION_ID}" --dir "${CLAUDE_PROJECT_DIR}" open --with-context --top 8 2>&1 || echo "(weighin did not run here)"`
 
 `W` below means `sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" --session "${CLAUDE_SESSION_ID}" --dir "${CLAUDE_PROJECT_DIR}"`. Run it from anywhere; never `cd` into the plugin. On Windows, if that fails (no `sh`, or the shell cannot see the plugin folder): `W` is the path after `Weigh-In binary for the shell:` in this session's SessionStart context, quoted, with the same `--session` and `--dir`; in PowerShell prefix it with `& `. Neither works: go to **Without the binary**.
 

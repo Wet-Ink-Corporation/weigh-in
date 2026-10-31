@@ -6,6 +6,14 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 1.1.1 — 2026-10-31
+
+- `/weigh-in` loads even when its opening ledger read fails. The skill's injected
+  `weighin open` now ends in `2>&1 || echo "(weighin did not run here)"`, and the skill treats
+  that line like a placeholder: it runs the read itself or takes the Cowork route. Before, a
+  failed read stopped the command from loading at all ("This command couldn't be loaded"), which
+  happened in a desktop chat connected to a folder (#113).
+
 ## 1.1.0 — 2026-10-29
 
 Slice 2: the CI contract for assay, and the Claude Code mod (the ledger band, `/wi`, the local
