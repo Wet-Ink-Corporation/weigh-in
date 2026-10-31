@@ -1,8 +1,7 @@
 ---
 name: weigh-in
-description: Settle the open questions, assumptions and deferred calls this session or repo raised. Shows at most four decision cards, records answers in the Weigh-In ledger and writes .kb decision atoms.
+description: Settle the open questions, assumptions and deferred calls this session or repo raised. Shows at most four decision cards, records answers in the Weigh-In ledger and writes .kb decision atoms. Use only when the user asks for a sitting, a weigh-in or to settle their decisions; never start one on your own.
 argument-hint: "[init own|client | repo | digest | board | sweep <path> | stats | decide <id>: <option> | defer <id> — …]"
-disable-model-invocation: true
 allowed-tools: Bash(sh:*), Bash(git:*), Read, Grep, Glob, AskUserQuestion, mcp__hearthbot__ask_decision
 ---
 
