@@ -69,6 +69,10 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
   A plugin without a binary says capture is off ([B-11](decisions/build-decisions.md#b-11)).
 - **Cowork download is untried:** it is on from 1.1.0 ([B-33](decisions/build-decisions.md#b-33)). 1.0.0 and
   earlier cannot download ([D-0012](decisions/build-decisions.md#d-0012)), so Cowork uses a connected checkout of the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)).
+- **Desktop chats run no hooks:** since Chat and Cowork merged, a chat connected to a folder
+  ignores plugin hooks, so SessionStart's marker convention never reaches it and capture there
+  rests on the sitting's sweep. Ask for a sitting in words or type `/weigh-in`
+  ([B-34](decisions/build-decisions.md#b-34), [#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113)).
 - **This repository's ledger does not outlive a cloud session** ([D-0014](decisions/build-decisions.md#d-0014)):
   cloud sessions settle or defer everything before they end. Ryan's own clones, now installed from
   the `marketplace` branch, keep theirs. Since [B-21](decisions/build-decisions.md#b-21) the

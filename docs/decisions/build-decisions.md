@@ -922,3 +922,28 @@ packaging is unchanged) · records [#154](https://github.com/Wet-Ink-Corporation
   checkout of the `marketplace` branch stays the fallback when the download fails, and 1.0.0 and
   earlier still need it. Ryan checks the download in Cowork. The research clean-up is the rest of "going public" on
   [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27).
+
+## B-34
+
+**`/weigh-in` can be started by Claude, so it loads in desktop chats.** 2026-10-31 · Ryan's
+call, two-way, on a decision card in the project thread · amends the research report's
+`disable-model-invocation: true` for the skill (report §plugin layout) · found by
+[#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113)'s check C.
+
+Since Chat and Cowork merged in the desktop app, a chat connected to a folder answers
+`/weigh:weigh-in`, and temper's user-only `/temper:gate`, with "This command couldn't be loaded"
+before anything in the skill runs; 1.1.1's guarded `!` line did not change that. The same chat
+found the skill through Claude's Skill tool and was refused only for `disable-model-invocation`.
+The flag is frontmatter, read before the skill runs, and the synced plugin is the same on every
+surface, so it cannot be set per surface. The skill drops it; its description says to start a
+sitting only when the user asks. The body already picks its route (binary, device shell,
+Projects thread, or settling in chat without the binary).
+
+Per Anthropic's plugin platform-support table, hooks are ignored in Chat, so SessionStart's
+marker convention does not reach a chat and capture there rests on the sitting's sweep. Mods are
+Claude Code only.
+
+Trade-off: the description is now listed in every session's skill list, and Claude may start a
+sitting unasked. Rejected: a second, Claude-startable skill beside a user-only `/weigh-in`, which
+keeps Claude Code unchanged at the same listing cost and with two skills to keep in step.
+

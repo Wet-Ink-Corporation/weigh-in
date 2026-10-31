@@ -6,6 +6,13 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 1.1.2 — 2026-10-31
+
+- In a desktop chat, ask for a sitting in words ("run a weigh-in", "settle my decisions") and
+  Claude loads `/weigh-in`. The skill no longer sets `disable-model-invocation`, which made the
+  chat refuse it ("This command couldn't be loaded") with no way to start it. Its description
+  says to start a sitting only when you ask; `/weigh-in` still works as before (B-34, #113).
+
 ## 1.1.1 — 2026-10-31
 
 - `/weigh-in` loads even when its opening ledger read fails. The skill's injected
