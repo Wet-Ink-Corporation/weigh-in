@@ -102,7 +102,7 @@ export type WeighAnchored = { file: string; lines: string[] }
 
 declare module 'claude-code' {
   interface PluginState {
-    weigh: {
+    'weigh-mod': {
       view: WeighView | null
       pane: WeighPane | null
       tab: WeighTab

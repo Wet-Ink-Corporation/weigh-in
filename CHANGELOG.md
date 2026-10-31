@@ -6,6 +6,15 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 1.1.3 — 2026-10-31
+
+- `/weigh-in` loads in desktop chats. A chat connected to a folder turned off the whole `weigh`
+  plugin, skills included, because it ships a Claude Code mod; a copy with its command hooks and
+  without the mod loads there. The mod (the ledger band, the board pane and `/wi`) now ships as
+  its own plugin, `weigh-mod`, in the same marketplace. **In Claude Code, install
+  `weigh-mod@weigh-in` beside `weigh` to keep the band**; Cowork and chats need only `weigh`
+  (B-35, #113).
+
 ## 1.1.2 — 2026-10-31
 
 - In a desktop chat, ask for a sitting in words ("run a weigh-in", "settle my decisions") and

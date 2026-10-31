@@ -923,6 +923,37 @@ packaging is unchanged) · records [#154](https://github.com/Wet-Ink-Corporation
   earlier still need it. Ryan checks the download in Cowork. The research clean-up is the rest of "going public" on
   [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27).
 
+## B-35
+
+**The Claude Code mod ships as its own plugin, `weigh-mod`.** 2026-10-31 · Ryan's call, two-way,
+on a decision card in the project thread, after a test he ran · supersedes
+[B-29](#b-29)'s placement of the mod inside `weigh`, as B-29 provided for · found by
+[#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113)'s check C.
+
+On 1.1.2, in a desktop chat connected to a folder, Claude loaded `/weigh-in` and the chat then
+refused it: "this plugin entry is off here: it or its plugin comes with hooks other than the ones
+this session registered … or the plugin did not load cleanly". temper's skills failed the same
+way. Two copies of 1.1.2, uploaded under test names, both loaded and ran in a new folder chat:
+one with every command hook and without the mod, one with no hooks at all. So the hooks module
+turns the plugin off there, not command hooks or the binary. Anthropic's docs say chat ignores
+hooks "without an error" and that a mod may share a plugin with skills
+([platform support](https://claude.com/docs/plugins/platform-support.md),
+[build guide](https://claude.com/docs/plugins/build.md)); no documentation names this message.
+The nearest upstream report is [anthropics/claude-code#103029](https://github.com/anthropics/claude-code/issues/103029).
+
+So `plugin-mod/` is the `weigh-mod` plugin: `hooks/hooks.json` with only `modules`, the module,
+its tests and its `types` contract, with state keyed `weigh-mod`. One plugin cannot reach
+another's files, so `package-plugin.sh` gives it a copy of weigh's `libexec/` (launchers and
+binaries from the same build); `plugin-mod/libexec/` never exists in the repository.
+`marketplace.json` lists both, the `marketplace` branch and weigh-in-plugin carry both, the
+release attaches both zips, the versions move together, and `marketplace-branch.sh` refuses a
+`weigh` that ships `modules`. Claude Code users install `weigh-mod@weigh-in` beside `weigh`.
+
+Trade-offs: a second install step in Claude Code, and the binaries twice in the release-only
+repository. Not tried: an uploaded copy of `weigh` with its mod (the failing copy came through
+organization sync), and macOS or Projects chats. If the app later ignores modules in chat as
+documented, the mod can move back.
+
 ## B-34
 
 **`/weigh-in` can be started by Claude, so it loads in desktop chats.** 2026-10-31 · Ryan's

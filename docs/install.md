@@ -46,7 +46,11 @@ macOS (Apple silicon) and Windows binaries (D-0009). No Rust toolchain is needed
    ```
    /plugin marketplace add Wet-Ink-Corporation/weigh-in#marketplace
    /plugin install weigh@weigh-in
+   /plugin install weigh-mod@weigh-in
    ```
+
+   `weigh-mod` is the ledger band, the board pane and `/wi` (below), Claude Code only. It is a
+   separate plugin because a desktop chat turns off any plugin that ships a mod (B-35).
 
 3. Turn on auto-update: `/plugin` → **Marketplaces** → `weigh-in` → **Enable auto-update**.
    Claude Code leaves it off for every marketplace that is not an official one or added from
@@ -79,6 +83,7 @@ not share a ledger (B-05). If `/weigh-in` shows twice, remove one.
 ### Uninstall
 
 ```
+/plugin uninstall weigh-mod@weigh-in
 /plugin uninstall weigh@weigh-in
 /plugin marketplace remove weigh-in
 ```
@@ -89,7 +94,7 @@ it gone.
 
 ## The band, the board pane and edit toasts (Claude Code)
 
-The plugin also ships a mod: a hooks module (`hooks/mod/register.tsx`) that shows this
+The `weigh-mod` plugin is a mod: a hooks module (`hooks/mod/register.tsx`) that shows this
 repository's ledger above the prompt, `Weigh-In · 3 open here · 1 one-way · 2 defaults`, with a
 **Sit** button that runs `/weigh-in` and a **Board** button that opens the board pane. The band is hidden when nothing is open and no default
 waits for review, and where the row is too narrow it moves to the status line under the prompt.

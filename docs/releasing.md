@@ -22,7 +22,8 @@ them, #5). 1.0.0 is tagged only once every v1 gate is ticked
 
 One PR, titled `Release <version>: <what it is for>`:
 
-- [ ] `version` in `Cargo.toml` and in `plugin/.claude-plugin/plugin.json` are equal and new.
+- [ ] `version` in `Cargo.toml`, `plugin/.claude-plugin/plugin.json` and
+      `plugin-mod/.claude-plugin/plugin.json` are equal and new.
       `Cargo.lock` is refreshed (`cargo update -p weighin -p weighin-core --offline`, or any
       build).
 - [ ] `## Unreleased` is renamed to `## <version> — <YYYY-MM-DD>`, and a new empty `## Unreleased`
@@ -55,7 +56,8 @@ moved or deleted; a bad release is fixed by a new patch release.
 
 ## 4. After the workflow
 
-- [ ] The release workflow run is green, and the GitHub release has the zip, the raw binaries
+- [ ] The release workflow run is green, and the GitHub release has both zips (`weigh-in-plugin`
+      and `weigh-mod-plugin`), the raw binaries
       (Linux musl, Windows msvc, macOS arm64) and `SHA256SUMS`, with the changelog section as its
       notes.
 - [ ] The `marketplace` branch is at the new version (`plugin.json` there says `<version>`).

@@ -15,5 +15,6 @@
 ## Release
 
 - [ ] No version change
-- [ ] Version bumped in both `Cargo.toml` and `plugin/.claude-plugin/plugin.json`, with its
+- [ ] Version bumped in `Cargo.toml`, `plugin/.claude-plugin/plugin.json` and
+      `plugin-mod/.claude-plugin/plugin.json`, with its
       `CHANGELOG.md` section
