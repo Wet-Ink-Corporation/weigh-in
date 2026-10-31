@@ -9,7 +9,7 @@ A decision ledger for agent sessions: the `weighin` CLI over happenstance's SQLi
 | `crates/weighin-core` | domain | The ledger vocabulary with no I/O: events, `wi-` ids, `weigh-in` markers, scanning, cards, the projection fold, `.kb` atoms and the board exchange format. Linkable into redkiln-rs unchanged. | serde, serde_json, sha2, thiserror |
 | `crates/weighin` | binary | The CLI and single writer of the ledger: the store (happenstance SQLite at `<git-common-dir>/weighin/`), git through the command line, context packs, the hook entry point, and the batch write path (`ops::Session`). | weighin-core, happenstance-core, happenstance-sqlite, tokio (rt), clap, anyhow, time, tempfile, serde, serde_json |
 
-Dependencies point inward: the binary depends on the domain, never the reverse (ARC-02). Each crate's `AGENTS.md` is its charter (ARC-08). The `plugin/` directory (skill, hooks, launcher) and `scripts/` are not crates.
+Dependencies point inward: the binary depends on the domain, never the reverse (ARC-02). Each crate's `AGENTS.md` is its charter (ARC-08). The `plugin/` directory (skill, hooks, launcher), `plugin-mod/` (the Claude Code mod, B-35) and `scripts/` are not crates.
 
 ## Commands
 

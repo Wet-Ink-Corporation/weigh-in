@@ -25,6 +25,7 @@ jobs:
         run: |
           v="${GITHUB_REF_NAME#v}"
           grep -q "\"version\": \"$v\"" plugin/.claude-plugin/plugin.json
+          grep -q "\"version\": \"$v\"" plugin-mod/.claude-plugin/plugin.json
           grep -q "^version = \"$v\"" Cargo.toml
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
             || { echo "tag $GITHUB_REF_NAME is not on main; merge first, then tag" >&2; exit 1; }
@@ -86,7 +87,7 @@ jobs:
           cp plugin/libexec/x86_64-unknown-linux-musl/weighin assets/weighin-x86_64-unknown-linux-musl
           cp plugin/libexec/x86_64-pc-windows-msvc/weighin.exe assets/weighin-x86_64-pc-windows-msvc.exe
           cp plugin/libexec/aarch64-apple-darwin/weighin assets/weighin-aarch64-apple-darwin
-          cp "dist/weigh-in-plugin-$v.zip" assets/
+          cp "dist/weigh-in-plugin-$v.zip" "dist/weigh-mod-plugin-$v.zip" assets/
           (cd assets && sha256sum * > SHA256SUMS && cat SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -95,7 +96,7 @@ jobs:
       - name: marketplace branch, built and validated before anything is published (D-0009)
         run: |
           v=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' plugin/.claude-plugin/plugin.json)
-          scripts/marketplace-branch.sh "dist/weigh-in-plugin-$v.zip" "$RUNNER_TEMP/marketplace"
+          scripts/marketplace-branch.sh "dist/weigh-in-plugin-$v.zip" "dist/weigh-mod-plugin-$v.zip" "$RUNNER_TEMP/marketplace"
           npm install -g @anthropic-ai/claude-code
           (cd "$RUNNER_TEMP/marketplace" && claude plugin validate .)
       - name: the release-only repository's deploy key is set, before anything is published (B-19)

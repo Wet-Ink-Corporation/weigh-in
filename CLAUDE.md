@@ -10,7 +10,8 @@ what it does, `docs/decisions/` before changing behaviour, and `docs/roadmap.md`
 
 - `crates/weighin-core` — no I/O: events, ids, markers, scanning, cards, projection, atoms, board format.
 - `crates/weighin` — the CLI: store, git, context packs, hooks, the batch write path.
-- `plugin/` — the plugin: `skills/weigh-in/SKILL.md`, `hooks/hooks.json`, the mod (`hooks/mod/register.tsx`, `types/`, B-29), `libexec/` launcher and built binaries.
+- `plugin/` — the `weigh` plugin: `skills/weigh-in/SKILL.md`, `hooks/hooks.json` (command hooks only), `libexec/` launcher and built binaries.
+- `plugin-mod/` — the `weigh-mod` plugin, Claude Code only: the mod (`hooks/mod/register.tsx`, `types/`, B-29, B-35). Packaging copies weigh's `libexec/` into its zip.
 - `tests/` — the mod's checks (`mod-check.sh`) and the plugin API types they compile against.
 - `scripts/` — `build-plugin-bins.sh` (Linux musl and Windows gnu), `build-plugin-bins.ps1` (Windows msvc), `package-plugin.sh` (zip for upload), `marketplace-branch.sh` (the `marketplace` branch commit, from that zip), `changelog-section.sh` (a version's `CHANGELOG.md` section: the release notes, and CI's check that a bump has its entry), `weekly-stats.sh` (`weighin stats` across folders, as markdown for #23).
 - `docs/` — research report and notes, decision records, roadmap.
@@ -72,8 +73,9 @@ Weigh-In ends up (wi-b4c1d8). Line endings are LF everywhere (`.gitattributes`).
 - **No deletes beside the ledger.** Cowork's connected folders refuse deletes; the store runs under a TRUNCATE journal and never goes through happenstance's WAL open (B-01). Keep temporary files on the temp disk, not beside the ledger or in the repo.
 - **Cowork is not Claude Code.** Skills and hooks run in a scratch cloud workspace (`CLAUDE_CODE_ENTRYPOINT=remote_cowork`); `!` injection does not run; edits to the user's folder go through the computer's shell, so `PostToolUse` never sees them. The skill's Cowork route runs `weighin` through that shell (D-0002).
 - **Skill names must stand alone.** Cowork lists plugin skills by the skill's own name; Claude Code lists `/<plugin>:<skill>` and also resolves the bare name (D-0004).
-- **Versions move together.** `Cargo.toml` and `plugin/.claude-plugin/plugin.json` carry the same version; bump both for any plugin change, or `/plugin marketplace update` will not pick it up.
+- **Versions move together.** `Cargo.toml`, `plugin/.claude-plugin/plugin.json` and `plugin-mod/.claude-plugin/plugin.json` carry the same version; bump all three for any plugin change, or `/plugin marketplace update` will not pick it up.
 - **One stamp in the skill.** `SKILL.md` holds exactly one `V=…; S=…;`; `package-plugin.sh` stamps it in the zip only. The repository copy stays `V=dev; S=none;`.
+- **No mod in `weigh`.** A desktop chat turns off a whole plugin that ships a hooks module, skills included; the mod lives in `weigh-mod` (B-35).
 - **Rebuild every binary you keep** after a Rust change: an old build next to a new one reopens the ledger under its own journal mode (B-05).
 
 ## Decisions

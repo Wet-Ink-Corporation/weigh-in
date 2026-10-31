@@ -19,7 +19,7 @@ It stands on its own until redkiln-rs is ready to receive it.
 | Convention and open counts | `SessionStart` command hook | ~150 per session |
 | Sweep, five filters, grounding, cards | `/weigh-in` skill, in the chat that raised them | one sitting, 3–4 requests |
 | Record | `weighin` CLI: event, atom in `.kb/_intake/`, source annotation | 0 |
-| Ledger band and `/wi` commands, Claude Code only | the mod (`plugin/hooks/mod/`) | 0 |
+| Ledger band and `/wi` commands, Claude Code only | the mod, its own plugin `weigh-mod` (`plugin-mod/`, B-35) | 0 |
 | Local board pane: decide, defer, dismiss, reopen or ack grounded cards and defaults | the mod, through `board export --stdout` and `board apply --surface pane` | 0 |
 | Toast for past decisions at an edited file, for the person | the mod's `tool.call` hook | 0 |
 
@@ -76,7 +76,7 @@ pwsh scripts/build-plugin-bins.ps1        # x86_64-pc-windows-msvc
 ```
 
 Then in Claude Code: `/plugin marketplace add <path to this repo>` and
-`/plugin install weigh@weigh-in`. Type `/weigh-in` everywhere. Cowork and claude.ai list plugin
+`/plugin install weigh@weigh-in`, plus `/plugin install weigh-mod@weigh-in` for the ledger band. Type `/weigh-in` everywhere. Cowork and claude.ai list plugin
 skills by the skill's own name (`/weigh-in`); Claude Code lists them as `/<plugin>:<skill>`
 (`/weigh:weigh-in`) but also resolves the bare name. A repo needs no setup; run
 `/weigh-in init client` first in client repos, which sets the board to `local`. From Claude Code's `!` prompt on Windows, which is Git Bash, use
@@ -94,7 +94,7 @@ in Claude Code; if you then see `/weigh-in` twice, remove one of the two install
 
 ## Releasing
 
-Bump `version` in `Cargo.toml` and `plugin/.claude-plugin/plugin.json`, move `## Unreleased` in
+Bump `version` in `Cargo.toml`, `plugin/.claude-plugin/plugin.json` and `plugin-mod/.claude-plugin/plugin.json`, move `## Unreleased` in
 `CHANGELOG.md` to the new version, merge to `main`, then push the tag `v<version>`. Push only the
 tag: the workflow creates the GitHub release itself, refuses a tag that is not on `main` or has no
 changelog entry, and a rerun updates the release it made. The release workflow tests, builds the

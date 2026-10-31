@@ -1,31 +1,41 @@
 #!/bin/sh
 # Build the `marketplace` branch's single commit from a packaged plugin zip (D-0009).
 #
-#   scripts/marketplace-branch.sh dist/weigh-in-plugin-<version>.zip <dir>
+#   scripts/marketplace-branch.sh dist/weigh-in-plugin-<version>.zip dist/weigh-mod-plugin-<version>.zip <dir>
 #
 # <dir> must not exist. It becomes a fresh git repository holding one commit:
 #   .claude-plugin/marketplace.json   this checkout's, whose plugin source is ./plugin
-#   plugin/                           the zip unpacked: stamped skill, hooks, launchers and the
+#   plugin/                           the weigh zip unpacked: stamped skill, hooks, launchers and the
 #                                     prebuilt binaries in libexec/<target>/, committed executable
+#   plugin-mod/                       the weigh-mod zip unpacked: the Claude Code mod and its own
+#                                     copy of the same launchers and binaries (B-35)
 # Claude Code installs from it with `/plugin marketplace add Wet-Ink-Corporation/weigh-in#marketplace`,
 # and a connected checkout of it gives Cowork the Linux binary. The release workflow force-pushes
 # the commit, so the branch never accumulates old binaries (B-14). Prints the commit id; never
 # pushes, so it can be run and inspected locally.
 set -eu
-[ $# -eq 2 ] || { echo "usage: $0 <plugin zip> <new dir>" >&2; exit 2; }
+[ $# -eq 3 ] || { echo "usage: $0 <plugin zip> <mod plugin zip> <new dir>" >&2; exit 2; }
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 zip=$1
-out=$2
+mod_zip=$2
+out=$3
 [ -f "$zip" ] || { echo "no such zip: $zip" >&2; exit 1; }
+[ -f "$mod_zip" ] || { echo "no such zip: $mod_zip" >&2; exit 1; }
 [ ! -e "$out" ] || { echo "$out already exists" >&2; exit 1; }
 
-mkdir -p "$out/.claude-plugin" "$out/plugin"
+mkdir -p "$out/.claude-plugin" "$out/plugin" "$out/plugin-mod"
 cp "$root/.claude-plugin/marketplace.json" "$out/.claude-plugin/"
 unzip -q "$zip" -d "$out/plugin"
+unzip -q "$mod_zip" -d "$out/plugin-mod"
 
 cd "$out"
 grep -q '"source": *"\./plugin"' .claude-plugin/marketplace.json \
   || { echo "marketplace.json must point its plugin at ./plugin" >&2; exit 1; }
+grep -q '"source": *"\./plugin-mod"' .claude-plugin/marketplace.json \
+  || { echo "marketplace.json must point weigh-mod at ./plugin-mod" >&2; exit 1; }
+[ -f plugin-mod/hooks/hooks.json ] || { echo "the mod zip has no hooks/hooks.json" >&2; exit 1; }
+# A desktop chat turns off a whole plugin that ships a hooks module (B-35): weigh must not.
+! grep -q '"modules"' plugin/hooks/hooks.json || { echo "weigh must not ship a hooks module; it lives in weigh-mod" >&2; exit 1; }
 # claude.ai rejects hosted plugins with a top-level bin/ (B-03).
 [ ! -e plugin/bin ] || { echo "plugin/bin/ must not exist; binaries live in plugin/libexec/" >&2; exit 1; }
 [ -f plugin/libexec/weighin ] || { echo "the zip has no libexec/weighin launcher" >&2; exit 1; }
@@ -45,7 +55,8 @@ git checkout -q -b marketplace
 git add -f .
 # Executable whatever the zip or the filesystem kept: hooks start the launcher with no shell
 # (exec form, B-16), and the launcher execs the binary.
-for f in plugin/libexec/weighin $bins; do
+mod_bins=$(echo "$bins" | sed 's#plugin/libexec/#plugin-mod/libexec/#g')
+for f in plugin/libexec/weighin plugin-mod/libexec/weighin $bins $mod_bins; do
   git update-index --chmod=+x "$f"
 done
 GIT_AUTHOR_NAME=github-actions GIT_AUTHOR_EMAIL=github-actions@users.noreply.github.com \

@@ -10,9 +10,12 @@ band and `/wi` (#114, B-29), the local board pane (#115, B-30, B-32), decisions 
 (#116), and the owner from git config (B-31). The repository is public since 2026-10-30, and CI
 runs on GitHub-hosted Linux, Windows and macOS runners ([B-33](decisions/build-decisions.md#b-33)).
 
+Since 1.1.3 (2026-10-31) the mod ships as its own plugin, `weigh-mod`, because a desktop chat
+turned off the whole `weigh` plugin for it ([B-35](decisions/build-decisions.md#b-35)).
+
 **Where to pick up.** Waiting on Ryan: the mod's Cowork and Windows runs on the released plugin
-([#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113), steps on the issue; a Cowork
-failure moves the mod to a second plugin, B-29) and V2 from Cowork
+([#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113), steps on the issue; check C
+now confirms `/weigh-in` loads in a folder chat on 1.1.3) and V2 from Cowork
 ([#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17), labelled `blocked`). The rest
 of slice 2 and later is the backlog on [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27),
 starting with the research clean-up, the rest of going public. The Cowork download is on from
@@ -69,6 +72,8 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
   A plugin without a binary says capture is off ([B-11](decisions/build-decisions.md#b-11)).
 - **Cowork download is untried:** it is on from 1.1.0 ([B-33](decisions/build-decisions.md#b-33)). 1.0.0 and
   earlier cannot download ([D-0012](decisions/build-decisions.md#d-0012)), so Cowork uses a connected checkout of the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)).
+- **Two plugins in Claude Code:** the band and `/wi` need `weigh-mod@weigh-in` installed beside
+  `weigh` ([B-35](decisions/build-decisions.md#b-35)).
 - **Desktop chats run no hooks:** since Chat and Cowork merged, a chat connected to a folder
   ignores plugin hooks, so SessionStart's marker convention never reaches it and capture there
   rests on the sitting's sweep. Ask for a sitting in words or type `/weigh-in`

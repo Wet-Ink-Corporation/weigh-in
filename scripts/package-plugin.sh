@@ -1,6 +1,7 @@
 #!/bin/sh
 # Zip plugin/ with its prebuilt binaries into dist/, the package Customize > Plugins > upload
-# takes (Cowork and claude.ai sync plugins from the account, not from a local marketplace).
+# takes (Cowork and claude.ai sync plugins from the account, not from a local marketplace), and
+# plugin-mod/ (the weigh-mod plugin, B-35) with a copy of the same libexec/ beside it.
 #
 # The zipped skill is stamped with the plugin version and the SHA-256 of the Linux (musl)
 # binary: in Cowork the skill downloads that exact binary from the GitHub release v<version>.
@@ -70,6 +71,21 @@ sed "s/V=[^;]*; S=[^;]*;/V=$version; S=$sha;/" "$skill" > "$skill.new" && mv "$s
 mkdir -p dist
 out="$root/dist/weigh-in-plugin-$version.zip"
 rm -f "$out"
-# The mod's tests run from the repository (tests/mod-check.sh), not from the installed plugin.
-(cd "$stage" && zip -qr "$out" . -x '*.DS_Store' -x '*.test.ts')
+(cd "$stage" && zip -qr "$out" . -x '*.DS_Store')
 echo "dist/weigh-in-plugin-$version.zip · stamped v$version · linux sha256 $sha"
+
+# weigh-mod: the Claude Code mod as its own plugin (B-35), since a desktop chat turns off a whole
+# plugin that ships a hooks module. It runs weighin too, and one plugin cannot reach another's
+# files, so it carries the same launchers and binaries as weigh, from the same stage.
+mod_version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' plugin-mod/.claude-plugin/plugin.json)
+[ "$mod_version" = "$version" ] || { echo "plugin-mod/ is at $mod_version, plugin/ at $version: versions move together" >&2; exit 1; }
+[ ! -e plugin-mod/libexec ] || { echo "plugin-mod/libexec/ must not exist: packaging copies weigh's" >&2; exit 1; }
+mod_stage=$(mktemp -d)
+trap 'rm -rf "$stage" "$mod_stage"' EXIT
+cp -R plugin-mod/. "$mod_stage/"
+cp -R "$stage/libexec" "$mod_stage/libexec"
+mod_out="$root/dist/weigh-mod-plugin-$version.zip"
+rm -f "$mod_out"
+# The mod's tests run from the repository (tests/mod-check.sh), not from the installed plugin.
+(cd "$mod_stage" && zip -qr "$mod_out" . -x '*.DS_Store' -x '*.test.ts')
+echo "dist/weigh-mod-plugin-$version.zip · v$version"

@@ -22,13 +22,13 @@ const WRITE_TIMEOUT_MS = 30_000
 /** `open --json` lists `--top` items (12 by default); the pane lists every raw one. */
 const ALL = '1000000'
 
-export const pane = atom({ plugin: 'weigh', key: 'pane' } as const, null)
-export const tab = atom({ plugin: 'weigh', key: 'tab' } as const, 'needs')
-const selected = atom({ plugin: 'weigh', key: 'selected' } as const, null)
-const form = atom({ plugin: 'weigh', key: 'form' } as const, null)
-const drafts = atom({ plugin: 'weigh', key: 'drafts' } as const, {})
-const receipt = atom({ plugin: 'weigh', key: 'receipt' } as const, null)
-const busy = atom({ plugin: 'weigh', key: 'busy' } as const, null)
+export const pane = atom({ plugin: 'weigh-mod', key: 'pane' } as const, null)
+export const tab = atom({ plugin: 'weigh-mod', key: 'tab' } as const, 'needs')
+const selected = atom({ plugin: 'weigh-mod', key: 'selected' } as const, null)
+const form = atom({ plugin: 'weigh-mod', key: 'form' } as const, null)
+const drafts = atom({ plugin: 'weigh-mod', key: 'drafts' } as const, {})
+const receipt = atom({ plugin: 'weigh-mod', key: 'receipt' } as const, null)
+const busy = atom({ plugin: 'weigh-mod', key: 'busy' } as const, null)
 
 /** The reasons a dismissal takes (`board::validate_answer`). */
 export const DISMISS_REASONS = ['not-useful', 'already-decided', 'recoverable', 'duplicate', 'moot'] as const
