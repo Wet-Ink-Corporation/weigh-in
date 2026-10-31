@@ -1,0 +1,20 @@
+{
+  "name": "weigh-in",
+  "description": "Weigh-In: a decision ledger for agent sessions. Install weigh@weigh-in; the command is /weigh-in. In Claude Code, add weigh-mod@weigh-in for the ledger band, the board pane and /wi.",
+  "owner": {
+    "name": "Ryan Britton",
+    "email": "ryan.britton@wet-ink.net"
+  },
+  "plugins": [
+    {
+      "name": "weigh",
+      "source": "./plugin",
+      "description": "Decision ledger for agent sessions: capture, filter, and settle the questions agents leave behind."
+    },
+    {
+      "name": "weigh-mod",
+      "source": "./plugin-mod",
+      "description": "Claude Code only: Weigh-In's ledger band above the prompt, the local board pane and /wi. Install beside weigh."
+    }
+  ]
+}
