@@ -882,6 +882,35 @@ fn scan_reads_a_relative_path_under_dir_not_the_process_cwd() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn init_refuses_an_unknown_class_and_writes_no_config() {
+    let (_tmp, repo) = setup();
+
+    // A typo for `client`: before #169 it was stored with the `artifact` board.
+    let (ok, out) = weighin(&repo, "s1", &["init", "--class", "clinet"], None);
+
+    assert!(!ok && out.contains("clinet"), "{out}");
+    assert!(!repo.join(".kb/_ledger/config.json").exists(), "{out}");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn init_refuses_an_unknown_board_and_keeps_the_config() {
+    let (_tmp, repo) = setup();
+    let (ok, out) = weighin(&repo, "s1", &["init", "--class", "client"], None);
+    assert!(ok, "{out}");
+
+    let (ok, out) = weighin(&repo, "s1", &["init", "--board", "locl"], None);
+
+    assert!(!ok && out.contains("locl"), "{out}");
+    let config: Value = serde_json::from_str(
+        &std::fs::read_to_string(repo.join(".kb/_ledger/config.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(config["board"]["mode"], json!("local"), "{config}");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn init_without_class_or_board_keeps_the_existing_ones() {
     let (_tmp, repo) = setup();
     let (ok, out) = weighin(&repo, "s1", &["init", "--class", "client"], None);

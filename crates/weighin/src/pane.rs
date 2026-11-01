@@ -8,7 +8,7 @@ use std::io::{Read, Write};
 use weighin_core::Ledger;
 use weighin_core::board::{self, Answer, Scope};
 
-use crate::env::{BoardUse, Env};
+use crate::env::{BoardMode, BoardUse, Env};
 use crate::ops::read_ledger;
 
 /// The most bytes of answers read from stdin: the Artifact `db` store's document cap, which no
@@ -22,7 +22,7 @@ pub(crate) const STDIN_CAP: u64 = 256 * 1024;
 /// Fails when the folder has no config, a broken one, or a board mode of `off`.
 pub(crate) fn allowed(env: &Env) -> Result<()> {
     env.board_allows(&BoardUse {
-        modes: &["local", "artifact"],
+        modes: &[BoardMode::Local, BoardMode::Artifact],
         before: ", before using the board pane",
         refusing: "not using the board pane",
         other_mode: "the board shows nothing here (`weighin init --board local` changes the mode)",
