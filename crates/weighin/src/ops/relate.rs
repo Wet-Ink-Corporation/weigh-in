@@ -29,30 +29,70 @@ pub(super) fn link_event(item: &Item, kind: &str, target: &str, reason: Option<&
     }
 }
 
+/// Leave a default standing after the digest, or review a standing decision and leave it
+/// standing (D-0022): both are `item_acknowledged`, so an older build still reads the event.
 pub(super) fn ack_event(item: &Item, reason: Option<&str>) -> Result<Change> {
-    if item.status != Status::Defaulted {
-        bail!(
+    let (default_reason, receipt) = match item.status {
+        Status::Defaulted => (
+            "left as defaulted after the digest",
+            format!("acknowledged default on {}", item.id),
+        ),
+        Status::Decided => (
+            "left standing after the digest",
+            format!("reviewed decision on {}: still holds", item.id),
+        ),
+        other => bail!(
             "{} is {}, only defaults are acknowledged",
             item.id,
-            item.status.as_str()
-        );
-    }
+            other.as_str()
+        ),
+    };
     Ok(Change {
         event: LedgerEvent::ItemAcknowledged(Acknowledged {
             item_id: item.id.clone(),
-            reason: reason
-                .unwrap_or("left as defaulted after the digest")
-                .to_owned(),
+            reason: reason.unwrap_or(default_reason).to_owned(),
         }),
-        receipt: format!("acknowledged default on {}", item.id),
+        receipt,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
+    use weighin_core::event::LedgerEvent;
 
-    use crate::ops::test_support::{ONE_WAY, after, grounded, id_of};
+    use super::ack_event;
+    use crate::ops::Session;
+    use crate::ops::test_support::{ONE_WAY, TWO_WAY, after, env_in, grounded, id_of, run};
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn ack_on_a_decision_records_a_review_with_its_own_reason() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let mut s = Session::open(&env, "t")?;
+        run(
+            &mut s,
+            &serde_json::json!([
+                {"op": "raise", "q": TWO_WAY, "door": "two-way"},
+                {"op": "decide", "id": "@1", "option": "apply"}
+            ]),
+        )?;
+        let item = s.ledger.get(&id_of(TWO_WAY)).expect("raised above");
+
+        let change = ack_event(item, None)?;
+
+        assert_eq!(
+            change.receipt,
+            format!("reviewed decision on {}: still holds", item.id)
+        );
+        assert!(
+            matches!(&change.event, LedgerEvent::ItemAcknowledged(a) if a.reason == "left standing after the digest"),
+            "{:?}",
+            change.event
+        );
+        Ok(())
+    }
 
     #[test]
     #[cfg_attr(miri, ignore = "opens SQLite through FFI")]

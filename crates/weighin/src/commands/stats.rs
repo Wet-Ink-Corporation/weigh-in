@@ -14,17 +14,19 @@ use crate::{journal, ops};
 pub(crate) fn stats(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()> {
     let ledger = journal::pool(ops::stored_events(env)?, journal::read(&env.root())?)?;
     let h = Health::of(&ledger);
+    let reviews = Reviews::of(&ledger);
     if a.json {
         let json = StatsJson {
             health: &h,
             decided_via: decided_via(&ledger),
+            reviews,
         };
         writeln!(out, "{}", serde_json::to_string(&json)?)?;
         return Ok(());
     }
     writeln!(
         out,
-        "presented {} · action rate {} (target ≥60%) · not useful {} (target ≤10%) · overrides {} of {} · median time to decide {} · unqualified deferrals {} · unreviewed defaults {}",
+        "presented {} · action rate {} (target ≥60%) · not useful {} (target ≤10%) · overrides {} of {} · median time to decide {} · unqualified deferrals {} · unreviewed defaults {} · reviewed decisions {} (reopened {})",
         h.presented,
         percent(h.acted, h.presented),
         percent(h.not_useful, h.presented),
@@ -33,7 +35,9 @@ pub(crate) fn stats(env: &Env, a: &JsonArgs, out: &mut impl Write) -> Result<()>
         h.median_seconds_to_decide
             .map_or_else(|| "—".to_owned(), |s| format!("{s}s")),
         h.deferred_unqualified,
-        h.defaults_unacknowledged
+        h.defaults_unacknowledged,
+        reviews.decisions_reviewed,
+        reviews.reopened_after_review
     )?;
     if !ledger.orphans.is_empty() {
         writeln!(
@@ -52,6 +56,28 @@ struct StatsJson<'l> {
     #[serde(flatten)]
     health: &'l Health,
     decided_via: BTreeMap<&'l str, usize>,
+    #[serde(flatten)]
+    reviews: Reviews,
+}
+
+/// Reviews of standing decisions (D-0022), counted over every item's history.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+struct Reviews {
+    /// Times a standing decision was reviewed and left standing (`item_acknowledged`).
+    decisions_reviewed: u64,
+    /// Reopens of a decision after it had been reviewed.
+    reopened_after_review: u64,
+}
+
+impl Reviews {
+    fn of(ledger: &Ledger) -> Self {
+        ledger.items.values().fold(Self::default(), |r, i| Self {
+            decisions_reviewed: r.decisions_reviewed.saturating_add(u64::from(i.reviews)),
+            reopened_after_review: r
+                .reopened_after_review
+                .saturating_add(u64::from(i.reopened_after_review)),
+        })
+    }
 }
 
 /// The items in `ledger` decided and still standing, presented or not, counted by where they

@@ -126,6 +126,31 @@ impl Session<'_> {
         Ok(Some(record.path.clone()))
     }
 
+    /// Move the `last_reviewed` date of the decision atom written for `id` to today, after a
+    /// review left the decision standing (D-0022), and return its path. The file is overwritten
+    /// in place (B-01); one no longer there, or with no frontmatter date, is left alone.
+    pub(super) fn mark_decision_atom_reviewed(&self, id: &ItemId) -> Result<Option<String>> {
+        let Some(record) = self.ledger.get(id).and_then(|item| {
+            item.records
+                .iter()
+                .rev()
+                .find(|r| r.atom_kind == "decision")
+        }) else {
+            return Ok(None);
+        };
+        let path = self.env.root().join(&record.path);
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        };
+        let Some(reviewed) = reviewed_atom(&text, &self.today)? else {
+            return Ok(None);
+        };
+        self.write_file(&record.path, &reviewed)?;
+        Ok(Some(record.path.clone()))
+    }
+
     /// spec-kit's write-back: the line the question came from gets an arrow, so it is not raised
     /// again. Only prose is written into ([`syntax_of`], [`annotate_source_line`]); a code file,
     /// or a line the option cannot go on, is left as it was, and the receipt says so.
@@ -237,6 +262,33 @@ fn superseded_open_question(text: &str, s: &Settled<'_>) -> Result<Option<String
     Ok(Some(out))
 }
 
+/// `text`, an atom, with its frontmatter `last_reviewed` set to `date` and every other byte as
+/// it was. `None` when `text` has no frontmatter or no `last_reviewed` line in it.
+fn reviewed_atom(text: &str, date: &str) -> Result<Option<String>> {
+    let Some((front, body)) = text
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+    else {
+        return Ok(None);
+    };
+    if !front.lines().any(|l| l.starts_with("last_reviewed:")) {
+        return Ok(None);
+    }
+    let mut out = String::with_capacity(text.len());
+    out.push_str("---\n");
+    for line in front.lines() {
+        if line.starts_with("last_reviewed:") {
+            // YAML strings are written as JSON strings, as the atoms write them.
+            writeln!(out, "last_reviewed: {}", serde_json::to_string(date)?)?;
+        } else {
+            writeln!(out, "{line}")?;
+        }
+    }
+    out.push_str("---\n");
+    out.push_str(body);
+    Ok(Some(out))
+}
+
 /// What a decision did to the line its question came from.
 enum Annotation {
     /// The arrow was written into this file.
@@ -257,9 +309,9 @@ fn render_ctx(today: &str) -> RenderContext {
 mod tests {
     use anyhow::Result;
 
-    use super::{Settled, superseded_open_question};
+    use super::{Settled, reviewed_atom, superseded_open_question};
     use crate::ops::Session;
-    use crate::ops::test_support::{ONE_WAY, env_in, id_of, run};
+    use crate::ops::test_support::{ONE_WAY, TWO_WAY, card, env_in, id_of, run};
 
     #[test]
     #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
@@ -317,6 +369,66 @@ mod tests {
                 "---\nid: \"kb-open-question-{id}\"\ntitle: \"{ONE_WAY}\"\nkind: open_question\nstatus: superseded\nsuperseded_by: \"kb-decision-{id}\"\nresolution_ref: \"kb-decision-{id}\"\nauthority_tier: note\nsummary: \"Settled on 2026-10-07: decided B (kb-decision-{id}).\"\ndepends_on: []\nrelated: []\nsource_paths: []\nlast_reviewed: \"2026-10-07\"\ntracks: \"{id}\"\nresolve_by: \"2026-12-01\"\ntrigger: \"the tenant survey\"\ndefault_if_unresolved: \"A\"\nowner: \"ryan\"\nflip_condition: \"a tenant asks\"\n---\n\n# {ONE_WAY}\n\nDeferred on purpose. Waiting for: the tenant survey. Resolve by: 2026-12-01. If nobody acts, **A** applies.\n\n## Resolution\n\nSettled on 2026-10-07: decided **B**, recorded in `kb-decision-{id}`. The deferral above no longer applies.\n"
             )
         );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn reviewing_a_decision_moves_its_atom_last_reviewed_and_nothing_else() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let decided = run(
+            &mut Session::open(&env, "t")?.with_today("2026-01-02"),
+            &serde_json::json!([
+                {"op": "raise", "q": TWO_WAY, "door": "two-way"},
+                {"op": "ground", "id": "@1", "card": card()},
+                {"op": "decide", "id": "@1", "option": "A"}
+            ]),
+        )?;
+        let id = id_of(TWO_WAY);
+        let rel = format!(".kb/_intake/decisions/{id}-name-the-helper-apply-or-run.md");
+        assert!(
+            decided.get(2).is_some_and(|r| r.contains(&rel)),
+            "{decided:?}"
+        );
+        let before = std::fs::read_to_string(dir.path().join(&rel))?;
+
+        let out = run(
+            &mut Session::open(&env, "t")?.with_today("2026-04-10"),
+            &serde_json::json!([{"op": "ack", "id": id.as_str()}]),
+        )?;
+
+        assert_eq!(
+            out,
+            [format!(
+                "✓ reviewed decision on {id}: still holds · atom {rel}"
+            )]
+        );
+        let after = std::fs::read_to_string(dir.path().join(&rel))?;
+        assert_eq!(
+            after,
+            before.replace(
+                "last_reviewed: \"2026-01-02\"",
+                "last_reviewed: \"2026-04-10\""
+            )
+        );
+        assert_ne!(after, before, "the date moved");
+        Ok(())
+    }
+
+    #[test]
+    fn a_reviewed_atom_rewrites_only_its_frontmatter_date() -> Result<()> {
+        let atom = "---\nid: \"kb-decision-wi-1\"\nlast_reviewed: \"2026-01-02\"\n---\n\n# Q\n\nlast_reviewed: \"2026-01-02\"\n";
+
+        let out = reviewed_atom(atom, "2026-04-10")?;
+
+        assert_eq!(
+            out.as_deref(),
+            Some(
+                "---\nid: \"kb-decision-wi-1\"\nlast_reviewed: \"2026-04-10\"\n---\n\n# Q\n\nlast_reviewed: \"2026-01-02\"\n"
+            )
+        );
+        assert_eq!(reviewed_atom("# no frontmatter\n", "2026-04-10")?, None);
         Ok(())
     }
 

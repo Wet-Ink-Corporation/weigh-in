@@ -57,7 +57,7 @@ Map answers to ops: an option → `{"op":"decide","id":"…","option":"A","note"
 Close in two lines: what was decided and where the atoms are (`.kb/_intake/decisions/`). If a choice differs from what you implemented, propose that change now. The enacting commit gets the trailer `Weigh-In: <id> decided <X>`, and commits `.kb/_ledger/journal/` with the atoms.
 
 ## Digest
-`W digest` → one AskUserQuestion, `multiSelect`, "Which of these defaults should I reopen?" over the four widest-blast defaults → `W batch` with `{"op":"reopen","id":"…","reason":"reopened from the digest"}` for the selected and `{"op":"ack","id":"…"}` for the rest.
+`W digest` → one AskUserQuestion, `multiSelect`, "Which of these should I reopen?" over the defaults and the decisions due a look together, at most four options, widest blast first (a due decision's option names its choice and flip condition) → `W batch` with `{"op":"reopen","id":"…","reason":"reopened from the digest"}` for the selected and `{"op":"ack","id":"…"}` for the rest.
 
 ## Board (only when `.kb/_ledger/config.json` board mode is `artifact`)
 1. `W board export` writes the state file and prints its path. With no ledger yet it writes nothing and says so: there is no board to publish.
