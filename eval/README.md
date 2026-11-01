@@ -170,3 +170,9 @@ each label you give as `by: ryan` and rewrites only the lines it changed.
   `rs21-05`). Two carry blocks: one has three calls (a fresh ledger lists a logged default first),
   and one is the Actions-outage question. Three are true negatives. The seed is 124 items, 32
   labelled `capture`, 17 captured (precision 100%, recall 53%).
+
+  Reviewed 2026-11-01: Ryan reviewed the 78 drafts added since 2026-10-11 (`rs17` to `rs23`),
+  taking a suggested label for each, so every item is now `by: ryan`. Seventeen prose captures
+  that had no `expect.status` got one, and three drafts labelled `skip` became `capture`
+  (`rs17-17`, `rs23-03`, `rs23-08`): each made a call or a deferral in prose. The seed is 161
+  items, 50 labelled `capture`, 17 captured (precision 100%, recall 34%).
