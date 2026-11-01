@@ -372,10 +372,17 @@ pub(crate) fn prime(env: &Env, source: &str) -> Result<String> {
         .map_or(0, |id| ledger.open_in_session(id).len());
     let one_way = open.iter().filter(|i| i.door() == Door::OneWay).count();
     let defaults = ledger.unacknowledged_defaults().len();
+    let due = match ledger
+        .due_for_review(&env::now(), env.config.caps.review_age_days)
+        .len()
+    {
+        0 => String::new(),
+        n => format!(" · {n} decision(s) due a look"),
+    };
     let mut out = String::new();
     writeln!(
         out,
-        "Weigh-In ({source}): session {} · {here} open here · {} open in repo ({one_way} one-way) · {defaults} default(s) to review.",
+        "Weigh-In ({source}): session {} · {here} open here · {} open in repo ({one_way} one-way) · {defaults} default(s) to review{due}.",
         env.session.as_deref().unwrap_or("?"),
         open.len()
     )?;

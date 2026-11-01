@@ -247,6 +247,49 @@ bypass (`283c63f`, a merge commit), then turned "Require linear history" off.
 The ruleset still requires a pull request, the six status checks and resolved review threads,
 and blocks force pushes and deletion. Ryan remains the only bypass actor.
 
+## D-0021
+
+**The Cowork fetch script becomes its own stamped, tested file.** 2026-11-01 · Ryan's call, in
+the project thread, each on the recommended option · for
+[#171](https://github.com/Wet-Ink-Corporation/weigh-in/issues/171), from the 2026-11-01 audit ·
+amends the "one stamp in the skill" rule in `CLAUDE.md` and how [D-0003](#d-0003)'s download is
+carried.
+
+1. The one-line script `SKILL.md` sends to the device shell in Cowork moves to
+   `plugin/libexec/cowork-fetch.sh`, readable and tested against a fake `$HOME/mnt` tree. The
+   skill Reads it and sends its text unchanged. The device shell runs on the user's computer and
+   cannot read the plugin, so the text passes through the model either way; a `weighin`
+   subcommand cannot do the job, since the binary is what is being fetched.
+2. The `V=…; S=…;` stamp moves with it: `package-plugin.sh` stamps that file, and the one-stamp
+   rule applies to it instead of `SKILL.md`.
+3. Per-route `claude plugin eval` cases run by hand before each release, not in CI, which would
+   need an API key secret and spend per run.
+
+Considered and not taken: keeping the script inline with a test that extracts it, and leaving it
+untested. The extra Read call in a Cowork sitting is confirmed in one real Cowork run before
+release.
+
+## D-0022
+
+**Standing decisions come due for review after 90 days.** 2026-11-01 · Ryan's call, in the
+project thread, each on the recommended option · for
+[#173](https://github.com/Wet-Ink-Corporation/weigh-in/issues/173), from the 2026-11-01 audit ·
+widens `item_acknowledged`, which meant only "a default was seen and left standing".
+
+1. A decision comes due 90 days after its newest decide or review. `caps.review_age_days` in
+   `.kb/_ledger/config.json` changes it per repository; 0 turns ageing off.
+2. Leaving a due decision standing is recorded with `item_acknowledged`, widened to decided
+   items. No new event type, so an older binary beside a newer one still reads every event
+   (B-05). A 1.1.x fold sets `acknowledged` only on an item with a default, so it ignores a
+   review; a fixture test checks that the current fold reads 1.1.x events as before and that a
+   review is written in the 1.1.x shape.
+3. Only two-way decisions with a flip condition come due. One-way decisions and those with no
+   flip condition never do, though any decision can still be reopened by hand.
+
+Automatic flip-condition checks, which the audit proposed, are dropped: flip conditions are free
+text. Considered and not taken: 30 or 180 days, an age by reversibility, a new `item_reviewed`
+event, and recording reviews only in the atom.
+
 ## B-01
 
 **The ledger runs under a TRUNCATE journal.** 2026-09-28 · forced by a platform constraint.

@@ -10,6 +10,12 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   `artifact`, `local` or `off`. Before, a mistyped `--class clinet` was stored with the
   publishing `artifact` board, which client repositories are meant never to get (#169). A config
   file holding such a value is now reported as broken, as one that does not parse already was.
+- Standing decisions come back for a look. A two-way decision with a flip condition is listed
+  in `weighin digest` under "Decisions due a look" 90 days after it was made or last reviewed,
+  and `SessionStart` counts them; `/weigh-in digest` asks about them beside the defaults, and
+  one left standing is recorded as reviewed (its atom's `last_reviewed` moves to the day).
+  `caps.review_age_days` in `.kb/_ledger/config.json` changes the age; 0 turns it off. `weighin
+  stats` counts the reviews and the reopens that follow one (D-0022, #173).
 
 ## 1.1.3 — 2026-10-31
 

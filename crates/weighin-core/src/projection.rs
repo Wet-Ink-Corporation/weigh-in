@@ -9,6 +9,7 @@ use crate::event::{
 use crate::id::{ItemId, question_key};
 use crate::marker::{Authority, Door, Kind};
 use serde::Serialize;
+use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 /// Where an item is in its lifecycle.
@@ -84,6 +85,10 @@ pub struct Decision {
     pub seconds_to_decide: Option<u64>,
     /// When the decision was written, by the writer's clock (RFC 3339 UTC).
     pub ts: String,
+    /// When the decision was last reviewed and left standing (`item_acknowledged`), by the
+    /// writer's clock; `None` until it is. Absent from the serialised item until then.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reviewed_ts: Option<String>,
 }
 
 /// An option taken without a human, from the item's latest `item_defaulted` event.
@@ -205,6 +210,14 @@ pub struct Item {
     pub last_position: u64,
     /// When the latest event applied to the item was written, by the writer's clock.
     pub last_ts: String,
+    /// How many times a standing decision on the item was reviewed and left standing (D-0022).
+    /// Not serialised, so an item prints as it did before reviews existed; `stats` counts it.
+    #[serde(skip)]
+    pub reviews: u32,
+    /// How many reopens came after the decision they reopened had been reviewed. Not serialised,
+    /// like [`Item::reviews`].
+    #[serde(skip)]
+    pub reopened_after_review: u32,
 }
 
 impl Item {
@@ -224,6 +237,47 @@ impl Item {
     #[must_use]
     pub fn needs_attention(&self) -> bool {
         self.status.is_open() && self.status != Status::Deferred
+    }
+
+    /// When the standing decision was last looked at: its newest review, else when it was made.
+    /// `None` when the item has no decision.
+    #[must_use]
+    pub fn last_reviewed(&self) -> Option<&str> {
+        self.decision
+            .as_ref()
+            .map(|d| d.reviewed_ts.as_deref().unwrap_or(&d.ts))
+    }
+
+    /// What would change the answer: the card recommendation's flip, else the flip fact the
+    /// raise named. `None` when neither says anything.
+    #[must_use]
+    pub fn flip_condition(&self) -> Option<&str> {
+        let from_card = self.card.as_ref().map(|c| c.recommendation.flip.trim());
+        let from_raise = self.flip_hint.as_deref().map(str::trim);
+        from_card
+            .into_iter()
+            .chain(from_raise)
+            .find(|f| !f.is_empty())
+    }
+
+    /// How many whole days the standing decision has gone unreviewed, when it is due a look at
+    /// `now` (D-0022): decided, a two-way door, with a flip condition, and last reviewed at least
+    /// `after_days` calendar days (UTC) before `now`. `after_days` 0 turns ageing off.
+    ///
+    /// `now` is an RFC 3339 UTC stamp or a `YYYY-MM-DD` date from the caller's clock; a `now` or
+    /// a stored stamp that does not start with a date makes nothing due.
+    #[must_use]
+    pub fn due_for_review(&self, now: &str, after_days: u32) -> Option<u64> {
+        if after_days == 0
+            || self.status != Status::Decided
+            || self.door() != Door::TwoWay
+            || self.flip_condition().is_none()
+        {
+            return None;
+        }
+        let age = day_number(now)?.checked_sub(day_number(self.last_reviewed()?)?)?;
+        let age = u64::try_from(age).ok()?;
+        (age >= u64::from(after_days)).then_some(age)
     }
 
     /// Rank key: one-way doors first, then items that block others, then authority-bound, then
@@ -286,6 +340,8 @@ impl Item {
             reopened: 0,
             last_position: position,
             last_ts: env.ts.clone(),
+            reviews: 0,
+            reopened_after_review: 0,
         }
     }
 
@@ -320,11 +376,21 @@ impl Item {
                     atom_kind: r.atom_kind.clone(),
                 });
             }
-            LedgerEvent::ItemAcknowledged(_) => {
-                if let Some(d) = &mut self.default {
-                    d.acknowledged = true;
-                }
-            }
+            LedgerEvent::ItemAcknowledged(_) => self.acknowledged(ts),
+        }
+    }
+
+    /// A default seen and left standing, or a standing decision reviewed and left standing
+    /// (D-0022). A default is marked as a 1.1.x build marked it.
+    fn acknowledged(&mut self, ts: &str) {
+        if let Some(d) = &mut self.default {
+            d.acknowledged = true;
+        }
+        if self.status == Status::Decided
+            && let Some(d) = &mut self.decision
+        {
+            d.reviewed_ts = Some(ts.to_owned());
+            self.reviews = self.reviews.saturating_add(1);
         }
     }
 
@@ -370,6 +436,7 @@ impl Item {
             tree_hash: d.tree_hash.clone(),
             seconds_to_decide: d.seconds_to_decide,
             ts: ts.to_owned(),
+            reviewed_ts: None,
         });
     }
 
@@ -386,6 +453,13 @@ impl Item {
 
     fn reopen(&mut self) {
         self.reopened += 1;
+        if self
+            .decision
+            .as_ref()
+            .is_some_and(|d| d.reviewed_ts.is_some())
+        {
+            self.reopened_after_review = self.reopened_after_review.saturating_add(1);
+        }
         self.decision = None;
         self.default = None;
         self.dismissed = None;
@@ -551,6 +625,19 @@ impl Ledger {
         v
     }
 
+    /// Standing decisions due a look at `now`, each with its days since the last look, oldest
+    /// first, then in rank order (see [`Item::due_for_review`]).
+    #[must_use]
+    pub fn due_for_review(&self, now: &str, after_days: u32) -> Vec<(&Item, u64)> {
+        let mut v: Vec<(&Item, u64)> = self
+            .items
+            .values()
+            .filter_map(|i| Some((i, i.due_for_review(now, after_days)?)))
+            .collect();
+        v.sort_by_key(|(i, age)| (Reverse(*age), i.rank_key()));
+        v
+    }
+
     /// The item with exactly this id, open or closed.
     #[must_use]
     pub fn get(&self, id: &ItemId) -> Option<&Item> {
@@ -580,6 +667,32 @@ impl Ledger {
             Some(first)
         }
     }
+}
+
+/// Days since 1970-01-01 of the `YYYY-MM-DD` date that `stamp` starts with (proleptic
+/// Gregorian, Howard Hinnant's `days_from_civil`); `None` when it does not start with one.
+fn day_number(stamp: &str) -> Option<i64> {
+    let date = stamp.get(..10)?;
+    let mut parts = date.split('-');
+    let mut field = |len: usize| {
+        parts
+            .next()
+            .filter(|p| p.len() == len && p.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|p| p.parse::<i64>().ok())
+    };
+    let (year, month, day) = (field(4)?, field(2)?, field(2)?);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    // A year from March, so the leap day is the last day of the year it belongs to.
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year.rem_euclid(400);
+    let month_from_march = (month + 9).rem_euclid(12);
+    let day_of_year = (153 * month_from_march + 2).div_euclid(5) + day - 1;
+    let day_of_era =
+        year_of_era * 365 + year_of_era.div_euclid(4) - year_of_era.div_euclid(100) + day_of_year;
+    Some(era * 146_097 + day_of_era - 719_468)
 }
 
 /// Health numbers over presented items, as the board shows them.
@@ -983,6 +1096,281 @@ mod tests {
             env(triage(c), "s1"),
             env(present(c, "t3"), "s1"),
         ]
+    }
+
+    fn at(event: LedgerEvent, ts: &str) -> EventEnvelope {
+        EventEnvelope {
+            ts: ts.into(),
+            ..env(event, "s1")
+        }
+    }
+
+    /// A card whose recommendation names `flip` as what would change the answer.
+    fn ground_with_flip(id: &ItemId, flip: &str) -> LedgerEvent {
+        let mut c = card();
+        flip.clone_into(&mut c.recommendation.flip);
+        LedgerEvent::ItemGrounded(Grounded {
+            item_id: id.clone(),
+            card: c,
+            reason: "r".into(),
+        })
+    }
+
+    /// `q` raised behind `door`, grounded on a card with `flip`, and decided at `decided_ts`.
+    fn decided_at(id: &ItemId, door: Door, flip: &str, decided_ts: &str) -> Vec<EventEnvelope> {
+        vec![
+            at(raised(id, "q?", door), "2026-01-01T09:00:00Z"),
+            at(ground_with_flip(id, flip), "2026-01-01T09:00:00Z"),
+            at(decide(id), decided_ts),
+        ]
+    }
+
+    fn fold_all(evs: &[EventEnvelope]) -> Ledger {
+        Ledger::fold((1u64..).zip(evs))
+    }
+
+    fn due_ids(l: &Ledger, now: &str, after_days: u32) -> Vec<(ItemId, u64)> {
+        l.due_for_review(now, after_days)
+            .into_iter()
+            .map(|(i, age)| (i.id.clone(), age))
+            .collect()
+    }
+
+    #[test]
+    fn a_two_way_decision_with_a_flip_comes_due_after_the_review_age() {
+        let a = ItemId::mint("s1", "q?");
+        let l = fold_all(&decided_at(
+            &a,
+            Door::TwoWay,
+            "a tenant asks",
+            "2026-02-01T10:00:00Z",
+        ));
+
+        assert_eq!(due_ids(&l, "2026-05-02T00:00:00Z", 90), [(a.clone(), 90)]);
+        assert_eq!(due_ids(&l, "2026-05-01T23:59:59Z", 90), []);
+        assert_eq!(
+            l.get(&a).and_then(Item::flip_condition),
+            Some("a tenant asks")
+        );
+    }
+
+    #[test]
+    fn one_way_and_unflippable_decisions_never_come_due() {
+        let one_way = ItemId::mint("s1", "one?");
+        let no_flip = ItemId::mint("s1", "none?");
+        let mut evs = decided_at(
+            &one_way,
+            Door::OneWay,
+            "a tenant asks",
+            "2025-01-01T00:00:00Z",
+        );
+        evs.extend(decided_at(
+            &no_flip,
+            Door::TwoWay,
+            "  ",
+            "2025-01-01T00:00:00Z",
+        ));
+        let l = fold_all(&evs);
+
+        assert_eq!(due_ids(&l, "2026-11-01", 90), []);
+    }
+
+    #[test]
+    fn a_review_age_of_zero_turns_ageing_off() {
+        let a = ItemId::mint("s1", "q?");
+        let l = fold_all(&decided_at(&a, Door::TwoWay, "f", "2020-01-01T00:00:00Z"));
+
+        assert_eq!(due_ids(&l, "2026-11-01", 0), []);
+        assert_eq!(due_ids(&l, "2026-11-01", 1).len(), 1);
+    }
+
+    #[test]
+    fn an_unreadable_now_or_stamp_makes_nothing_due() {
+        let a = ItemId::mint("s1", "q?");
+        let l = fold_all(&decided_at(&a, Door::TwoWay, "f", "yesterday"));
+        let ok = fold_all(&decided_at(&a, Door::TwoWay, "f", "2020-01-01T00:00:00Z"));
+
+        assert_eq!(due_ids(&l, "2026-11-01", 1), []);
+        assert_eq!(due_ids(&ok, "", 1), []);
+        assert_eq!(due_ids(&ok, "2026-13-01", 1), []);
+    }
+
+    #[test]
+    fn a_review_restarts_the_clock_and_is_counted() {
+        let a = ItemId::mint("s1", "q?");
+        let mut evs = decided_at(&a, Door::TwoWay, "f", "2026-01-01T00:00:00Z");
+        evs.push(at(acknowledge(&a), "2026-10-01T00:00:00Z"));
+        let l = fold_all(&evs);
+        let item = l.get(&a).unwrap();
+
+        assert_eq!(item.last_reviewed(), Some("2026-10-01T00:00:00Z"));
+        assert_eq!(item.status, Status::Decided);
+        assert_eq!(item.reviews, 1);
+        assert_eq!(due_ids(&l, "2026-11-01", 90), []);
+        assert_eq!(due_ids(&l, "2026-12-30", 90), [(a, 90)]);
+    }
+
+    #[test]
+    fn a_reopen_removes_a_due_decision_and_counts_when_it_follows_a_review() {
+        let a = ItemId::mint("s1", "q?");
+        let mut evs = decided_at(&a, Door::TwoWay, "f", "2026-01-01T00:00:00Z");
+        evs.push(at(acknowledge(&a), "2026-04-01T00:00:00Z"));
+        evs.push(at(reopen(&a), "2026-08-01T00:00:00Z"));
+        let l = fold_all(&evs);
+        let item = l.get(&a).unwrap();
+
+        assert_eq!(due_ids(&l, "2026-11-01", 90), []);
+        assert_eq!(item.last_reviewed(), None);
+        assert_eq!((item.reviews, item.reopened_after_review), (1, 1));
+    }
+
+    #[test]
+    fn a_reopen_without_a_review_is_not_counted_as_following_one() {
+        let a = ItemId::mint("s1", "q?");
+        let mut evs = decided_at(&a, Door::TwoWay, "f", "2026-01-01T00:00:00Z");
+        evs.push(at(reopen(&a), "2026-08-01T00:00:00Z"));
+        evs.push(at(decide(&a), "2026-08-02T00:00:00Z"));
+        evs.push(at(reopen(&a), "2026-08-03T00:00:00Z"));
+        let item = fold_all(&evs).get(&a).cloned().unwrap();
+
+        assert_eq!((item.reviews, item.reopened_after_review), (0, 0));
+    }
+
+    #[test]
+    fn a_new_decision_starts_its_own_clock() {
+        let a = ItemId::mint("s1", "q?");
+        let mut evs = decided_at(&a, Door::TwoWay, "f", "2026-01-01T00:00:00Z");
+        evs.push(at(acknowledge(&a), "2026-03-01T00:00:00Z"));
+        evs.push(at(decide(&a), "2026-06-01T00:00:00Z"));
+        let item = fold_all(&evs).get(&a).cloned().unwrap();
+
+        assert_eq!(item.last_reviewed(), Some("2026-06-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn an_acknowledged_default_folds_as_a_1_1_build_folded_it() {
+        let b = ItemId::parse("wi-bbbbbb").unwrap();
+        let evs = [
+            env(raised(&b, "b?", Door::TwoWay), "s1"),
+            env(default_taken(&b), "s1"),
+            env(acknowledge(&b), "s1"),
+        ];
+        let l = fold_all(&evs);
+        let item = l.get(&b).unwrap();
+
+        assert!(item.default.as_ref().is_some_and(|d| d.acknowledged));
+        assert_eq!(item.status, Status::Defaulted);
+        assert_eq!(item.reviews, 0);
+        assert!(l.unacknowledged_defaults().is_empty());
+        assert_eq!(due_ids(&l, "2030-01-01", 1), []);
+        let json = serde_json::to_value(item).unwrap();
+        assert!(
+            json.get("reviews").is_none() && json.get("reopened_after_review").is_none(),
+            "{json}"
+        );
+    }
+
+    /// Events as weighin 1.1.x stored them: a default acknowledged after the digest, and a
+    /// decision. A review is the same `item_acknowledged` payload (D-0022), so it is listed too.
+    const LEDGER_1_1: [&str; 6] = [
+        r#"{"type":"item_raised","item_id":"wi-bee566","kind":"call","question":"Keep the retry at three attempts?","did":"kept three","flip":null,"at":null,"sym":null,"blocks":null,"door_hint":"two-way","authority_hint":"judgment","channel":"marker","quote":"Keep the retry at three attempts?","source_path":null,"source_line":null,"actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2026-10-02T21:40:02Z"}"#,
+        r#"{"type":"item_defaulted","item_id":"wi-bee566","option":"kept three","cause":"two-way","reason":"the agent's own two-way call","actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2026-10-02T21:40:03Z"}"#,
+        r#"{"type":"item_acknowledged","item_id":"wi-bee566","reason":"left as defaulted after the digest","actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2026-10-03T08:00:00Z"}"#,
+        r#"{"type":"item_raised","item_id":"wi-930e15","kind":"question","question":"Name the helper apply or run?","did":null,"flip":"a second caller","at":null,"sym":null,"blocks":null,"door_hint":"two-way","authority_hint":"judgment","channel":"marker","quote":"Name the helper apply or run?","source_path":null,"source_line":null,"actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2026-10-02T21:40:02Z"}"#,
+        r#"{"type":"item_decided","item_id":"wi-930e15","option":"apply","decider":"human:ryan","provenance":"user-directed","note":"","tree_hash":null,"matched_recommendation":null,"via":"chat","seconds_to_decide":null,"reason":"answered","actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2026-10-02T21:41:00Z"}"#,
+        r#"{"type":"item_acknowledged","item_id":"wi-930e15","reason":"left standing after the digest","actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2027-01-10T08:00:00Z"}"#,
+    ];
+
+    /// The current fold reads 1.1.x events as before, and a review uses the 1.1.x payload. This
+    /// cannot run a 1.1.x fold: that it ignores a review rests on its `item_acknowledged` arm,
+    /// which sets `acknowledged` only on an item with a default (D-0022).
+    #[test]
+    fn a_1_1_ledger_folds_its_acknowledged_default_as_before_and_reads_a_review() {
+        let evs: Vec<EventEnvelope> = LEDGER_1_1
+            .iter()
+            .map(|p| EventEnvelope::from_json(p.as_bytes()).unwrap())
+            .collect();
+        let l = fold_all(&evs);
+        let default = l.get(&ItemId::parse("wi-bee566").unwrap()).unwrap();
+        let decision = l.get(&ItemId::parse("wi-930e15").unwrap()).unwrap();
+
+        assert_eq!(
+            serde_json::to_value(&default.default).unwrap(),
+            serde_json::json!({
+                "option": "kept three", "cause": "two-way",
+                "reason": "the agent's own two-way call", "ts": "2026-10-02T21:40:03Z",
+                "acknowledged": true
+            })
+        );
+        assert_eq!((default.status, default.reviews), (Status::Defaulted, 0));
+        assert_eq!(default.last_ts, "2026-10-03T08:00:00Z");
+        assert!(l.unacknowledged_defaults().is_empty());
+        assert_eq!(decision.last_reviewed(), Some("2027-01-10T08:00:00Z"));
+        assert_eq!(decision.flip_condition(), Some("a second caller"));
+        let written = env(acknowledge(&decision.id), "s1").to_json().unwrap();
+        let keys: Vec<String> = serde_json::from_slice::<serde_json::Map<_, _>>(&written)
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "actor",
+                "branch",
+                "head",
+                "item_id",
+                "reason",
+                "session_id",
+                "ts",
+                "type",
+                "worktree"
+            ],
+            "a review is written in the 1.1.x acknowledgement's shape"
+        );
+    }
+
+    #[test]
+    fn a_reviewed_decision_serialises_its_review_time() {
+        let a = ItemId::mint("s1", "q?");
+        let mut evs = decided_at(&a, Door::TwoWay, "f", "2026-01-01T00:00:00Z");
+        let unreviewed = serde_json::to_value(fold_all(&evs).get(&a).unwrap()).unwrap();
+        evs.push(at(acknowledge(&a), "2026-04-01T00:00:00Z"));
+        let reviewed = serde_json::to_value(fold_all(&evs).get(&a).unwrap()).unwrap();
+
+        assert!(
+            unreviewed["decision"].get("reviewed_ts").is_none(),
+            "{unreviewed}"
+        );
+        assert_eq!(
+            reviewed["decision"]["reviewed_ts"],
+            serde_json::json!("2026-04-01T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn day_numbers_count_calendar_days_across_leap_years() {
+        assert_eq!(day_number("1970-01-01"), Some(0));
+        assert_eq!(day_number("2000-03-01T00:00:00Z"), Some(11_017));
+        assert_eq!(
+            day_number("2024-03-01"),
+            day_number("2024-02-28").map(|d| d + 2)
+        );
+        assert_eq!(
+            day_number("2023-03-01"),
+            day_number("2023-02-28").map(|d| d + 1)
+        );
+        assert_eq!(day_number("2026-11-01"), Some(20_758));
+        for bad in [
+            "",
+            "2026-1-01",
+            "2026-00-10",
+            "2026-02-32",
+            "20x6-01-01",
+            "2026/01/01",
+        ] {
+            assert_eq!(day_number(bad), None, "{bad:?}");
+        }
     }
 
     /// Every event kind through the fold, pinned as the serialised ledger it produces.

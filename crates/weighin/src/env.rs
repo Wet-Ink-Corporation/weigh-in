@@ -100,6 +100,9 @@ pub(crate) struct Caps {
     pub(crate) board_focus: usize,
     /// Upper bound on a context pack, in characters (about 600 tokens).
     pub(crate) context_chars: usize,
+    /// Days after its newest decide or review that a standing two-way decision comes due a look
+    /// in the digest; 0 turns ageing off (D-0022).
+    pub(crate) review_age_days: u32,
 }
 
 impl Default for Caps {
@@ -108,6 +111,7 @@ impl Default for Caps {
             chat_cards: 4,
             board_focus: 5,
             context_chars: 2400,
+            review_age_days: 90,
         }
     }
 }
@@ -867,6 +871,32 @@ mod tests {
             ),
             ("client", "local", Some("~/l.sqlite3"))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_config_from_before_review_ages_reviews_after_90_days()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        write_config(
+            tmp.path(),
+            r#"{"caps":{"chat_cards":3,"board_focus":5,"context_chars":2400}}"#,
+        );
+
+        let c = Config::load(tmp.path())?.ok_or("the file is there")?;
+
+        assert_eq!((c.caps.chat_cards, c.caps.review_age_days), (3, 90));
+        Ok(())
+    }
+
+    #[test]
+    fn a_config_sets_its_own_review_age() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        write_config(tmp.path(), r#"{"caps":{"review_age_days":0}}"#);
+
+        let c = Config::load(tmp.path())?.ok_or("the file is there")?;
+
+        assert_eq!((c.caps.review_age_days, c.caps.context_chars), (0, 2400));
         Ok(())
     }
 

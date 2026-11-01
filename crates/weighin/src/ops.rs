@@ -26,9 +26,10 @@ pub(crate) use raise::RaiseOutcome;
 pub(crate) use trailer::Trailer;
 
 use anyhow::{Context as _, Result, anyhow, bail};
+use std::fmt::Write as _;
 use weighin_core::event::{EventEnvelope, LedgerEvent};
 use weighin_core::id::ItemId;
-use weighin_core::{Item, Ledger};
+use weighin_core::{Item, Ledger, Status};
 
 use self::input::BadOp;
 use self::relate::{ack_event, link_event, supersede_event};
@@ -257,8 +258,22 @@ impl<'a> Session<'a> {
             } => self.change(id, |item| {
                 Ok(link_event(item, kind, target, reason.as_deref()))
             }),
-            Op::Ack { id, reason } => self.change(id, |item| ack_event(item, reason.as_deref())),
+            Op::Ack { id, reason } => self.ack(id, reason.as_deref()),
         }
+    }
+
+    /// Acknowledge a default, or review a standing decision; a review also moves the decision
+    /// atom's `last_reviewed` to today (D-0022).
+    fn ack(&mut self, id: &str, reason: Option<&str>) -> Result<String> {
+        let item = self.item(id)?;
+        let Change { event, mut receipt } = ack_event(&item, reason)?;
+        self.write(&item.id, vec![event])?;
+        if item.status == Status::Decided
+            && let Some(path) = self.mark_decision_atom_reviewed(&item.id)?
+        {
+            write!(receipt, " · atom {path}")?;
+        }
+        Ok(receipt)
     }
 
     /// Apply one op of a batch as [`parse_ops`] returned it, and return its receipt. An op that

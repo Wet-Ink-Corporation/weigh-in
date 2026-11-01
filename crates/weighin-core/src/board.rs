@@ -327,6 +327,14 @@ fn focus_cards(ledger: &Ledger, focus_cap: usize) -> Vec<BoardItem> {
     items
 }
 
+/// The sort key that puts the newest decision last: its time, then the item's position.
+fn decided_order(item: &Item) -> (Option<&str>, u64) {
+    (
+        item.decision.as_ref().map(|d| d.ts.as_str()),
+        item.last_position,
+    )
+}
+
 /// Decided items that have a card, newest first, at most [`BOARD_DECIDED_CAP`] of them.
 fn decided_cards(ledger: &Ledger) -> Vec<BoardItem> {
     let mut decided: Vec<(&Item, &Card)> = ledger
@@ -335,7 +343,9 @@ fn decided_cards(ledger: &Ledger) -> Vec<BoardItem> {
         .filter(|i| i.status == Status::Decided)
         .filter_map(|i| i.card.as_ref().map(|card| (i, card)))
         .collect();
-    decided.sort_by_key(|(i, _)| Reverse(i.last_position));
+    // Newest decision first. A review (D-0022) appends an event but decides nothing, so the
+    // order is by decision time, then by position for decisions stamped in the same second.
+    decided.sort_by(|(a, _), (b, _)| decided_order(b).cmp(&decided_order(a)));
     decided
         .into_iter()
         .take(BOARD_DECIDED_CAP)
@@ -682,8 +692,8 @@ mod tests {
     use super::*;
     use crate::card::Stability;
     use crate::event::{
-        Channel, Decided, DefaultCause, Defaulted, Deferred, EventEnvelope, Grounded, LedgerEvent,
-        Provenance, Raised,
+        Acknowledged, Channel, Decided, DefaultCause, Defaulted, Deferred, EventEnvelope, Grounded,
+        LedgerEvent, Provenance, Raised,
     };
     use crate::id::ItemId;
     use crate::marker::{Authority, Kind};
@@ -892,6 +902,43 @@ mod tests {
             })
         );
         Ok(())
+    }
+
+    /// A review (D-0022) is a later event on an older decision; it must not move that decision
+    /// ahead of one taken after it.
+    #[test]
+    fn a_reviewed_old_decision_stays_behind_a_newer_decision() {
+        let at = |ts: &str, event: LedgerEvent| EventEnvelope {
+            ts: ts.into(),
+            ..env(event)
+        };
+        let state = export(
+            &fold(&[
+                raised("decided old?", Door::TwoWay),
+                grounded("decided old?"),
+                at("2026-09-01T00:00:00Z", decided("decided old?").event),
+                raised("decided new?", Door::TwoWay),
+                grounded("decided new?"),
+                at("2026-09-20T00:00:00Z", decided("decided new?").event),
+                at(
+                    "2026-12-01T00:00:00Z",
+                    LedgerEvent::ItemAcknowledged(Acknowledged {
+                        item_id: id("decided old?"),
+                        reason: "still holds".into(),
+                    }),
+                ),
+            ]),
+            scope(),
+            5,
+            "now",
+        );
+        assert_eq!(
+            ids(&state.decided),
+            vec![
+                id("decided new?").to_string(),
+                id("decided old?").to_string()
+            ]
+        );
     }
 
     #[test]

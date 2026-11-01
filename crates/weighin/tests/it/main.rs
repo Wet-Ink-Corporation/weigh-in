@@ -2,6 +2,7 @@
 //! scorer, the committed journals and the session journals the binary writes, and `ci-check`,
 //! over shared helpers in `support` and `scratch`.
 
+mod ageing;
 mod annotate;
 mod board_guard;
 mod ci_check;
