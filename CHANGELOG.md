@@ -6,6 +6,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 1.2.0 — 2026-11-01
+
 - `weighin init` refuses a class other than `own` or `client` and a board other than
   `artifact`, `local` or `off`. Before, a mistyped `--class clinet` was stored with the
   publishing `artifact` board, which client repositories are meant never to get (#169). A config

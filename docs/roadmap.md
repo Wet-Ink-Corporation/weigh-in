@@ -1,6 +1,6 @@
 # Roadmap and open items
 
-State at 1.1.3 (2026-11-01). v1 is slice 1 made dependable, and every exit criterion of the
+State at 1.2.0 (2026-11-01). v1 is slice 1 made dependable, and every exit criterion of the
 [v1 plan](v1-plan.md) is met, with one week of daily use instead of two
 ([D-0019](decisions/build-decisions.md#d-0019)). 1.0.0 shipped it on 2026-10-19
 ([B-27](decisions/build-decisions.md#b-27)). 1.1.0 (2026-10-29) shipped the first of slice 2: the
@@ -12,6 +12,9 @@ runs on GitHub-hosted Linux, Windows and macOS runners ([B-33](decisions/build-d
 
 Since 1.1.3 (2026-10-31) the mod ships as its own plugin, `weigh-mod`, because a desktop chat
 turned off the whole `weigh` plugin for it ([B-35](decisions/build-decisions.md#b-35)).
+
+1.2.0 (2026-11-01) ships the 2026-11-01 audit's fixes, #169 to #173 below, all closed; the
+Cowork fetch script was confirmed in a real Cowork sitting before the release (D-0021).
 
 **Where to pick up.** Status lives on the issues; this page only links them. The mod's Cowork
 and Windows runs passed ([#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113),
