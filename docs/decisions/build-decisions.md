@@ -273,6 +273,13 @@ The route line the design pass also proposed (SessionStart printing the `W` to u
 built: on Windows SessionStart already prints the binary's path, so the line would restate it
 and add a real-device check. #171 closes with the fetch script (Ryan, 2026-11-01).
 
+Confirmed in Cowork on 2026-11-01 (Ryan): a test build of `main` at e12823e, uploaded as
+`weigh-rc` with the script stamped `V=1.1.3; S=none;`, in a task connected to one scratch folder
+holding that build's Linux binary. `/weigh-in-rc` Read `libexec/cowork-fetch.sh`, sent it to the
+device shell, which found the folder's binary, and the sitting presented a card and wrote the
+decision atom to the folder's `.kb/`. The download branch could not run without a release; its
+logic is unchanged from 1.1.3, and the first Cowork sitting on 1.2.0 exercises it.
+
 ## D-0022
 
 **Standing decisions come due for review after 90 days.** 2026-11-01 · Ryan's call, in the
