@@ -17,3 +17,4 @@
 
 # Weigh-In skill, installed per cloud session by .claude/hooks/session-start.sh
 /.claude/skills/weigh-in/
+/plugin/evals/results/

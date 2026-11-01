@@ -28,7 +28,11 @@ One PR, titled `Release <version>: <what it is for>`:
       build).
 - [ ] `## Unreleased` is renamed to `## <version> — <YYYY-MM-DD>`, and a new empty `## Unreleased`
       sits above it. `scripts/changelog-section.sh <version>` prints the section.
-- [ ] `plugin/skills/weigh-in/SKILL.md` still holds exactly one `V=dev; S=none;`.
+- [ ] `plugin/libexec/cowork-fetch.sh` still holds exactly one `V=dev; S=none;` (`sh tests/cowork-fetch-check.sh`).
+- [ ] The skill's eval cases pass, run by hand (D-0021; about $0.10 on your own credential):
+      `claude plugin eval plugin --runs 1 --ablation none --max-cost-usd 1`
+- [ ] If `plugin/libexec/cowork-fetch.sh` or the skill's Cowork route changed, one real Cowork
+      sitting reads the script and its device shell call prints `B=<path>`.
 - [ ] The dry run passes locally:
       ```sh
       cargo test --workspace                       # includes the 0.2.2 fixture tests (B-10)
