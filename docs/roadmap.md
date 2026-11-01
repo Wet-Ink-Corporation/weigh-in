@@ -81,8 +81,8 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
 - **No binaries on `main`:** install from the `marketplace` branch instead ([B-14](decisions/build-decisions.md#b-14));
   verified on Windows and in Cowork ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)); macOS and Linux installs are unverified.
   A plugin without a binary says capture is off ([B-11](decisions/build-decisions.md#b-11)).
-- **Cowork download is untried:** it is on from 1.1.0 ([B-33](decisions/build-decisions.md#b-33)). 1.0.0 and
-  earlier cannot download ([D-0012](decisions/build-decisions.md#d-0012)), so Cowork uses a connected checkout of the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)).
+- **Cowork download confirmed:** on from 1.1.0 ([B-33](decisions/build-decisions.md#b-33)), and confirmed in a
+  Cowork sitting before 1.2.0 ([D-0021](decisions/build-decisions.md#d-0021)). 1.0.0 and earlier cannot download ([D-0012](decisions/build-decisions.md#d-0012)), so Cowork uses a connected checkout of the `marketplace` branch ([#13](https://github.com/Wet-Ink-Corporation/weigh-in/issues/13)).
 - **Two plugins in Claude Code:** the band and `/wi` need `weigh-mod@weigh-in` installed beside
   `weigh` ([B-35](decisions/build-decisions.md#b-35)).
 - **Desktop chats run no hooks:** since Chat and Cowork merged, a chat connected to a folder
@@ -107,8 +107,8 @@ the [v1 plan](v1-plan.md). This page summarises them; the issue is where status 
   sessions after 0.5.2 are few and all on this repository, so the sitting's sweep still catches
   what markers miss.
 - **kb-ingest does not read Weigh-In atoms yet.** The atoms pass Redkiln's `validate --kb`;
-  teaching `kb-ingest` the intake keys moved to slice 3 with the move into redkiln-rs
-  ([B-22](decisions/build-decisions.md#b-22), amending [wi-e15c77](decisions/wi-e15c77.md)).
+  reading them as Knowledge atoms comes with the move into the `redkiln` monorepo (Move 1, which
+  supersedes the move into redkiln-rs of [B-22](decisions/build-decisions.md#b-22), amending [wi-e15c77](decisions/wi-e15c77.md)).
 - **Open from wi-4d8b6a:** which provider the separately held model key is for; slice 2 ([#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27)).
 
 ## Slice 2

@@ -43,8 +43,8 @@ workflow runs all of it before it builds. Claude Code cloud sessions run
 Dependabot (`.github/dependabot.yml`) opens weekly update PRs, holding back Cargo majors and
 happenstance (B-01).
 
-Toolchain is pinned to redkiln-rs's (Rust 1.98.1, edition 2024), because redkiln-rs is where
-Weigh-In ends up (wi-b4c1d8). Line endings are LF everywhere (`.gitattributes`).
+Toolchain is pinned to Rust 1.98.1 (edition 2024), the `redkiln` monorepo's pin, where Weigh-In
+moves as `rk-weigh-in` 2.0 (redkiln Move 1; this supersedes wi-b4c1d8's redkiln-rs). Line endings are LF everywhere (`.gitattributes`).
 
 ## Working in this repository
 

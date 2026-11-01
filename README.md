@@ -4,10 +4,10 @@ A decision ledger for agent sessions. Agents mark what they assumed, deferred or
 decide; hooks capture those marks and the open questions they write into documents; `/weigh-in`
 filters them hard and settles the ones that need you in one sitting, at the end of the chat
 that raised them. Every decision lands as a `.kb` atom that passes Redkiln's `validate --kb`;
-teaching `kb-ingest` to promote them comes with the move into redkiln-rs (B-22).
+reading them as Knowledge atoms comes with the move into the redkiln monorepo (redkiln `docs/plan/move-1-weigh-in.md`), which supersedes B-22's move into redkiln-rs.
 
 Slice 1 of the design in *Settle agent questions while the context is warm* (2026-09-26).
-It stands on its own until redkiln-rs is ready to receive it.
+It stands on its own until it moves into the `redkiln` monorepo as `rk-weigh-in` 2.0 (Move 1).
 
 ## How it works
 
