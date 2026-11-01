@@ -1,0 +1,2 @@
+{"t":"2026-11-01T06:29:54.884Z","sid":"dd9ae0b6-5721-5a24-b26d-b2594a20ea73","ccr":"cse_017VaKZTxH7Bz8qLtWdwnztT","agent":"main","event":"deny-shell-write","file":"Cargo.toml","cmd":"set -e…"}
+{"t":"2026-11-01T06:29:57.664Z","sid":"dd9ae0b6-5721-5a24-b26d-b2594a20ea73","ccr":"cse_017VaKZTxH7Bz8qLtWdwnztT","agent":"main","event":"skill-loaded","via":"Skill"}
