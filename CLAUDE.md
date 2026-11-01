@@ -13,7 +13,7 @@ what it does, `docs/decisions/` before changing behaviour, and `docs/roadmap.md`
 - `plugin/` — the `weigh` plugin: `skills/weigh-in/SKILL.md`, `hooks/hooks.json` (command hooks only), `libexec/` launcher and built binaries.
 - `plugin-mod/` — the `weigh-mod` plugin, Claude Code only: the mod (`hooks/mod/register.tsx`, `types/`, B-29, B-35). Packaging copies weigh's `libexec/` into its zip.
 - `tests/` — the mod's checks (`mod-check.sh`) and the plugin API types they compile against.
-- `scripts/` — `build-plugin-bins.sh` (Linux musl and Windows gnu), `build-plugin-bins.ps1` (Windows msvc), `package-plugin.sh` (zip for upload), `marketplace-branch.sh` (the `marketplace` branch commit, from that zip), `changelog-section.sh` (a version's `CHANGELOG.md` section: the release notes, and CI's check that a bump has its entry), `weekly-stats.sh` (`weighin stats` across folders, as markdown for #23).
+- `scripts/` — `build-plugin-bins.sh` (Linux musl and Windows gnu), `build-plugin-bins.ps1` (Windows msvc), `package-plugin.sh` (zip for upload), `marketplace-branch.sh` (the `marketplace` branch commit, from that zip), `changelog-section.sh` (a version's `CHANGELOG.md` section: the release notes, and CI's check that a bump has its entry), `weekly-stats.sh` (`weighin stats` across folders, as markdown for #23), `seed.py` (drafts and reviews eval seed items, wi-100d6d).
 - `docs/` — research report and notes, decision records, roadmap.
 
 ## Commands
@@ -62,8 +62,10 @@ Weigh-In ends up (wi-b4c1d8). Line endings are LF everywhere (`.gitattributes`).
   is what the pilot is judged on (B-21, #23).
 - Before a cloud session on this repository ends, add its own end-of-turn messages to
   `eval/seed.jsonl` (wi-48657b): blocks as capture items, the prose calls they missed, and a
-  share of true negatives. Parse them with a script from the session's transcript under
-  `~/.claude/projects/`; a later session cannot rely on reading them back.
+  share of true negatives. Run `python3 scripts/seed.py save <transcript> --source <session id>`
+  on the session's transcript under `~/.claude/projects/`, then read the drafts it appended:
+  relabel prose calls as `capture` and redact (`eval/README.md`). A later session cannot rely on
+  reading the transcript back. Ryan reviews drafts with `python3 scripts/seed.py review`.
 - Run `git config core.hooksPath .githooks` once per clone: its pre-push hook refuses `archive/*`
   branches, which hold history that must stay local (B-06).
 

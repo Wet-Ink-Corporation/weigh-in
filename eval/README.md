@@ -31,6 +31,22 @@ One JSON object per line:
   a real message), or `scripted-marker` (a test marker from an install check).
 - Text is redacted: no client names, emails, tokens or personal data.
 
+## Adding and reviewing items
+
+`scripts/seed.py` (wi-100d6d, #170) does both, with the standard library only (Python 3.9+):
+
+```sh
+python3 scripts/seed.py save ~/.claude/projects/<project>/<session>.jsonl --source session_<id>
+python3 scripts/seed.py review     # label the `claude-draft` items; r/d/s/k/q per item
+python3 scripts/seed.py selftest
+```
+
+`save` appends one `by: claude-draft` item per end-of-turn assistant message the seed does not
+hold yet, as the next session (`s<n>`): `capture` when the message carries a `weigh-in` block
+(`defaulted` for a two-way judgment block, else `raised`), `skip` otherwise. Read what it
+appended: relabel prose calls the message made without a block, and redact. `review` records
+each label you give as `by: ryan` and rewrites only the lines it changed.
+
 ## Files
 
 - `seed-scripted.jsonl`: provisional. None of the five earlier sessions it draws on carried a real
