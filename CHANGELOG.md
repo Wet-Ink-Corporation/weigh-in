@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- `weighin init` refuses a class other than `own` or `client` and a board other than
+  `artifact`, `local` or `off`. Before, a mistyped `--class clinet` was stored with the
+  publishing `artifact` board, which client repositories are meant never to get (#169). A config
+  file holding such a value is now reported as broken, as one that does not parse already was.
+
 ## 1.1.3 — 2026-10-31
 
 - `/weigh-in` loads in desktop chats. A chat connected to a folder turned off the whole `weigh`

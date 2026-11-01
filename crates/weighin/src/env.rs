@@ -9,18 +9,85 @@ use weighin_core::event::{EventEnvelope, LedgerEvent};
 use crate::git;
 use crate::text::Report;
 
+/// Whose repository a folder is (decision wi-7c21e4). A closed set, so a mistyped `client` is
+/// refused rather than taken for an own repository with the publishing board (#169).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum RepoClass {
+    /// One of the owner's own repositories.
+    Own,
+    /// A client's repository: its items stay local.
+    Client,
+}
+
+impl RepoClass {
+    /// The class as the config file and `init` spell it.
+    #[must_use]
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Own => "own",
+            Self::Client => "client",
+        }
+    }
+
+    /// The board a repository of this class gets when `init` names no board: client
+    /// repositories keep theirs local.
+    #[must_use]
+    pub(crate) const fn default_board(self) -> BoardMode {
+        match self {
+            Self::Own => BoardMode::Artifact,
+            Self::Client => BoardMode::Local,
+        }
+    }
+}
+
+impl std::fmt::Display for RepoClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Where a folder's board may be shown (decision wi-7c21e4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum BoardMode {
+    /// Published to claude.ai as an Artifact.
+    Artifact,
+    /// Only the local board pane; nothing is published.
+    Local,
+    /// No board at all.
+    Off,
+}
+
+impl BoardMode {
+    /// The mode as the config file and `init` spell it.
+    #[must_use]
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Artifact => "artifact",
+            Self::Local => "local",
+            Self::Off => "off",
+        }
+    }
+}
+
+impl std::fmt::Display for BoardMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct BoardConfig {
-    /// `artifact`, `local` or `off`.
-    pub(crate) mode: String,
+    pub(crate) mode: BoardMode,
     pub(crate) url: Option<String>,
 }
 
 impl Default for BoardConfig {
     fn default() -> Self {
         Self {
-            mode: "artifact".into(),
+            mode: BoardMode::Artifact,
             url: None,
         }
     }
@@ -76,8 +143,8 @@ impl Default for ScanConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Config {
-    /// `own` or `client`. Client repos default to a local board (decision wi-7c21e4).
-    pub(crate) repo_class: String,
+    /// Client repos default to a local board (decision wi-7c21e4).
+    pub(crate) repo_class: RepoClass,
     pub(crate) owner: String,
     pub(crate) board: BoardConfig,
     pub(crate) caps: Caps,
@@ -144,7 +211,7 @@ fn slug(name: &str) -> Option<String> {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            repo_class: "own".into(),
+            repo_class: RepoClass::Own,
             owner: FALLBACK_OWNER.into(),
             board: BoardConfig::default(),
             caps: Caps::default(),
@@ -237,7 +304,7 @@ pub(crate) enum ConfigSource {
 /// refusals.
 pub(crate) struct BoardUse {
     /// The board modes that allow it.
-    pub(crate) modes: &'static [&'static str],
+    pub(crate) modes: &'static [BoardMode],
     /// The end of the refusal with no config, after "for a client's repository".
     pub(crate) before: &'static str,
     /// The start of the refusal under a broken config: `not exporting the board`.
@@ -483,8 +550,8 @@ impl Env {
             // safe alone.
             ConfigSource::Broken(e) => bail!("{}: {}", board.refusing, Report(e)),
         }
-        let mode = &self.config.board.mode;
-        if !board.modes.contains(&mode.as_str()) {
+        let mode = self.config.board.mode;
+        if !board.modes.contains(&mode) {
             bail!("this repo's board mode is `{mode}`: {}", board.other_mode);
         }
         Ok(())
@@ -836,6 +903,33 @@ mod tests {
     }
 
     #[test]
+    fn a_config_with_an_unknown_repo_class_is_a_parse_error_naming_the_file() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        // A typo for `client`: before #169 it loaded and took the `artifact` board.
+        write_config(tmp.path(), r#"{"repo_class":"clinet"}"#);
+
+        let e = Config::load(tmp.path()).expect_err("`clinet` is not a repo class");
+
+        assert!(
+            matches!(&e, ConfigError::Parse { path, .. } if *path == tmp.path().join(Config::PATH)),
+            "{e:?}"
+        );
+    }
+
+    #[test]
+    fn a_config_with_an_unknown_board_mode_is_a_parse_error_naming_the_file() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        write_config(tmp.path(), r#"{"board":{"mode":"locl"}}"#);
+
+        let e = Config::load(tmp.path()).expect_err("`locl` is not a board mode");
+
+        assert!(
+            matches!(&e, ConfigError::Parse { path, .. } if *path == tmp.path().join(Config::PATH)),
+            "{e:?}"
+        );
+    }
+
+    #[test]
     fn a_config_that_cannot_be_read_is_a_read_error_naming_the_file() {
         let tmp = tempfile::tempdir().expect("temp dir");
         std::fs::create_dir_all(tmp.path().join(Config::PATH)).expect("a directory in its place");
@@ -856,7 +950,7 @@ mod tests {
 
         let env = Env::discover(&repo, None);
 
-        assert_eq!(env.config.board.mode, "artifact");
+        assert_eq!(env.config.board.mode, BoardMode::Artifact);
         assert!(
             matches!(
                 env.config_source,

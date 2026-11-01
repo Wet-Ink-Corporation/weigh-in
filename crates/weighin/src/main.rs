@@ -31,7 +31,7 @@ use weighin_core::marker::{Door, parse_markers};
 use weighin_core::projection::Health;
 use weighin_core::{Item, Ledger, Status};
 
-use crate::env::{BoardUse, ConfigSource, Env};
+use crate::env::{BoardMode, BoardUse, ConfigSource, Env, RepoClass};
 use crate::ops::{DecideOp, DeferOp, Op, RaiseInput, Session, read_ledger};
 use crate::text::Report;
 
@@ -132,11 +132,11 @@ struct CiCheckArgs {
 struct InitArgs {
     /// `own` or `client` (client repos default to a local board). Unchanged when not given; a
     /// first `init` is `own`.
-    #[arg(long)]
-    class: Option<String>,
+    #[arg(long, value_enum)]
+    class: Option<RepoClass>,
     /// `artifact`, `local` or `off`. Unchanged when not given, unless `--class` is.
-    #[arg(long)]
-    board: Option<String>,
+    #[arg(long, value_enum)]
+    board: Option<BoardMode>,
     #[arg(long)]
     board_url: Option<String>,
     #[arg(long)]
@@ -612,12 +612,7 @@ fn init(env: &mut Env, a: InitArgs, out: &mut impl Write) -> Result<()> {
             c.board.mode = board;
         }
         (Some(class), None) => {
-            c.board.mode = if class == "client" {
-                "local"
-            } else {
-                "artifact"
-            }
-            .into();
+            c.board.mode = class.default_board();
             c.repo_class = class;
         }
         (None, None) => {}
@@ -1175,7 +1170,7 @@ fn board_export(env: &Env, a: ExportArgs, out: &mut impl Write) -> Result<()> {
 /// defaults do not count as a choice.
 fn publishable(env: &Env) -> Result<()> {
     env.board_allows(&BoardUse {
-        modes: &["artifact"],
+        modes: &[BoardMode::Artifact],
         before: " (its board stays local), before exporting the board",
         refusing: "not exporting the board",
         other_mode: "its items are not published to claude.ai, so there is no board to export \
@@ -1198,7 +1193,8 @@ fn board_scope(env: &Env) -> Scope {
             .map_or_else(|| "all sessions".into(), |s| format!("session {s}")),
         source: env.branch.clone().unwrap_or_default(),
         generated_at: String::new(),
-        board_mode: env.config.board.mode.clone(),
+        // The board exchange format carries the mode as text, and `Scope` owns it.
+        board_mode: env.config.board.mode.as_str().to_owned(),
     }
 }
 

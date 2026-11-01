@@ -1,6 +1,6 @@
 # Roadmap and open items
 
-State at 1.1.0 (2026-10-30). v1 is slice 1 made dependable, and every exit criterion of the
+State at 1.1.3 (2026-11-01). v1 is slice 1 made dependable, and every exit criterion of the
 [v1 plan](v1-plan.md) is met, with one week of daily use instead of two
 ([D-0019](decisions/build-decisions.md#d-0019)). 1.0.0 shipped it on 2026-10-19
 ([B-27](decisions/build-decisions.md#b-27)). 1.1.0 (2026-10-29) shipped the first of slice 2: the
@@ -13,12 +13,20 @@ runs on GitHub-hosted Linux, Windows and macOS runners ([B-33](decisions/build-d
 Since 1.1.3 (2026-10-31) the mod ships as its own plugin, `weigh-mod`, because a desktop chat
 turned off the whole `weigh` plugin for it ([B-35](decisions/build-decisions.md#b-35)).
 
-**Where to pick up.** Waiting on Ryan: the mod's Cowork and Windows runs on the released plugin
-([#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113), steps on the issue; check C
-now confirms `/weigh-in` loads in a folder chat on 1.1.3) and V2 from Cowork
-([#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17), labelled `blocked`). The rest
-of slice 2 and later is the backlog on [#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27),
-starting with the research clean-up, the rest of going public. The Cowork download is on from
+**Where to pick up.** Status lives on the issues; this page only links them. The mod's Cowork
+and Windows runs passed ([#113](https://github.com/Wet-Ink-Corporation/weigh-in/issues/113),
+closed), and V2 from Cowork was closed as not planned
+([#17](https://github.com/Wet-Ink-Corporation/weigh-in/issues/17), 2026-10-31). The 2026-11-01
+audit before the redkiln move filed
+[#169](https://github.com/Wet-Ink-Corporation/weigh-in/issues/169) (typed class and board),
+[#170](https://github.com/Wet-Ink-Corporation/weigh-in/issues/170) (`scripts/seed.py`, wi-100d6d),
+[#171](https://github.com/Wet-Ink-Corporation/weigh-in/issues/171) (surface routing out of the
+skill), [#172](https://github.com/Wet-Ink-Corporation/weigh-in/issues/172) (split `main.rs` and
+`ops.rs`) and [#173](https://github.com/Wet-Ink-Corporation/weigh-in/issues/173) (decisions
+age). Integration with redkiln (the `decision` item type, kb-ingest, where the ledger's truth
+lives) is settled on the redkiln side. The rest of slice 2 and later is the backlog on
+[#27](https://github.com/Wet-Ink-Corporation/weigh-in/issues/27), starting with the research
+clean-up, the rest of going public. The Cowork download is on from
 1.1.0 (B-33); Ryan checks it in Cowork. Per-category suppression
 ([#25](https://github.com/Wet-Ink-Corporation/weigh-in/issues/25)) was not built: the pilot's
 not-useful rate was 0%, under D-0013's 10% trigger. Left open on purpose: whether a cloud session
