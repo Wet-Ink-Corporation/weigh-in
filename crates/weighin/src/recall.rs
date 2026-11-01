@@ -181,10 +181,12 @@ fn rank(found: &mut [Anchored<'_>], line: Option<usize>) {
     found.sort_by_key(|a| {
         let distance = line.zip(a.line).map(|(edit, at)| edit.abs_diff(at));
         // `false` sorts first: anchors at a known distance come ahead of those with no line.
+        // Newest is by decision time: a review (D-0022) appends an event but decides nothing.
+        let decision: &Decision = a.decision;
         (
             distance.is_none(),
             distance,
-            std::cmp::Reverse(a.item.last_position),
+            std::cmp::Reverse((decision.ts.as_str(), a.item.last_position)),
         )
     });
 }
@@ -264,8 +266,8 @@ fn normalised(path: &str) -> Cow<'_, str> {
 mod tests {
     use super::*;
     use weighin_core::event::{
-        Channel, Decided, DefaultCause, Defaulted, LedgerEvent, Provenance, Raised, Reopened,
-        Superseded,
+        Acknowledged, Channel, Decided, DefaultCause, Defaulted, LedgerEvent, Provenance, Raised,
+        Reopened, Superseded,
     };
     use weighin_core::marker::{Authority, Door, Kind};
     use weighin_core::{EventEnvelope, ItemId};
@@ -293,6 +295,16 @@ mod tests {
         fn push(&mut self, event: LedgerEvent) {
             self.next += 1;
             self.ledger.apply(self.next, &envelope(event));
+        }
+
+        /// Append `event` stamped `ts`.
+        fn push_at(&mut self, ts: &str, event: LedgerEvent) {
+            self.next += 1;
+            let at = EventEnvelope {
+                ts: ts.into(),
+                ..envelope(event)
+            };
+            self.ledger.apply(self.next, &at);
         }
 
         /// Raise `q` anchored `at`, and return its id.
@@ -370,6 +382,45 @@ mod tests {
         let found = anchored(&b.ledger, "src/other.rs", None);
 
         assert_eq!(ids(&found), Vec::<String>::new());
+    }
+
+    /// A review (D-0022) is a later event on the older decision; newest first still means the
+    /// newest decision.
+    #[test]
+    fn a_reviewed_older_decision_stays_behind_a_newer_one() {
+        let mut b = Built::default();
+        let older = b.raise("Older?", Some("src/a.rs"));
+        let decided = |b: &mut Built, id: &ItemId, ts: &str| {
+            b.push_at(
+                ts,
+                LedgerEvent::ItemDecided(Decided {
+                    item_id: id.clone(),
+                    option: "A".into(),
+                    decider: "human:ryan".into(),
+                    provenance: Provenance::UserDirected,
+                    note: String::new(),
+                    tree_hash: None,
+                    matched_recommendation: None,
+                    via: "chat".into(),
+                    seconds_to_decide: None,
+                    reason: "answered".into(),
+                }),
+            );
+        };
+        decided(&mut b, &older, "2026-09-01T00:00:00Z");
+        let newer = b.raise("Newer?", Some("src/a.rs"));
+        decided(&mut b, &newer, "2026-09-20T00:00:00Z");
+        b.push_at(
+            "2026-12-01T00:00:00Z",
+            LedgerEvent::ItemAcknowledged(Acknowledged {
+                item_id: older.clone(),
+                reason: "still holds".into(),
+            }),
+        );
+
+        let found = anchored(&b.ledger, "src/a.rs", None);
+
+        assert_eq!(ids(&found), [newer.to_string(), older.to_string()]);
     }
 
     #[test]

@@ -1281,6 +1281,9 @@ mod tests {
         r#"{"type":"item_acknowledged","item_id":"wi-930e15","reason":"left standing after the digest","actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2027-01-10T08:00:00Z"}"#,
     ];
 
+    /// The current fold reads 1.1.x events as before, and a review uses the 1.1.x payload. This
+    /// cannot run a 1.1.x fold: that it ignores a review rests on its `item_acknowledged` arm,
+    /// which sets `acknowledged` only on an item with a default (D-0022).
     #[test]
     fn a_1_1_ledger_folds_its_acknowledged_default_as_before_and_reads_a_review() {
         let evs: Vec<EventEnvelope> = LEDGER_1_1

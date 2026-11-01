@@ -280,7 +280,9 @@ widens `item_acknowledged`, which meant only "a default was seen and left standi
    `.kb/_ledger/config.json` changes it per repository; 0 turns ageing off.
 2. Leaving a due decision standing is recorded with `item_acknowledged`, widened to decided
    items. No new event type, so an older binary beside a newer one still reads every event
-   (B-05); a fixture test checks how a 1.1.x fold treats such an event.
+   (B-05). A 1.1.x fold sets `acknowledged` only on an item with a default, so it ignores a
+   review; a fixture test checks that the current fold reads 1.1.x events as before and that a
+   review is written in the 1.1.x shape.
 3. Only two-way decisions with a flip condition come due. One-way decisions and those with no
    flip condition never do, though any decision can still be reopened by hand.
 
