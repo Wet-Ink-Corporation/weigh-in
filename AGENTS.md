@@ -6,7 +6,7 @@ A decision ledger for agent sessions: the `weighin` CLI over happenstance's SQLi
 
 | Crate | Layer | Purpose | Depends on |
 |---|---|---|---|
-| `crates/weighin-core` | domain | The ledger vocabulary with no I/O: events, `wi-` ids, `weigh-in` markers, scanning, cards, the projection fold, `.kb` atoms and the board exchange format. Linkable into redkiln-rs unchanged. | serde, serde_json, sha2, thiserror |
+| `crates/weighin-core` | domain | The ledger vocabulary with no I/O: events, `wi-` ids, `weigh-in` markers, scanning, cards, the projection fold, `.kb` atoms and the board exchange format. Moves into the `redkiln` monorepo at Move 1 (redkiln `docs/plan/move-1-weigh-in.md`). | serde, serde_json, sha2, thiserror |
 | `crates/weighin` | binary | The CLI and single writer of the ledger: the store (happenstance SQLite at `<git-common-dir>/weighin/`), git through the command line, context packs, the hook entry point, and the batch write path (`ops::Session`). | weighin-core, happenstance-core, happenstance-sqlite, tokio (rt), clap, anyhow, time, tempfile, serde, serde_json |
 
 Dependencies point inward: the binary depends on the domain, never the reverse (ARC-02). Each crate's `AGENTS.md` is its charter (ARC-08). The `plugin/` directory (skill, hooks, launcher), `plugin-mod/` (the Claude Code mod, B-35) and `scripts/` are not crates.
@@ -23,7 +23,7 @@ Dependencies point inward: the binary depends on the domain, never the reverse (
 | Plugin | `./scripts/build-plugin-bins.sh`, `./scripts/package-plugin.sh --no-download`, `claude plugin validate .` |
 | Full gate (Claude Code) | `/temper:gate`, or `node "$TEMPER_CLI" gate` |
 
-Toolchain 1.98.1 (`rust-toolchain.toml`), pinned to redkiln-rs's channel so `weighin-core` stays adoptable there (wi-b4c1d8). `rust-version` is 1.98.1, equal to the pin. Profiles are the repository's own (`[profile.release]`: thin LTO, one codegen unit, stripped); the template's profiles were not adopted (PERF-09).
+Toolchain 1.98.1 (`rust-toolchain.toml`), the `redkiln` monorepo's channel, where Weigh-In moves at Move 1 (B-36, superseding wi-b4c1d8's redkiln-rs destination). `rust-version` is 1.98.1, equal to the pin. Profiles are the repository's own (`[profile.release]`: thin LTO, one codegen unit, stripped); the template's profiles were not adopted (PERF-09).
 
 ## Engineering standard (rust-craft)
 
