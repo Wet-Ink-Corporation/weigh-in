@@ -269,6 +269,10 @@ Considered and not taken: keeping the script inline with a test that extracts it
 untested. The extra Read call in a Cowork sitting is confirmed in one real Cowork run before
 release.
 
+The route line the design pass also proposed (SessionStart printing the `W` to use) is not
+built: on Windows SessionStart already prints the binary's path, so the line would restate it
+and add a real-device check. #171 closes with the fetch script (Ryan, 2026-11-01).
+
 ## D-0022
 
 **Standing decisions come due for review after 90 days.** 2026-11-01 · Ryan's call, in the

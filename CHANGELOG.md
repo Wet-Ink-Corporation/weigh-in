@@ -16,6 +16,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   one left standing is recorded as reviewed (its atom's `last_reviewed` moves to the day).
   `caps.review_age_days` in `.kb/_ledger/config.json` changes the age; 0 turns it off. `weighin
   stats` counts the reviews and the reopens that follow one (D-0022, #173).
+- In Cowork the skill reads `libexec/cowork-fetch.sh` and sends it to the device shell, instead
+  of carrying the script inline; the script is tested against a fake connected folder, and its
+  `V=…; S=…;` stamp moves there with it (D-0021, #171). A Cowork sitting makes one more Read.
 
 ## 1.1.3 — 2026-10-31
 
