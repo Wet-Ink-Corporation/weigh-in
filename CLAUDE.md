@@ -44,7 +44,8 @@ Dependabot (`.github/dependabot.yml`) opens weekly update PRs, holding back Carg
 happenstance (B-01).
 
 Toolchain is pinned to Rust 1.98.1 (edition 2024), the `redkiln` monorepo's pin, where Weigh-In
-moves as `rk-weigh-in` 2.0 (redkiln Move 1; this supersedes wi-b4c1d8's redkiln-rs). Line endings are LF everywhere (`.gitattributes`).
+moves as `rk-weigh-in` 2.0 (B-36, superseding wi-b4c1d8's redkiln-rs destination). Line endings
+are LF everywhere (`.gitattributes`).
 
 ## Working in this repository
 

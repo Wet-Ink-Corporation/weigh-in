@@ -23,7 +23,7 @@ Dependencies point inward: the binary depends on the domain, never the reverse (
 | Plugin | `./scripts/build-plugin-bins.sh`, `./scripts/package-plugin.sh --no-download`, `claude plugin validate .` |
 | Full gate (Claude Code) | `/temper:gate`, or `node "$TEMPER_CLI" gate` |
 
-Toolchain 1.98.1 (`rust-toolchain.toml`), the `redkiln` monorepo's channel, where Weigh-In moves at Move 1 (superseding wi-b4c1d8's redkiln-rs). `rust-version` is 1.98.1, equal to the pin. Profiles are the repository's own (`[profile.release]`: thin LTO, one codegen unit, stripped); the template's profiles were not adopted (PERF-09).
+Toolchain 1.98.1 (`rust-toolchain.toml`), the `redkiln` monorepo's channel, where Weigh-In moves at Move 1 (B-36, superseding wi-b4c1d8's redkiln-rs destination). `rust-version` is 1.98.1, equal to the pin. Profiles are the repository's own (`[profile.release]`: thin LTO, one codegen unit, stripped); the template's profiles were not adopted (PERF-09).
 
 ## Engineering standard (rust-craft)
 

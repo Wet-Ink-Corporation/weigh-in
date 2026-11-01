@@ -1,7 +1,7 @@
 ---
 id: wi-b4c1d8
 title: "Which runtime should the standalone Weigh-In CLI use, now that redkiln-rs is its eventual home?"
-status: accepted; Cowork half amended by D-0002
+status: accepted; Cowork half amended by D-0002; destination (redkiln-rs) superseded by B-36
 date: 2026-09-27
 decision: "A - Rust crate and CLI on redkiln-rs's toolchain"
 door: two-way

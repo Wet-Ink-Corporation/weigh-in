@@ -1048,3 +1048,16 @@ Trade-off: the description is now listed in every session's skill list, and Clau
 sitting unasked. Rejected: a second, Claude-startable skill beside a user-only `/weigh-in`, which
 keeps Claude Code unchanged at the same listing cost and with two skills to keep in step.
 
+## B-36
+
+**Weigh-In moves into the `redkiln` monorepo, not redkiln-rs.** 2026-11-01 · records Ryan's suite
+decision of 2026-10-13 (redkiln `references/decisions/README.md`: separately installable plugins
+in one `redkiln` monorepo) · supersedes the redkiln-rs destination of
+[wi-b4c1d8](wi-b4c1d8.md) and [B-22](#b-22).
+
+Weigh-In arrives there as `rk-weigh-in` 2.0 in Move 1 (redkiln `docs/plan/move-1-weigh-in.md`),
+with its store extracted into `redkiln-core` and `atom.rs` into `knowledge-contract`. wi-b4c1d8's
+choice itself, a Rust crate and CLI on the shared 1.98.1 toolchain, still holds; only where the
+code ends up changes. Loop's gates become Weigh-In requests (Blueprint call 7), replacing the
+`decision` item type of slice 3.
+
