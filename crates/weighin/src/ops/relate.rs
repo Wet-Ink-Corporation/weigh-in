@@ -42,7 +42,7 @@ pub(super) fn ack_event(item: &Item, reason: Option<&str>) -> Result<Change> {
             format!("reviewed decision on {}: still holds", item.id),
         ),
         other => bail!(
-            "{} is {}, only defaults are acknowledged",
+            "{} is {}, only defaults and decisions are acknowledged",
             item.id,
             other.as_str()
         ),
@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(
             out,
             [format!(
-                "✗ {} is grounded, only defaults are acknowledged",
+                "✗ {} is grounded, only defaults and decisions are acknowledged",
                 id_of(ONE_WAY)
             )]
         );
