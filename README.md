@@ -1,5 +1,13 @@
 # Weigh-In
 
+> **This repository is archived.** Weigh-In moved into the
+> [`redkiln`](https://github.com/Wet-Ink-Corporation/redkiln) monorepo and ships as `rk-weigh-in`
+> 2.0 (code in `crates/weigh-in/`, plugin in `plugins/weigh-in/`). 1.x (`weigh`, `weigh-mod`) is
+> retired and gets no more updates: uninstall it and install `rk-weigh-in` (and `rk-weigh-in-mod`
+> in Claude Code). 2.0 imports a 1.x ledger and its committed journals once, without changing
+> them. Open issues moved to `redkiln`. History up to 1.2.0 stays here and is also part of
+> `redkiln`'s history.
+
 A decision ledger for agent sessions. Agents mark what they assumed, deferred or could not
 decide; hooks capture those marks and the open questions they write into documents; `/weigh-in`
 filters them hard and settles the ones that need you in one sitting, at the end of the chat
